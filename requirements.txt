@@ -3,6 +3,5 @@ numpy
 pandas
 matplotlib
 scipy
-scikit-learn
-supabase-py
+supabase
 python-dotenv
