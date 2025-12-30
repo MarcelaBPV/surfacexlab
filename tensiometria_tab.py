@@ -2,9 +2,9 @@
 # -*- coding: utf-8 -*-
 
 """
-Aba 3 — Análises Físico-Mecânicas
-Tensiometria óptica, energia livre de superfície (OWRK) e molhabilidade
-CRM científico: Amostra → Ensaio → Parâmetros interfaciais
+Aba 3 — Análises Físico-Mecânicas (Tensiometria Óptica)
+CRM científico:
+Paciente → Amostra → Ensaio → Energia superficial → Banco
 """
 
 # =========================================================
@@ -14,15 +14,15 @@ import streamlit as st
 import pandas as pd
 from typing import Dict
 from datetime import datetime
-from io import StringIO
 
-from tensiometria import process_contact_angle  # seu módulo de cálculo
+from tensiometria_processing import process_tensiometry
 
 # =========================================================
 # SUPABASE HELPERS
 # =========================================================
-def create_sample(supabase, name: str, description: str = ""):
+def create_sample(supabase, patient_id: str, name: str, description: str = ""):
     res = supabase.table("samples").insert({
+        "patient_id": patient_id,
         "name": name,
         "description": description,
         "created_at": datetime.utcnow().isoformat()
@@ -40,140 +40,134 @@ def create_measurement(supabase, sample_id: str, raw_meta: Dict):
     return res.data[0]
 
 
-def save_physical_mechanical_results(supabase, measurement_id: str, result: Dict):
-    supabase.table("results_physical_mechanical").insert({
-        "measurement_id": measurement_id,
-        "contact_angle_avg": float(result["theta_mean"]),
-        "contact_angle_sd": float(result["theta_std"]),
-        "surface_energy_total": float(result["surface_energy_total"]),
-        "surface_energy_components": result["surface_energy_components"],
-        "fit_r2": float(result["r2"]),
-        "fit_errors": result["fit_errors"],
-        "classification": result["classification"],
-        "created_at": datetime.utcnow().isoformat()
-    }).execute()
-
 # =========================================================
 # RENDER DA ABA
 # =========================================================
 def render_tensiometria_tab(supabase, helpers):
 
-    st.subheader("🧪 Análises Físico-Mecânicas — Tensiometria Óptica")
+    st.subheader("Análises Físico-Mecânicas — Tensiometria Óptica")
 
     st.markdown(
         """
-Envie um arquivo de **ângulo de contato** (TXT ou CSV) contendo colunas equivalentes a:
+Esta aba realiza a **análise físico-mecânica de superfícies** por meio de
+**medições do ângulo de contato**, permitindo o cálculo da:
 
-`Time` | `Theta(L)` | `Theta(R)` | `Mean`
+- Energia livre de superfície total  
+- Componentes **dispersiva** e **polar** (OWRK)  
+- Classificação de **molhabilidade**  
 
-O sistema irá:
-- Ajustar a evolução temporal do ângulo de contato
-- Calcular parâmetros estatísticos
-- Aplicar o modelo **Owens–Wendt–Rabel–Kaelble (OWRK)**
-- Classificar a superfície quanto à **molhabilidade**
-        """
+⚠️ Uso científico — **não diagnóstico**.
+"""
     )
+
+    # =====================================================
+    # SESSION STATE
+    # =====================================================
+    if "tensio_results" not in st.session_state:
+        st.session_state.tensio_results = None
 
     # =====================================================
     # BLOCO 1 — AMOSTRA (CRM)
     # =====================================================
-    st.markdown("### 🧪 Amostra")
+    st.markdown("### Amostras")
 
     sample_name = st.text_input("Identificação da amostra / superfície")
     description = st.text_area("Material, tratamento superficial ou observações")
 
     # =====================================================
-    # BLOCO 2 — PARÂMETROS DO AJUSTE
+    # BLOCO 2 — CONFIGURAÇÃO EXPERIMENTAL
     # =====================================================
-    st.markdown("### ⚙️ Parâmetros do ajuste")
+    st.markdown("### Configuração experimental")
 
-    fit_order = st.number_input(
-        "Ordem do polinômio para ajuste temporal",
-        min_value=1,
-        max_value=6,
-        value=3
+    liquid_name = st.selectbox(
+        "Líquido padrão utilizado",
+        ["water", "diiodomethane", "formamide"],
+        index=0,
+        help="Necessário para o cálculo OWRK",
     )
 
     # =====================================================
-    # BLOCO 3 — UPLOAD DOS DADOS
+    # BLOCO 3 — UPLOAD DO LOG
     # =====================================================
-    st.markdown("### 📤 Upload do log de ângulo de contato")
+    st.markdown("### Upload do arquivo do goniômetro")
 
     uploaded = st.file_uploader(
-        "Arquivo de tensiometria (txt ou csv)",
-        type=["txt", "csv"]
+        "Arquivo de tensiometria (.LOG, .TXT ou .CSV)",
+        type=["log", "txt", "csv"],
     )
 
     if uploaded is None:
-        st.info("Envie um arquivo de tensiometria para iniciar a análise.")
+        st.info("Envie um arquivo do goniômetro para iniciar a análise.")
         return
 
     # =====================================================
     # BLOCO 4 — PROCESSAMENTO
     # =====================================================
     try:
-        content = uploaded.read().decode("utf-8", errors="ignore")
-        sio = StringIO(content)
-
-        result = process_contact_angle(
-            sio,
-            fit_order=fit_order
+        results = process_tensiometry(
+            file_like=uploaded,
+            liquid_name=liquid_name,
         )
+        st.session_state.tensio_results = results
+        st.success("Dados processados com sucesso.")
 
     except Exception as e:
         st.error(f"Erro ao processar o arquivo: {e}")
         return
 
-    df = result["df"]
-    fig = result["figure"]
-
-    theta_mean = result["theta_mean"]
-    theta_std = result["theta_std"]
-    surface_energy_total = result["surface_energy_total"]
-    surface_energy_components = result["surface_energy_components"]
-    r2 = result["r2"]
-    fit_errors = result["fit_errors"]
-    classification = result["classification"]
-
     # =====================================================
     # BLOCO 5 — KPIs
     # =====================================================
+    stats = results["statistics"]
+    owkr = results["owrk"]
+
     st.markdown("### 📊 Indicadores principais")
 
     k1, k2, k3, k4 = st.columns(4)
-    k1.metric("Ângulo médio (°)", f"{theta_mean:.2f}")
-    k2.metric("Desvio padrão (°)", f"{theta_std:.2f}")
-    k3.metric("Energia superficial (mJ/m²)", f"{surface_energy_total:.2f}")
-    k4.metric("Classificação", classification)
+    k1.metric("Ângulo médio (°)", f"{stats['theta_mean_deg']:.2f}")
+    k2.metric("Desvio padrão (°)", f"{stats['theta_std_deg']:.2f}")
+    k3.metric("Energia superficial (mJ/m²)", f"{owkr['gamma_s_total']:.2f}")
+    k4.metric("Molhabilidade", results["wettability"])
 
     # =====================================================
     # BLOCO 6 — VISUALIZAÇÃO
     # =====================================================
-    st.markdown("### 📈 Ajuste temporal do ângulo de contato")
-    st.pyplot(fig)
+    st.markdown("### 📈 Evolução temporal do ângulo de contato")
+    st.pyplot(results["figure"])
 
-    st.markdown("### 📋 Dados experimentais")
-    helpers["show_aggrid"](df, height=260)
+    st.markdown("### 📋 Dados experimentais tratados")
+    helpers["show_aggrid"](results["df_clean"], height=260)
 
-    if st.button("🔍 Abrir tabela no painel lateral"):
-        helpers["open_side"](df, "Dados de Tensiometria")
-
-    st.download_button(
-        "⬇️ Exportar dados (CSV)",
-        df.to_csv(index=False).encode("utf-8"),
-        file_name=f"{sample_name}_tensiometria.csv",
-        mime="text/csv",
-    )
+    if st.button("🔍 Abrir dados no painel lateral"):
+        helpers["open_side"](results["df_clean"], "Dados de Tensiometria")
 
     # =====================================================
-    # BLOCO 7 — SALVAR NO SUPABASE
+    # BLOCO 7 — RESULTADOS OWRK
+    # =====================================================
+    st.markdown("### Energia livre de superfície (OWRK)")
+
+    df_energy = pd.DataFrame([{
+        "Energia total (mJ/m²)": owkr["gamma_s_total"],
+        "Componente dispersiva (mJ/m²)": owkr["gamma_s_d"],
+        "Componente polar (mJ/m²)": owkr["gamma_s_p"],
+        "Fração polar": owkr["polar_fraction"],
+        "R² do ajuste": owkr["R2"],
+    }])
+
+    helpers["show_aggrid"](df_energy, height=140)
+
+    # =====================================================
+    # BLOCO 8 — SALVAR NO SUPABASE
     # =====================================================
     if supabase and st.button("💾 Salvar ensaio físico-mecânico"):
         try:
+            patient_id = st.session_state.get("selected_patient", {}).get("id")
+
             sample = create_sample(
                 supabase,
+                patient_id=patient_id,
                 name=sample_name,
-                description=description
+                description=description,
             )
 
             meas = create_measurement(
@@ -181,23 +175,16 @@ O sistema irá:
                 sample_id=sample["id"],
                 raw_meta={
                     "filename": uploaded.name,
-                    "fit_order": fit_order
+                    "liquid": liquid_name,
                 }
             )
 
-            save_physical_mechanical_results(
-                supabase,
-                meas["id"],
-                {
-                    "theta_mean": theta_mean,
-                    "theta_std": theta_std,
-                    "surface_energy_total": surface_energy_total,
-                    "surface_energy_components": surface_energy_components,
-                    "r2": r2,
-                    "fit_errors": fit_errors,
-                    "classification": classification
-                }
-            )
+            supabase.table("results_physical_mechanical").insert({
+                "measurement_id": meas["id"],
+                "contact_angle_stats": stats,
+                "surface_energy": owkr,
+                "wettability": results["wettability"],
+            }).execute()
 
             st.success("Ensaio físico-mecânico salvo com sucesso.")
 
