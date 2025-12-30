@@ -12,20 +12,18 @@ Paciente → Amostra → Espectro → Features → Banco
 # =========================================================
 import streamlit as st
 import pandas as pd
-import numpy as np
 import matplotlib.pyplot as plt
-from typing import Dict, List, Optional
+from typing import Dict, List
 from datetime import datetime
 
 from raman_processing import process_raman_pipeline
+from raman_features import extract_raman_features
 
 # =========================================================
 # SUPABASE HELPERS
 # =========================================================
 def safe_insert(supabase, table: str, records: List[Dict]):
-    if not supabase:
-        return []
-    if not records:
+    if not supabase or not records:
         return []
     batch = 500
     out = []
@@ -43,8 +41,6 @@ def get_patients(supabase):
 
 
 def create_patient(supabase, data: Dict):
-    if not supabase:
-        return None
     res = supabase.table("patients").insert(data).execute()
     return res.data[0]
 
@@ -68,36 +64,27 @@ def create_measurement(supabase, sample_id: str, raw_meta: Dict):
     return res.data[0]
 
 
-def save_raman_results(supabase, measurement_id: str, results: Dict):
-    supabase.table("results_molecular").insert({
-        "measurement_id": measurement_id,
-        "peak_positions": results["peaks"],
-        "intensities": results["intensities"],
-        "fwhm": results["fwhm"],
-        "molecular_groups": results["groups"],
-        "created_at": datetime.utcnow().isoformat()
-    }).execute()
-
-
 # =========================================================
 # RENDER DA ABA
 # =========================================================
 def render_raman_tab(supabase, helpers):
 
-    st.subheader("🧬 Análises Moleculares — Espectroscopia Raman")
+    st.subheader("Análises Moleculares — Espectroscopia Raman")
 
     # =====================================================
-    # SESSION STATE LOCAL
+    # SESSION STATE
     # =====================================================
     if "raman_results" not in st.session_state:
         st.session_state.raman_results = None
+    if "raman_features" not in st.session_state:
+        st.session_state.raman_features = None
     if "selected_patient" not in st.session_state:
         st.session_state.selected_patient = None
 
     # =====================================================
-    # BLOCO 1 — PACIENTES (CRM)
+    # BLOCO 1 — PACIENTES
     # =====================================================
-    st.markdown("### 👤 Pacientes")
+    st.markdown("### Pacientes")
 
     patients = get_patients(supabase) if supabase else []
     patient_names = ["— Novo paciente —"] + [
@@ -135,17 +122,14 @@ def render_raman_tab(supabase, helpers):
     # =====================================================
     # BLOCO 2 — PARÂMETROS RAMAN
     # =====================================================
-    st.markdown("### ⚙️ Parâmetros Raman")
+    st.markdown("### Parâmetros Raman")
 
     with st.expander("Configuração do processamento", expanded=True):
-        fit_model = st.selectbox("Modelo de ajuste", [None, "gauss", "lorentz", "voigt"])
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            peak_height = st.slider("Altura mínima", 0.0, 1.0, 0.03, 0.01)
-        with col2:
-            peak_prominence = st.slider("Proeminência", 0.0, 1.0, 0.03, 0.01)
-        with col3:
-            peak_distance = st.slider("Distância mínima", 1, 500, 5)
+        sg_window = st.slider("Janela Savitzky–Golay", 5, 31, 11, 2)
+        sg_poly = st.slider("Ordem do polinômio", 2, 5, 3)
+        asls_lambda = st.number_input("ASLS λ", value=1e5, format="%.1e")
+        asls_p = st.slider("ASLS p", 0.001, 0.1, 0.01, 0.005)
+        peak_prominence = st.slider("Proeminência mínima", 0.005, 0.2, 0.02, 0.005)
 
     # =====================================================
     # BLOCO 3 — UPLOAD & PROCESSAMENTO
@@ -161,37 +145,79 @@ def render_raman_tab(supabase, helpers):
         if spectrum_file is None:
             st.warning("Faça upload do espectro.")
         else:
-            results = process_raman_pipeline(
+            spectrum_df, peaks_df, fig = process_raman_pipeline(
                 spectrum_file,
-                peak_height=peak_height,
-                peak_prominence=peak_prominence,
-                peak_distance=peak_distance,
-                fit_model=fit_model
+                sg_window=sg_window,
+                sg_poly=sg_poly,
+                asls_lambda=asls_lambda,
+                asls_p=asls_p,
+                peak_prominence=peak_prominence
             )
-            st.session_state.raman_results = results
-            st.success("Espectro processado com sucesso.")
+
+            features = extract_raman_features(
+                spectrum_df=spectrum_df,
+                peaks_df=peaks_df
+            )
+
+            st.session_state.raman_results = {
+                "spectrum_df": spectrum_df,
+                "peaks_df": peaks_df,
+                "fig": fig
+            }
+            st.session_state.raman_features = features
+
+            st.success("Espectro processado e features extraídas com sucesso.")
 
     # =====================================================
     # BLOCO 4 — VISUALIZAÇÃO
     # =====================================================
     if st.session_state.raman_results:
-        data = st.session_state.raman_results
 
-        st.markdown("### 📈 Espectro processado")
+        spectrum_df = st.session_state.raman_results["spectrum_df"]
+        peaks_df = st.session_state.raman_results["peaks_df"]
+        fig = st.session_state.raman_results["fig"]
+        features = st.session_state.raman_features
 
-        fig, ax = plt.subplots(figsize=(10, 4))
-        ax.plot(data["x_proc"], data["y_proc"], lw=1.4)
-        ax.set_xlabel("Raman shift (cm⁻¹)")
-        ax.set_ylabel("Intensidade normalizada (u.a.)")
+        st.markdown("### 📈 Espectro Raman processado")
         st.pyplot(fig)
 
-        st.markdown("### 📊 Features Raman (ML-ready)")
+        # -----------------------------
+        st.markdown("### Grupos moleculares identificados")
+        df_groups = features["peaks_annotated"][
+            ["peak_cm1", "molecular_group", "intensity_norm", "fwhm"]
+        ].dropna(subset=["molecular_group"])
 
-        df_feat = pd.DataFrame([data["features"]])
-        helpers["show_aggrid"](df_feat, height=180)
+        helpers["show_aggrid"](df_groups, height=220)
 
-        if st.button("🔍 Abrir detalhes"):
-            helpers["open_side"](df_feat, "Features Raman")
+        # -----------------------------
+        st.markdown("### Áreas integradas por grupo molecular")
+        df_areas = pd.DataFrame.from_dict(
+            features["group_areas"], orient="index", columns=["Área integrada"]
+        ).reset_index().rename(columns={"index": "Grupo molecular"})
+
+        helpers["show_aggrid"](df_areas, height=200)
+
+        # -----------------------------
+        st.markdown("### Razões espectrais")
+        df_ratios = pd.DataFrame.from_dict(
+            features["peak_ratios"], orient="index", columns=["Razão"]
+        ).reset_index().rename(columns={"index": "Razão espectral"})
+
+        helpers["show_aggrid"](df_ratios, height=180)
+
+        # -----------------------------
+        st.markdown("### Fingerprint molecular (ML-ready)")
+        df_fp = pd.DataFrame([features["fingerprint"]])
+        helpers["show_aggrid"](df_fp, height=160)
+
+        if st.button("Abrir fingerprint no painel lateral"):
+            helpers["open_side"](df_fp, "Fingerprint Raman")
+
+        # -----------------------------
+        if features["exploratory_rules"]:
+            st.markdown("### ⚠️ Inferências exploratórias (não diagnósticas)")
+            for rule in features["exploratory_rules"]:
+                st.info(f"**{rule['rule']}** — {rule['description']}")
 
         # =================================================
         # BLOCO 5 — SALVAR NO BANCO
@@ -212,6 +238,19 @@ def render_raman_tab(supabase, helpers):
                     raw_meta={"filename": spectrum_file.name}
                 )
 
-                save_raman_results(supabase, meas["id"], data)
+                # resultados espectrais
+                supabase.table("results_molecular").insert({
+                    "measurement_id": meas["id"],
+                    "peaks": peaks_df.to_dict(orient="records"),
+                }).execute()
+
+                # features moleculares
+                supabase.table("results_molecular_features").insert({
+                    "measurement_id": meas["id"],
+                    "group_areas": features["group_areas"],
+                    "peak_ratios": features["peak_ratios"],
+                    "fingerprint": features["fingerprint"],
+                    "exploratory_rules": features["exploratory_rules"],
+                }).execute()
 
                 st.success("Ensaio Raman salvo com sucesso.")
