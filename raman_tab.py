@@ -5,18 +5,19 @@ import streamlit as st
 import pandas as pd
 from datetime import date
 
+# IMPORT DIRETO DO PIPELINE RAMAN
 from raman_processing import process_raman_file
 
 
 # =========================================================
-# HELPERS – BANCO
+# HELPERS – BANCO DE DADOS
 # =========================================================
 
 def get_samples(supabase):
     res = (
         supabase
         .table("samples")
-        .select("*")
+        .select("id, sample_code")
         .order("created_at", desc=True)
         .execute()
     )
@@ -24,15 +25,15 @@ def get_samples(supabase):
 
 
 def create_experiment(supabase, sample_id, operator, equipment, notes):
-    data = {
+    res = supabase.table("experiments").insert({
         "sample_id": sample_id,
         "experiment_type": "Raman",
         "operator": operator,
         "equipment": equipment,
         "notes": notes,
         "experiment_date": str(date.today())
-    }
-    res = supabase.table("experiments").insert(data).execute()
+    }).execute()
+
     return res.data[0]["id"]
 
 
@@ -46,7 +47,7 @@ def create_raman_measurement(
     normalization_method,
     r2_fit
 ):
-    data = {
+    res = supabase.table("raman_measurements").insert({
         "experiment_id": experiment_id,
         "laser_wavelength_nm": laser_wavelength_nm,
         "laser_power_mw": laser_power_mw,
@@ -54,13 +55,13 @@ def create_raman_measurement(
         "baseline_method": baseline_method,
         "normalization_method": normalization_method,
         "r2_fit": r2_fit
-    }
-    res = supabase.table("raman_measurements").insert(data).execute()
+    }).execute()
+
     return res.data[0]["id"]
 
 
 def insert_raman_peaks(supabase, raman_measurement_id, peaks_df):
-    if peaks_df.empty:
+    if peaks_df is None or peaks_df.empty:
         return
 
     records = []
@@ -69,17 +70,19 @@ def insert_raman_peaks(supabase, raman_measurement_id, peaks_df):
             "raman_measurement_id": raman_measurement_id,
             "peak_position_cm": float(row["position"]),
             "peak_intensity": float(row["intensity"]),
-            "peak_fwhm": float(row.get("fwhm", 0)),
+            "peak_fwhm": float(row.get("fwhm", 0.0)),
             "molecular_group": row.get("group", None)
         })
 
-    supabase.table("raman_peaks").insert(records).execute()
+    if records:
+        supabase.table("raman_peaks").insert(records).execute()
+
 
 # =========================================================
-# UI – RAMAN TAB
+# UI – ABA RAMAN
 # =========================================================
 
-def render_raman_tab(supabase, helpers):
+def render_raman_tab(supabase):
     st.header("🔬 Análises Moleculares — Espectroscopia Raman")
 
     # -----------------------------------------------------
@@ -92,10 +95,7 @@ def render_raman_tab(supabase, helpers):
         return
 
     sample_map = {s["sample_code"]: s["id"] for s in samples}
-    sample_code = st.selectbox(
-        "Amostra",
-        options=list(sample_map.keys())
-    )
+    sample_code = st.selectbox("Amostra", list(sample_map.keys()))
     sample_id = sample_map[sample_code]
 
     # -----------------------------------------------------
@@ -105,7 +105,7 @@ def render_raman_tab(supabase, helpers):
 
     col1, col2 = st.columns(2)
     with col1:
-        operator = st.text_input("Operador", "")
+        operator = st.text_input("Operador")
         equipment = st.text_input("Equipamento", "Raman Spectrometer")
     with col2:
         notes = st.text_area("Observações")
@@ -117,16 +117,23 @@ def render_raman_tab(supabase, helpers):
 
     col3, col4, col5 = st.columns(3)
     with col3:
-        laser_wavelength_nm = st.number_input("Comprimento de onda do laser (nm)", value=785.0)
+        laser_wavelength_nm = st.number_input(
+            "Comprimento de onda do laser (nm)", value=785.0
+        )
     with col4:
-        laser_power_mw = st.number_input("Potência do laser (mW)", value=50.0)
+        laser_power_mw = st.number_input(
+            "Potência do laser (mW)", value=50.0
+        )
     with col5:
-        acquisition_time_s = st.number_input("Tempo de aquisição (s)", value=10.0)
+        acquisition_time_s = st.number_input(
+            "Tempo de aquisição (s)", value=10.0
+        )
 
     baseline_method = st.selectbox(
         "Método de correção de baseline",
         ["ALS", "Polynomial", "None"]
     )
+
     normalization_method = st.selectbox(
         "Método de normalização",
         ["Area", "Max", "None"]
@@ -137,7 +144,7 @@ def render_raman_tab(supabase, helpers):
     # -----------------------------------------------------
     # 4. Upload e processamento Raman
     # -----------------------------------------------------
-    st.subheader("Upload do espectro Raman")
+    st.subheader("Upload do Espectro Raman")
 
     uploaded_file = st.file_uploader(
         "Arquivo (.csv ou .txt)",
@@ -145,6 +152,7 @@ def render_raman_tab(supabase, helpers):
     )
 
     if uploaded_file and st.button("Processar e Salvar"):
+        # PROCESSAMENTO
         df, peaks_df, fig = process_raman_file(uploaded_file)
 
         st.pyplot(fig)
@@ -171,7 +179,11 @@ def render_raman_tab(supabase, helpers):
             r2_fit
         )
 
-        insert_raman_peaks(supabase, raman_measurement_id, peaks_df)
+        insert_raman_peaks(
+            supabase,
+            raman_measurement_id,
+            peaks_df
+        )
 
         st.success("✔ Análise Raman salva com sucesso!")
 
@@ -183,10 +195,10 @@ def render_raman_tab(supabase, helpers):
     history = (
         supabase
         .table("raman_measurements")
-        .select("id, created_at, experiments(sample_id)")
+        .select("id, created_at, experiment_id")
+        .order("created_at", desc=True)
         .execute()
     )
 
     if history.data:
-        hist_df = pd.DataFrame(history.data)
-        st.dataframe(hist_df)
+        st.dataframe(pd.DataFrame(history.data))
