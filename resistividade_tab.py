@@ -2,9 +2,9 @@
 # -*- coding: utf-8 -*-
 
 """
-Aba 2 — Análises Elétricas
-Método de quatro pontas / V × I
-CRM científico: Amostra → Ensaio → Propriedades elétricas
+Aba 2 — Análises Elétricas (Resistividade)
+CRM científico:
+Paciente → Amostra → Ensaio → Propriedades elétricas → Banco
 """
 
 # =========================================================
@@ -12,16 +12,17 @@ CRM científico: Amostra → Ensaio → Propriedades elétricas
 # =========================================================
 import streamlit as st
 import pandas as pd
-from typing import Dict, List
+from typing import Dict
 from datetime import datetime
 
-from resistividade import process_resistivity  # seu módulo de cálculo
+from resistividade_processing import process_resistivity
 
 # =========================================================
 # SUPABASE HELPERS
 # =========================================================
-def create_sample(supabase, name: str, description: str = ""):
+def create_sample(supabase, patient_id: str, name: str, description: str = ""):
     res = supabase.table("samples").insert({
+        "patient_id": patient_id,
         "name": name,
         "description": description,
         "created_at": datetime.utcnow().isoformat()
@@ -39,146 +40,132 @@ def create_measurement(supabase, sample_id: str, raw_meta: Dict):
     return res.data[0]
 
 
-def save_electrical_results(supabase, measurement_id: str, result: Dict):
-    supabase.table("results_electrical").insert({
-        "measurement_id": measurement_id,
-        "resistance": float(result["R"]),
-        "resistivity": float(result["rho"]),
-        "conductivity": float(result["sigma"]),
-        "regression_coefficients": {
-            "R2": float(result["R2"])
-        },
-        "stats": {
-            "class": result["classe"],
-            "mode": result["mode"],
-            "thickness_m": float(result["thickness_m"])
-        },
-        "created_at": datetime.utcnow().isoformat()
-    }).execute()
-
 # =========================================================
 # RENDER DA ABA
 # =========================================================
 def render_resistividade_tab(supabase, helpers):
 
-    st.subheader("⚡ Análises Elétricas — Resistividade (V × I)")
+    st.subheader("⚡ Análises Elétricas — Resistividade (I × V)")
 
     st.markdown(
         """
-Envie um arquivo **CSV** contendo pares de valores de corrente e tensão  
-(colunas equivalentes a `current_a` e `voltage_v`).
+Esta aba realiza a **análise elétrica de materiais** a partir de
+curvas **corrente × tensão**, permitindo a determinação de:
 
-O sistema irá:
-- Ajustar a curva V × I (regressão linear)
-- Calcular **R**, **ρ** e **σ**
-- Avaliar o **R²**
-- Classificar o comportamento elétrico do material
-        """
+- Resistência elétrica (R)  
+- Resistividade elétrica (ρ)  
+- Condutividade elétrica (σ)  
+- Classificação física do material  
+
+📌 Método compatível com **quatro pontas (Smits, 1958)**.
+"""
     )
 
     # =====================================================
-    # BLOCO 1 — DADOS DA AMOSTRA (CRM)
+    # SESSION STATE
+    # =====================================================
+    if "resist_results" not in st.session_state:
+        st.session_state.resist_results = None
+
+    # =====================================================
+    # BLOCO 1 — AMOSTRA (CRM)
     # =====================================================
     st.markdown("### 🧪 Amostra")
 
     sample_name = st.text_input("Identificação da amostra")
-    description = st.text_area("Material / processo / observações")
+    description = st.text_area("Material, processo ou observações")
 
     # =====================================================
-    # BLOCO 2 — PARÂMETROS EXPERIMENTAIS
+    # BLOCO 2 — CONFIGURAÇÃO EXPERIMENTAL
     # =====================================================
-    st.markdown("### ⚙️ Parâmetros experimentais")
+    st.markdown("### ⚙️ Configuração experimental")
 
-    col1, col2 = st.columns(2)
-    with col1:
-        thickness_nm = st.number_input(
-            "Espessura do filme (nm)", min_value=1.0, value=200.0, step=10.0
-        )
-    with col2:
-        mode = st.selectbox("Modelo de cálculo", ["filme", "bulk"], index=0)
+    thickness_nm = st.number_input(
+        "Espessura do filme (nm)",
+        min_value=1.0,
+        value=200.0,
+        step=10.0,
+    )
 
-    thickness_m = thickness_nm * 1e-9
+    geometry = st.selectbox(
+        "Geometria do ensaio",
+        ["four_point_film", "bulk"],
+        index=0,
+        help="Selecione 'four_point_film' para filmes finos.",
+    )
 
     # =====================================================
-    # BLOCO 3 — UPLOAD DOS DADOS
+    # BLOCO 3 — UPLOAD DO ARQUIVO I–V
     # =====================================================
-    st.markdown("### 📤 Upload dos dados V × I")
+    st.markdown("### 📤 Upload do arquivo elétrico")
 
     uploaded = st.file_uploader(
-        "Arquivo CSV (corrente × tensão)",
-        type=["csv"]
+        "Arquivo I × V (.csv ou .txt)",
+        type=["csv", "txt"],
     )
 
     if uploaded is None:
-        st.info("Envie um arquivo CSV para iniciar a análise.")
+        st.info("Envie um arquivo I × V para iniciar a análise.")
         return
 
     # =====================================================
     # BLOCO 4 — PROCESSAMENTO
     # =====================================================
     try:
-        df_preview = pd.read_csv(uploaded)
-        st.markdown("### 🔍 Pré-visualização dos dados")
-        st.dataframe(df_preview.head(), use_container_width=True)
-
-        uploaded.seek(0)
-        result = process_resistivity(
-            uploaded,
-            thickness_m=thickness_m,
-            mode=mode
+        results = process_resistivity(
+            file_like=uploaded,
+            thickness_m=thickness_nm * 1e-9,
+            geometry=geometry,
         )
+        st.session_state.resist_results = results
+        st.success("Dados elétricos processados com sucesso.")
 
     except Exception as e:
-        st.error(f"Erro ao processar os dados: {e}")
+        st.error(f"Erro ao processar o arquivo: {e}")
         return
-
-    df = result["df"]
-    R = result["R"]
-    rho = result["rho"]
-    sigma = result["sigma"]
-    classe = result["classe"]
-    R2 = result["R2"]
-    fig = result["figure"]
 
     # =====================================================
     # BLOCO 5 — KPIs
     # =====================================================
-    st.markdown("### 📊 Indicadores principais")
+    st.markdown("### 📊 Indicadores elétricos")
 
-    k1, k2, k3, k4 = st.columns(4)
-    k1.metric("R (Ω)", f"{R:.3e}")
+    r = results["R_ohm"]
+    rho = results["rho_ohm_m"]
+    sigma = results["sigma_S_m"]
+    classe = results["classe"]
+    R2 = results["fit"]["R2"]
+
+    k1, k2, k3, k4, k5 = st.columns(5)
+    k1.metric("R (Ω)", f"{r:.3e}")
     k2.metric("ρ (Ω·m)", f"{rho:.3e}")
     k3.metric("σ (S/m)", f"{sigma:.3e}")
     k4.metric("R²", f"{R2:.4f}")
+    k5.metric("Classe", classe)
 
     # =====================================================
     # BLOCO 6 — VISUALIZAÇÃO
     # =====================================================
-    st.markdown("### 📈 Curva V × I")
-    st.pyplot(fig)
+    st.markdown("### 📈 Curva Corrente × Tensão")
+    st.pyplot(results["figure"])
 
-    st.markdown("### 📋 Dados completos do ensaio")
-    helpers["show_aggrid"](df, height=260)
+    st.markdown("### 📋 Dados experimentais")
+    helpers["show_aggrid"](results["df"], height=260)
 
-    if st.button("🔍 Abrir tabela no painel lateral"):
-        helpers["open_side"](df, "Dados V × I")
-
-    st.download_button(
-        "⬇️ Exportar dados (CSV)",
-        df.to_csv(index=False).encode("utf-8"),
-        file_name=f"{sample_name}_VxI.csv",
-        mime="text/csv",
-    )
+    if st.button("🔍 Abrir dados no painel lateral"):
+        helpers["open_side"](results["df"], "Dados Elétricos (I × V)")
 
     # =====================================================
     # BLOCO 7 — SALVAR NO SUPABASE
     # =====================================================
     if supabase and st.button("💾 Salvar ensaio elétrico"):
         try:
+            patient_id = st.session_state.get("selected_patient", {}).get("id")
+
             sample = create_sample(
                 supabase,
+                patient_id=patient_id,
                 name=sample_name,
-                description=description
+                description=description,
             )
 
             meas = create_measurement(
@@ -186,23 +173,19 @@ O sistema irá:
                 sample_id=sample["id"],
                 raw_meta={
                     "filename": uploaded.name,
-                    "mode": mode
+                    "geometry": geometry,
+                    "thickness_nm": thickness_nm,
                 }
             )
 
-            save_electrical_results(
-                supabase,
-                meas["id"],
-                {
-                    "R": R,
-                    "rho": rho,
-                    "sigma": sigma,
-                    "R2": R2,
-                    "classe": classe,
-                    "mode": mode,
-                    "thickness_m": thickness_m
-                }
-            )
+            supabase.table("results_electrical").insert({
+                "measurement_id": meas["id"],
+                "resistance_ohm": r,
+                "resistivity_ohm_m": rho,
+                "conductivity_s_m": sigma,
+                "r2": R2,
+                "class_label": classe,
+            }).execute()
 
             st.success("Ensaio elétrico salvo com sucesso.")
 
