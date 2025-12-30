@@ -1,256 +1,191 @@
 # raman_tab.py
 # -*- coding: utf-8 -*-
 
-"""
-Aba 1 — Análises Moleculares (Raman)
-CRM científico:
-Paciente → Amostra → Espectro → Features → Banco
-"""
-
-# =========================================================
-# IMPORTS
-# =========================================================
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
-from typing import Dict, List
-from datetime import datetime
-
-from raman_processing import process_raman_pipeline
-from raman_features import extract_raman_features
+from datetime import date
+import uuid
 
 # =========================================================
-# SUPABASE HELPERS
+# HELPERS – BANCO
 # =========================================================
-def safe_insert(supabase, table: str, records: List[Dict]):
-    if not supabase or not records:
-        return []
-    batch = 500
-    out = []
-    for i in range(0, len(records), batch):
-        res = supabase.table(table).insert(records[i:i+batch]).execute()
-        out.extend(res.data or [])
-    return out
+
+def get_samples(supabase):
+    res = (
+        supabase
+        .table("samples")
+        .select("*")
+        .order("created_at", desc=True)
+        .execute()
+    )
+    return res.data if res.data else []
 
 
-def get_patients(supabase):
-    if not supabase:
-        return []
-    res = supabase.table("patients").select("*").order("created_at").execute()
-    return res.data or []
-
-
-def create_patient(supabase, data: Dict):
-    res = supabase.table("patients").insert(data).execute()
-    return res.data[0]
-
-
-def create_sample(supabase, patient_id: str, name: str):
-    res = supabase.table("samples").insert({
-        "patient_id": patient_id,
-        "name": name,
-        "created_at": datetime.utcnow().isoformat()
-    }).execute()
-    return res.data[0]
-
-
-def create_measurement(supabase, sample_id: str, raw_meta: Dict):
-    res = supabase.table("measurements_raw").insert({
+def create_experiment(supabase, sample_id, operator, equipment, notes):
+    data = {
         "sample_id": sample_id,
-        "module": "molecular",
-        "raw_data": raw_meta,
-        "taken_at": datetime.utcnow().isoformat()
-    }).execute()
-    return res.data[0]
+        "experiment_type": "Raman",
+        "operator": operator,
+        "equipment": equipment,
+        "notes": notes,
+        "experiment_date": str(date.today())
+    }
+    res = supabase.table("experiments").insert(data).execute()
+    return res.data[0]["id"]
 
 
+def create_raman_measurement(
+    supabase,
+    experiment_id,
+    laser_wavelength_nm,
+    laser_power_mw,
+    acquisition_time_s,
+    baseline_method,
+    normalization_method,
+    r2_fit
+):
+    data = {
+        "experiment_id": experiment_id,
+        "laser_wavelength_nm": laser_wavelength_nm,
+        "laser_power_mw": laser_power_mw,
+        "acquisition_time_s": acquisition_time_s,
+        "baseline_method": baseline_method,
+        "normalization_method": normalization_method,
+        "r2_fit": r2_fit
+    }
+    res = supabase.table("raman_measurements").insert(data).execute()
+    return res.data[0]["id"]
+
+
+def insert_raman_peaks(supabase, raman_measurement_id, peaks_df):
+    if peaks_df.empty:
+        return
+
+    records = []
+    for _, row in peaks_df.iterrows():
+        records.append({
+            "raman_measurement_id": raman_measurement_id,
+            "peak_position_cm": float(row["position"]),
+            "peak_intensity": float(row["intensity"]),
+            "peak_fwhm": float(row.get("fwhm", 0)),
+            "molecular_group": row.get("group", None)
+        })
+
+    supabase.table("raman_peaks").insert(records).execute()
+
 # =========================================================
-# RENDER DA ABA
+# UI – RAMAN TAB
 # =========================================================
+
 def render_raman_tab(supabase, helpers):
+    st.header("🔬 Análises Moleculares — Espectroscopia Raman")
 
-    st.subheader("Análises Moleculares — Espectroscopia Raman")
+    # -----------------------------------------------------
+    # 1. Seleção da amostra
+    # -----------------------------------------------------
+    samples = get_samples(supabase)
 
-    # =====================================================
-    # SESSION STATE
-    # =====================================================
-    if "raman_results" not in st.session_state:
-        st.session_state.raman_results = None
-    if "raman_features" not in st.session_state:
-        st.session_state.raman_features = None
-    if "selected_patient" not in st.session_state:
-        st.session_state.selected_patient = None
+    if not samples:
+        st.warning("Nenhuma amostra cadastrada.")
+        return
 
-    # =====================================================
-    # BLOCO 1 — PACIENTES
-    # =====================================================
-    st.markdown("### Pacientes")
+    sample_map = {s["sample_code"]: s["id"] for s in samples}
+    sample_code = st.selectbox(
+        "Amostra",
+        options=list(sample_map.keys())
+    )
+    sample_id = sample_map[sample_code]
 
-    patients = get_patients(supabase) if supabase else []
-    patient_names = ["— Novo paciente —"] + [
-        f'{p["name"]} ({p.get("email","")})' for p in patients
-    ]
+    # -----------------------------------------------------
+    # 2. Metadados do experimento
+    # -----------------------------------------------------
+    st.subheader("Metadados do Experimento")
 
-    selected = st.selectbox("Selecionar paciente", patient_names)
+    col1, col2 = st.columns(2)
+    with col1:
+        operator = st.text_input("Operador", "")
+        equipment = st.text_input("Equipamento", "Raman Spectrometer")
+    with col2:
+        notes = st.text_area("Observações")
 
-    if selected == "— Novo paciente —":
-        with st.expander("Cadastrar novo paciente", expanded=True):
-            name = st.text_input("Nome")
-            email = st.text_input("E-mail")
-            genero = st.selectbox("Gênero", ["F", "M", "Outro"])
-            fumante = st.selectbox("Fumante", ["não", "sim"])
-            doenca = st.text_input("Doença declarada", value="controle")
+    # -----------------------------------------------------
+    # 3. Parâmetros Raman
+    # -----------------------------------------------------
+    st.subheader("Parâmetros de Aquisição")
 
-            if st.button("➕ Cadastrar paciente"):
-                if supabase:
-                    patient = create_patient(supabase, {
-                        "name": name,
-                        "email": email,
-                        "genero": genero,
-                        "fumante": fumante,
-                        "doenca": doenca,
-                        "created_at": datetime.utcnow().isoformat()
-                    })
-                    st.session_state.selected_patient = patient
-                    st.success("Paciente cadastrado.")
-                else:
-                    st.warning("Supabase não configurado.")
-    else:
-        idx = patient_names.index(selected) - 1
-        st.session_state.selected_patient = patients[idx]
+    col3, col4, col5 = st.columns(3)
+    with col3:
+        laser_wavelength_nm = st.number_input("Comprimento de onda do laser (nm)", value=785.0)
+    with col4:
+        laser_power_mw = st.number_input("Potência do laser (mW)", value=50.0)
+    with col5:
+        acquisition_time_s = st.number_input("Tempo de aquisição (s)", value=10.0)
 
-    # =====================================================
-    # BLOCO 2 — PARÂMETROS RAMAN
-    # =====================================================
-    st.markdown("### Parâmetros Raman")
-
-    with st.expander("Configuração do processamento", expanded=True):
-        sg_window = st.slider("Janela Savitzky–Golay", 5, 31, 11, 2)
-        sg_poly = st.slider("Ordem do polinômio", 2, 5, 3)
-        asls_lambda = st.number_input("ASLS λ", value=1e5, format="%.1e")
-        asls_p = st.slider("ASLS p", 0.001, 0.1, 0.01, 0.005)
-        peak_prominence = st.slider("Proeminência mínima", 0.005, 0.2, 0.02, 0.005)
-
-    # =====================================================
-    # BLOCO 3 — UPLOAD & PROCESSAMENTO
-    # =====================================================
-    st.markdown("### 📤 Upload do espectro Raman")
-
-    spectrum_file = st.file_uploader(
-        "Arquivo Raman (.txt, .csv, .xlsx)",
-        type=["txt", "csv", "xls", "xlsx"]
+    baseline_method = st.selectbox(
+        "Método de correção de baseline",
+        ["ALS", "Polynomial", "None"]
+    )
+    normalization_method = st.selectbox(
+        "Método de normalização",
+        ["Area", "Max", "None"]
     )
 
-    if st.button("▶ Processar espectro"):
-        if spectrum_file is None:
-            st.warning("Faça upload do espectro.")
-        else:
-            spectrum_df, peaks_df, fig = process_raman_pipeline(
-                spectrum_file,
-                sg_window=sg_window,
-                sg_poly=sg_poly,
-                asls_lambda=asls_lambda,
-                asls_p=asls_p,
-                peak_prominence=peak_prominence
-            )
+    r2_fit = st.number_input("R² do ajuste (opcional)", value=0.0)
 
-            features = extract_raman_features(
-                spectrum_df=spectrum_df,
-                peaks_df=peaks_df
-            )
+    # -----------------------------------------------------
+    # 4. Upload e processamento Raman
+    # -----------------------------------------------------
+    st.subheader("Upload do espectro Raman")
 
-            st.session_state.raman_results = {
-                "spectrum_df": spectrum_df,
-                "peaks_df": peaks_df,
-                "fig": fig
-            }
-            st.session_state.raman_features = features
+    uploaded_file = st.file_uploader(
+        "Arquivo (.csv ou .txt)",
+        type=["csv", "txt"]
+    )
 
-            st.success("Espectro processado e features extraídas com sucesso.")
+    if uploaded_file and st.button("Processar e Salvar"):
+        df, peaks_df, fig = helpers.process_raman_file(uploaded_file)
 
-    # =====================================================
-    # BLOCO 4 — VISUALIZAÇÃO
-    # =====================================================
-    if st.session_state.raman_results:
-
-        spectrum_df = st.session_state.raman_results["spectrum_df"]
-        peaks_df = st.session_state.raman_results["peaks_df"]
-        fig = st.session_state.raman_results["fig"]
-        features = st.session_state.raman_features
-
-        st.markdown("### 📈 Espectro Raman processado")
         st.pyplot(fig)
 
-        # -----------------------------
-        st.markdown("### Grupos moleculares identificados")
-        df_groups = features["peaks_annotated"][
-            ["peak_cm1", "molecular_group", "intensity_norm", "fwhm"]
-        ].dropna(subset=["molecular_group"])
+        # -------------------------------------------------
+        # 5. Salvar no banco
+        # -------------------------------------------------
+        experiment_id = create_experiment(
+            supabase,
+            sample_id,
+            operator,
+            equipment,
+            notes
+        )
 
-        helpers["show_aggrid"](df_groups, height=220)
+        raman_measurement_id = create_raman_measurement(
+            supabase,
+            experiment_id,
+            laser_wavelength_nm,
+            laser_power_mw,
+            acquisition_time_s,
+            baseline_method,
+            normalization_method,
+            r2_fit
+        )
 
-        # -----------------------------
-        st.markdown("### Áreas integradas por grupo molecular")
-        df_areas = pd.DataFrame.from_dict(
-            features["group_areas"], orient="index", columns=["Área integrada"]
-        ).reset_index().rename(columns={"index": "Grupo molecular"})
+        insert_raman_peaks(supabase, raman_measurement_id, peaks_df)
 
-        helpers["show_aggrid"](df_areas, height=200)
+        st.success("✔ Análise Raman salva com sucesso!")
 
-        # -----------------------------
-        st.markdown("### Razões espectrais")
-        df_ratios = pd.DataFrame.from_dict(
-            features["peak_ratios"], orient="index", columns=["Razão"]
-        ).reset_index().rename(columns={"index": "Razão espectral"})
+    # -----------------------------------------------------
+    # 6. Histórico
+    # -----------------------------------------------------
+    st.subheader("Histórico de Análises Raman")
 
-        helpers["show_aggrid"](df_ratios, height=180)
+    history = (
+        supabase
+        .table("raman_measurements")
+        .select("id, created_at, experiments(sample_id)")
+        .execute()
+    )
 
-        # -----------------------------
-        st.markdown("### Fingerprint molecular (ML-ready)")
-        df_fp = pd.DataFrame([features["fingerprint"]])
-        helpers["show_aggrid"](df_fp, height=160)
-
-        if st.button("Abrir fingerprint no painel lateral"):
-            helpers["open_side"](df_fp, "Fingerprint Raman")
-
-        # -----------------------------
-        if features["exploratory_rules"]:
-            st.markdown("### ⚠️ Inferências exploratórias (não diagnósticas)")
-            for rule in features["exploratory_rules"]:
-                st.info(f"**{rule['rule']}** — {rule['description']}")
-
-        # =================================================
-        # BLOCO 5 — SALVAR NO BANCO
-        # =================================================
-        if supabase and st.session_state.selected_patient:
-            if st.button("💾 Salvar ensaio Raman"):
-                patient_id = st.session_state.selected_patient["id"]
-
-                sample = create_sample(
-                    supabase,
-                    patient_id,
-                    name=f"Raman {datetime.now().strftime('%Y-%m-%d %H:%M')}"
-                )
-
-                meas = create_measurement(
-                    supabase,
-                    sample["id"],
-                    raw_meta={"filename": spectrum_file.name}
-                )
-
-                # resultados espectrais
-                supabase.table("results_molecular").insert({
-                    "measurement_id": meas["id"],
-                    "peaks": peaks_df.to_dict(orient="records"),
-                }).execute()
-
-                # features moleculares
-                supabase.table("results_molecular_features").insert({
-                    "measurement_id": meas["id"],
-                    "group_areas": features["group_areas"],
-                    "peak_ratios": features["peak_ratios"],
-                    "fingerprint": features["fingerprint"],
-                    "exploratory_rules": features["exploratory_rules"],
-                }).execute()
-
-                st.success("Ensaio Raman salvo com sucesso.")
+    if history.data:
+        hist_df = pd.DataFrame(history.data)
+        st.dataframe(hist_df)
