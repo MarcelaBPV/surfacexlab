@@ -2,10 +2,10 @@
 
 Plataforma genérica para **análise de superfície de materiais**, integrada com Streamlit e Supabase.
 
-1 Análise Molecular
-1 Análise Elétrica
-1 Análise Físico-Mecânica
-1 Otimização (ML)
+*1 Análise Molecular
+*2 Análise Elétrica
+*3 Análise Físico-Mecânica
+*4 Otimização (ML)
 
 Este código e a concepção da plataforma SurfaceXLab são de propriedade de:
 
