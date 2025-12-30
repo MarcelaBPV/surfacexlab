@@ -4,6 +4,15 @@
 """
 SurfaceXLab
 Plataforma integrada para caracterização e otimização de superfícies
+
+Módulos:
+- Raman (molecular)
+- Resistividade elétrica
+- Tensiometria / Físico-mecânica
+- Otimizador (Machine Learning)
+
+Frontend: Streamlit
+Backend: Supabase (PostgreSQL)
 """
 
 import streamlit as st
@@ -18,36 +27,34 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("**SurfaceXLab — Plataforma Integrada**")
+st.title("*SurfaceXLab — Plataforma Integrada*")
 
 # =========================================================
 # CONEXÃO COM SUPABASE
 # =========================================================
-
 @st.cache_resource
-def init_supabase():
+def init_supabase() -> Client:
     url = st.secrets["SUPABASE_URL"]
     key = st.secrets["SUPABASE_ANON_KEY"]
     return create_client(url, key)
 
-supabase: Client = init_supabase()
+supabase = init_supabase()
 
 # =========================================================
-# IMPORTAÇÃO DOS MÓDULOS
+# IMPORTAÇÃO DOS MÓDULOS (NOMES REAIS DO REPO)
 # =========================================================
 from raman_tab import render_raman_tab
-from electrical_tab import render_electrical_tab
-from physical_tab import render_physical_tab
-from optimizer_tab import render_optimizer_tab
-import helpers
+from resistividade_tab import render_resistividade_tab
+from tensiometria_tab import render_tensiometria_tab
+from ml_tab import render_ml_tab
 
 # =========================================================
-# SIDEBAR — CADASTRO DE AMOSTRAS
+# SIDEBAR — CADASTRO DE AMOSTRAS (NÚCLEO DO SISTEMA)
 # =========================================================
 with st.sidebar:
     st.header("📦 Cadastro de Amostras")
 
-    sample_code = st.text_input("Código da Amostra")
+    sample_code = st.text_input("Código da Amostra *")
     material_type = st.text_input("Tipo de Material")
     substrate = st.text_input("Substrato")
     surface_treatment = st.text_input("Tratamento de Superfície")
@@ -55,7 +62,7 @@ with st.sidebar:
 
     if st.button("Salvar Amostra"):
         if not sample_code:
-            st.warning("Código da amostra é obrigatório.")
+            st.warning("O código da amostra é obrigatório.")
         else:
             data = {
                 "sample_code": sample_code,
@@ -64,8 +71,13 @@ with st.sidebar:
                 "surface_treatment": surface_treatment,
                 "description": description
             }
-            supabase.table("samples").insert(data).execute()
-            st.success("✔ Amostra cadastrada com sucesso!")
+
+            res = supabase.table("samples").insert(data).execute()
+
+            if res.data:
+                st.success("✔ Amostra cadastrada com sucesso!")
+            else:
+                st.error("Erro ao salvar amostra.")
 
     st.divider()
     st.caption("SurfaceXLab © Pesquisa & Engenharia")
@@ -74,20 +86,20 @@ with st.sidebar:
 # ABAS (MÓDULOS)
 # =========================================================
 tabs = st.tabs([
-    "1 Molecular (Raman)",
-    "2 Elétrica",
-    "3 Físico-Mecânica",
-    "4 Otimizador (IA)"
+    "1 Molecular — Raman",
+    "2 Elétrica — Resistividade",
+    "3 Físico-Mecânica — Tensiometria",
+    "4 Otimizador — IA"
 ])
 
 with tabs[0]:
-    render_raman_tab(supabase, helpers)
+    render_raman_tab(supabase)
 
 with tabs[1]:
-    render_electrical_tab(supabase)
+    render_resistividade_tab(supabase)
 
 with tabs[2]:
-    render_physical_tab(supabase)
+    render_tensiometria_tab(supabase)
 
 with tabs[3]:
-    render_optimizer_tab(supabase)
+    render_ml_tab(supabase)
