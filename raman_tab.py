@@ -3,9 +3,10 @@
 
 import streamlit as st
 import pandas as pd
-import matplotlib.pyplot as plt
 from datetime import date
-import uuid
+
+from raman_processing import process_raman_file
+
 
 # =========================================================
 # HELPERS – BANCO
@@ -144,7 +145,7 @@ def render_raman_tab(supabase, helpers):
     )
 
     if uploaded_file and st.button("Processar e Salvar"):
-        df, peaks_df, fig = helpers.process_raman_file(uploaded_file)
+        df, peaks_df, fig = process_raman_file(uploaded_file)
 
         st.pyplot(fig)
 
