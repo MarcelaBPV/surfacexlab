@@ -1,271 +1,166 @@
 # ml_tab.py
 # -*- coding: utf-8 -*-
 
-"""
-Aba 4 — Otimizador com IA (Machine Learning)
-Random Forest para regressão e classificação
-CRM científico: dados → modelo → métricas → insights
-"""
-
-# =========================================================
-# IMPORTS
-# =========================================================
 import streamlit as st
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
-from typing import Dict
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import r2_score, mean_squared_error
 from datetime import datetime
 
-# ---------------------------------------------------------
-# Tentativa de importar scikit-learn (opcional)
-# ---------------------------------------------------------
-try:
-    from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
-    from sklearn.model_selection import train_test_split
-    from sklearn.metrics import (
-        r2_score,
-        mean_absolute_error,
-        mean_squared_error,
-        accuracy_score,
+# =========================================================
+# HELPERS — BANCO
+# =========================================================
+
+def load_ml_features(supabase):
+    res = (
+        supabase
+        .table("ml_features")
+        .select("*")
+        .order("created_at", desc=True)
+        .execute()
     )
-    SKLEARN_AVAILABLE = True
-except Exception:
-    SKLEARN_AVAILABLE = False
+    return pd.DataFrame(res.data) if res.data else pd.DataFrame()
 
 
-# =========================================================
-# SUPABASE HELPER
-# =========================================================
 def save_ml_result(
     supabase,
-    model_name: str,
-    problem_type: str,
-    target: str,
-    features: list,
-    metrics: Dict,
-    importances: Dict,
+    ml_feature_id,
+    model_type,
+    target,
+    prediction,
+    confidence,
+    model_version="v1.0"
 ):
-    supabase.table("results_ml_optimization").insert({
-        "model_name": model_name,
-        "parameters": {
-            "problem_type": problem_type,
-            "target": target,
-            "features": features,
-        },
-        "scores": metrics | {"importances": importances},
-        "date_run": datetime.utcnow().isoformat(),
+    supabase.table("ml_results").insert({
+        "ml_feature_id": ml_feature_id,
+        "model_type": model_type,
+        "target": target,
+        "prediction": float(prediction),
+        "confidence": float(confidence),
+        "model_version": model_version,
+        "created_at": str(datetime.utcnow())
     }).execute()
 
-
 # =========================================================
-# RENDER DA ABA
+# UI — ML TAB
 # =========================================================
-def render_ml_tab(supabase, helpers):
 
-    st.subheader("Otimizador com IA — Machine Learning")
+def render_ml_tab(supabase):
+    st.header("Otimizador — Machine Learning (Random Forest)")
 
     st.markdown(
         """
-Este módulo permite explorar **relações entre parâmetros experimentais e propriedades de superfície**
-utilizando **Random Forest** para **regressão** ou **classificação**.
-
-👉 Recomenda-se utilizar **dados já agregados**, por exemplo:
-- picos Raman
-- resistividade / condutividade
-- energia superficial
-"""
+        Este módulo utiliza **Machine Learning supervisionado**
+        para identificar padrões entre propriedades moleculares,
+        elétricas e físico-mecânicas das superfícies.
+        """
     )
 
-    # =====================================================
-    # Verificação do ambiente
-    # =====================================================
-    if not SKLEARN_AVAILABLE:
-        st.warning(
-            """
-⚠️ A biblioteca **scikit-learn** não está disponível neste ambiente.
-
-A aba de IA está temporariamente desativada.
-As demais abas da plataforma continuam funcionando normalmente.
-"""
-        )
-        return
-
-    # =====================================================
-    # BLOCO 1 — UPLOAD DOS DADOS
-    # =====================================================
-    st.markdown("### 📂 Upload do dataset")
-
-    file = st.file_uploader("Arquivo CSV com dados experimentais", type=["csv"])
-
-    if file is None:
-        st.info("Envie um arquivo CSV para iniciar a análise.")
-        return
-
-    try:
-        df = pd.read_csv(file)
-    except Exception as e:
-        st.error(f"Erro ao ler o CSV: {e}")
-        return
+    # -----------------------------------------------------
+    # Carregar dados
+    # -----------------------------------------------------
+    df = load_ml_features(supabase)
 
     if df.empty:
-        st.error("O CSV está vazio.")
+        st.warning("Nenhum conjunto de features disponível para ML.")
         return
 
-    st.markdown("#### Pré-visualização")
-    st.dataframe(df.head(), use_container_width=True)
+    st.subheader("📊 Dataset disponível")
+    st.dataframe(df)
 
-    # =====================================================
-    # BLOCO 2 — CONFIGURAÇÃO DO MODELO
-    # =====================================================
-    st.markdown("### Configuração do modelo")
+    # -----------------------------------------------------
+    # Seleção de features e target
+    # -----------------------------------------------------
+    st.subheader("Configuração do Modelo")
 
-    target_col = st.selectbox("Variável alvo (y)", df.columns)
+    feature_columns = [
+        "raman_peak_count",
+        "raman_intensity_mean",
+        "resistivity_mean",
+        "surface_energy_total",
+        "surface_energy_polar"
+    ]
 
-    feature_cols = [c for c in df.columns if c != target_col]
-    if not feature_cols:
-        st.error("O dataset precisa ter ao menos 1 feature além da variável alvo.")
-        return
+    feature_columns = [c for c in feature_columns if c in df.columns]
 
-    problem_choice = st.radio(
-        "Tipo de problema",
-        ["Detecção automática", "Regressão", "Classificação"]
+    target = st.selectbox(
+        "Variável alvo (target)",
+        options=feature_columns
     )
 
-    # =====================================================
-    # BLOCO 3 — PREPARAÇÃO DOS DADOS
-    # =====================================================
-    df_clean = df[feature_cols + [target_col]].dropna()
-    if df_clean.empty:
-        st.error("Após remover NaN, não restaram dados suficientes.")
-        return
+    X = df[feature_columns].drop(columns=[target])
+    y = df[target]
 
-    X_raw = df_clean[feature_cols]
-    y_raw = df_clean[target_col]
+    # -----------------------------------------------------
+    # Parâmetros do modelo
+    # -----------------------------------------------------
+    st.subheader("Parâmetros do Random Forest")
 
-    X = pd.get_dummies(X_raw, drop_first=True)
-
-    # Inferência automática
-    if problem_choice == "Detecção automática":
-        if pd.api.types.is_numeric_dtype(y_raw) and y_raw.nunique() > 10:
-            problem_type = "regression"
-        else:
-            problem_type = "classification"
-    else:
-        problem_type = "regression" if problem_choice == "Regressão" else "classification"
-
-    # Codificação para classificação
-    class_labels = None
-    y = y_raw.copy()
-    if problem_type == "classification" and not pd.api.types.is_numeric_dtype(y_raw):
-        y_codes, uniques = pd.factorize(y_raw)
-        y = pd.Series(y_codes, index=y_raw.index)
-        class_labels = {i: str(u) for i, u in enumerate(uniques)}
-
-    # =====================================================
-    # BLOCO 4 — SPLIT TREINO / TESTE
-    # =====================================================
-    test_size = st.slider("Proporção de teste", 0.1, 0.5, 0.2, 0.05)
-    random_state = st.number_input("Random seed", 0, 9999, 42)
-
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=test_size, random_state=random_state
-    )
-
-    # =====================================================
-    # BLOCO 5 — HIPERPARÂMETROS
-    # =====================================================
-    st.markdown("### Hiperparâmetros")
-
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
     with col1:
-        n_estimators = st.slider("Número de árvores", 50, 500, 200, 50)
+        n_estimators = st.number_input("n_estimators", 50, 500, 100)
     with col2:
-        max_depth = st.slider("Profundidade máxima", 2, 20, 8)
+        max_depth = st.number_input("max_depth", 2, 50, 10)
+    with col3:
+        test_size = st.slider("Proporção de teste", 0.1, 0.5, 0.2)
 
-    # =====================================================
-    # BLOCO 6 — TREINO DO MODELO
-    # =====================================================
-    if not st.button("Treinar modelo"):
-        return
+    # -----------------------------------------------------
+    # Treinar modelo
+    # -----------------------------------------------------
+    if st.button("Treinar Modelo"):
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=test_size, random_state=42
+        )
 
-    if problem_type == "regression":
         model = RandomForestRegressor(
             n_estimators=n_estimators,
             max_depth=max_depth,
-            random_state=random_state,
-            n_jobs=-1,
+            random_state=42
         )
+
         model.fit(X_train, y_train)
+
         y_pred = model.predict(X_test)
 
-        metrics = {
-            "r2": float(r2_score(y_test, y_pred)),
-            "mae": float(mean_absolute_error(y_test, y_pred)),
-            "rmse": float(mean_squared_error(y_test, y_pred, squared=False)),
-        }
+        r2 = r2_score(y_test, y_pred)
+        rmse = np.sqrt(mean_squared_error(y_test, y_pred))
 
-        st.markdown("### 📊 Métricas de regressão")
-        st.json(metrics)
+        st.success("✔ Modelo treinado com sucesso")
 
-    else:
-        model = RandomForestClassifier(
-            n_estimators=n_estimators,
-            max_depth=max_depth,
-            random_state=random_state,
-            n_jobs=-1,
-        )
-        model.fit(X_train, y_train)
-        y_pred = model.predict(X_test)
+        col1, col2 = st.columns(2)
+        col1.metric("R²", f"{r2:.4f}")
+        col2.metric("RMSE", f"{rmse:.4f}")
 
-        metrics = {
-            "accuracy": float(accuracy_score(y_test, y_pred))
-        }
+        # -------------------------------------------------
+        # Importância das features
+        # -------------------------------------------------
+        st.subheader("Importância das Features")
 
-        st.markdown("### 📊 Métricas de classificação")
-        st.json(metrics)
+        importances = pd.DataFrame({
+            "feature": X.columns,
+            "importance": model.feature_importances_
+        }).sort_values("importance", ascending=False)
 
-        if class_labels:
-            st.markdown("**Mapeamento de classes**")
-            st.json(class_labels)
+        st.bar_chart(importances.set_index("feature"))
 
-    # =====================================================
-    # BLOCO 7 — IMPORTÂNCIA DAS FEATURES
-    # =====================================================
-    importances = dict(zip(X.columns, model.feature_importances_))
-    imp_df = (
-        pd.DataFrame(
-            {"feature": importances.keys(), "importance": importances.values()}
-        )
-        .sort_values("importance", ascending=False)
-    )
+        # -------------------------------------------------
+        # Salvar resultados no banco
+        # -------------------------------------------------
+        for idx, row in df.iterrows():
+            prediction = model.predict(
+                row[X.columns].values.reshape(1, -1)
+            )[0]
 
-    st.markdown("### 🔍 Importância das variáveis")
-    helpers["show_aggrid"](imp_df, height=260)
+            save_ml_result(
+                supabase=supabase,
+                ml_feature_id=row["id"],
+                model_type="RandomForest",
+                target=target,
+                prediction=prediction,
+                confidence=r2
+            )
 
-    if st.button("📌 Abrir importâncias no painel lateral"):
-        helpers["open_side"](imp_df, "Importância das features")
+        st.success("✔ Predições salvas no banco")
 
-    # Gráfico
-    top_n = min(10, len(imp_df))
-    fig, ax = plt.subplots(figsize=(8, 4))
-    top = imp_df.head(top_n).iloc[::-1]
-    ax.barh(top["feature"], top["importance"])
-    ax.set_xlabel("Importância relativa")
-    ax.set_title("Top variáveis do modelo")
-    st.pyplot(fig)
-
-    # =====================================================
-    # BLOCO 8 — SALVAR NO SUPABASE
-    # =====================================================
-    if supabase and st.button("💾 Salvar resultado do modelo"):
-        save_ml_result(
-            supabase,
-            model_name="RandomForest",
-            problem_type=problem_type,
-            target=target_col,
-            features=list(X.columns),
-            metrics=metrics,
-            importances=importances,
-        )
-        st.success("Resultado do modelo salvo no Supabase.")
