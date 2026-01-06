@@ -27,7 +27,7 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("🧪 **SurfaceXLab — Plataforma Integrada**")
+st.title("*SurfaceXLab — Plataforma Integrada*")
 
 # =========================================================
 # CONEXÃO COM SUPABASE
@@ -80,7 +80,7 @@ render_ml_tab = safe_import("ml_tab", "render_ml_tab")
 # SIDEBAR — CADASTRO DE AMOSTRAS (NÚCLEO DO SISTEMA)
 # =========================================================
 with st.sidebar:
-    st.header("📦 Cadastro de Amostras")
+    st.header("Cadastro de Amostras")
 
     sample_code = st.text_input("Código da Amostra *")
     material_type = st.text_input("Tipo de Material")
@@ -118,10 +118,10 @@ with st.sidebar:
 # ABAS (MÓDULOS)
 # =========================================================
 tabs = st.tabs([
-    "1 🔬 Molecular — Raman",
-    "2 ⚡ Elétrica — Resistividade",
-    "3 💧 Físico-Mecânica — Tensiometria",
-    "4 🤖 Otimizador — IA"
+    "1 Molecular — Raman",
+    "2 Elétrica — Resistividade",
+    "3 Físico-Mecânica — Tensiometria",
+    "4 Otimizador — IA"
 ])
 
 with tabs[0]:
