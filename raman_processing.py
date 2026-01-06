@@ -20,7 +20,7 @@ Saídas:
 © 2025 Marcela Veiga
 """
 
-from typing import Tuple, Optional, Dict
+from typing import Tuple, Optional, Dict, Any
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -36,7 +36,13 @@ from scipy.sparse.linalg import spsolve
 def read_spectrum(file_like) -> Tuple[np.ndarray, np.ndarray]:
     """Lê espectro Raman (txt/csv/xlsx)."""
     try:
-        df = pd.read_csv(file_like, sep=None, engine="python", comment="#", header=None)
+        df = pd.read_csv(
+            file_like,
+            sep=None,
+            engine="python",
+            comment="#",
+            header=None
+        )
     except Exception:
         file_like.seek(0)
         df = pd.read_csv(file_like, delim_whitespace=True, header=None)
@@ -77,7 +83,7 @@ def asls_baseline(y, lam=1e5, p=0.01, niter=10):
 
 
 # =========================================================
-# MODELO DE PICO
+# MODELO DE PICO — LORENTZ
 # =========================================================
 def lorentz(x, amp, cen, wid, offset):
     return amp * ((0.5 * wid) ** 2 / ((x - cen) ** 2 + (0.5 * wid) ** 2)) + offset
@@ -101,18 +107,18 @@ def fit_lorentz(x, y, center, window=20.0):
         popt, _ = curve_fit(lorentz, xs, ys, p0=p0, maxfev=5000)
         amp, cen, wid, off = popt
         return {
-            "center_fit": cen,
-            "amplitude": amp,
-            "width": wid,
-            "fwhm": 2 * wid,
-            "offset": off,
+            "center_fit": float(cen),
+            "amplitude": float(amp),
+            "width": float(wid),
+            "fwhm": float(2 * wid),
+            "offset": float(off),
         }
     except Exception:
         return None
 
 
 # =========================================================
-# PIPELINE PRINCIPAL
+# PIPELINE PRINCIPAL (CIENTÍFICO)
 # =========================================================
 def process_raman_pipeline(
     sample_input,
@@ -125,9 +131,7 @@ def process_raman_pipeline(
     peak_prominence: float = 0.02,
 ) -> Tuple[pd.DataFrame, pd.DataFrame, plt.Figure]:
 
-    # -----------------------------------------------------
     # 1. Leitura
-    # -----------------------------------------------------
     x_s, y_s = read_spectrum(sample_input)
 
     if substrate_input is not None:
@@ -135,9 +139,7 @@ def process_raman_pipeline(
     else:
         x_b, y_b = x_s, np.zeros_like(y_s)
 
-    # -----------------------------------------------------
-    # 2. Harmonização (eixo comum)
-    # -----------------------------------------------------
+    # 2. Harmonização
     x_min = max(x_s.min(), x_b.min())
     x_max = min(x_s.max(), x_b.max())
     x = np.linspace(x_min, x_max, resample_points)
@@ -145,47 +147,36 @@ def process_raman_pipeline(
     y_s = np.interp(x, x_s, y_s)
     y_b = np.interp(x, x_b, y_b)
 
-    # -----------------------------------------------------
-    # 3. Subtração de substrato (regressão linear)
-    # -----------------------------------------------------
+    # 3. Subtração de substrato
     A = np.vstack([y_b, np.ones_like(y_b)]).T
     alpha, beta = np.linalg.lstsq(A, y_s, rcond=None)[0]
-    alpha = max(alpha, 0)
-
+    alpha = max(alpha, 0.0)
     y_sub = y_s - alpha * y_b - beta
 
-    # -----------------------------------------------------
-    # 4. Baseline ASLS
-    # -----------------------------------------------------
+    # 4. Baseline
     baseline = asls_baseline(y_sub, lam=asls_lambda, p=asls_p)
     y_corr = y_sub - baseline
 
-    # -----------------------------------------------------
     # 5. Suavização
-    # -----------------------------------------------------
     if sg_window % 2 == 0:
         sg_window += 1
     y_smooth = savgol_filter(y_corr, sg_window, sg_poly)
 
-    # -----------------------------------------------------
     # 6. Normalização
-    # -----------------------------------------------------
-    y_norm = y_smooth / np.nanmax(np.abs(y_smooth))
+    norm = np.nanmax(np.abs(y_smooth))
+    y_norm = y_smooth / norm if norm > 0 else y_smooth
 
-    # -----------------------------------------------------
     # 7. Detecção de picos
-    # -----------------------------------------------------
-    peak_idx, props = find_peaks(
+    peak_idx, _ = find_peaks(
         y_norm,
         prominence=peak_prominence,
         distance=resample_points // 200,
     )
 
     peaks = []
-    for i, idx in enumerate(peak_idx):
+    for idx in peak_idx:
         cen = x[idx]
         inten = y_norm[idx]
-
         fit = fit_lorentz(x, y_norm, cen)
         if fit:
             peaks.append({
@@ -196,18 +187,13 @@ def process_raman_pipeline(
 
     peaks_df = pd.DataFrame(peaks)
 
-    # -----------------------------------------------------
-    # 8. Tabela espectral
-    # -----------------------------------------------------
     spectrum_df = pd.DataFrame({
         "raman_shift_cm1": x,
         "intensity_norm": y_norm,
-        "baseline_norm": baseline / np.nanmax(np.abs(y_smooth)),
+        "baseline_norm": baseline / norm if norm > 0 else baseline,
     })
 
-    # -----------------------------------------------------
-    # 9. Plot científico
-    # -----------------------------------------------------
+    # Plot
     fig, ax = plt.subplots(figsize=(10, 4))
     ax.plot(x, y_norm, lw=1.4, label="Espectro processado")
     ax.plot(x, spectrum_df["baseline_norm"], "--", label="Baseline")
@@ -221,3 +207,27 @@ def process_raman_pipeline(
     ax.grid(alpha=0.3)
 
     return spectrum_df, peaks_df, fig
+
+
+# =========================================================
+# WRAPPER DE COMPATIBILIDADE (USADO PELO APP)
+# =========================================================
+def process_raman_spectrum_with_groups(
+    file_like,
+    preprocess_kwargs: Optional[Dict[str, Any]] = None,
+    peak_prominence: float = 0.02,
+):
+    """
+    Wrapper esperado pelo app / raman_tab.
+    Converte a saída científica em formato padronizado.
+    """
+    spectrum_df, peaks_df, fig = process_raman_pipeline(
+        sample_input=file_like,
+        peak_prominence=peak_prominence,
+    )
+
+    return {
+        "spectrum_df": spectrum_df,
+        "peaks_df": peaks_df,
+        "figure": fig,
+    }
