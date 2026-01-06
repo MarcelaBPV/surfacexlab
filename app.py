@@ -19,15 +19,15 @@ import streamlit as st
 from supabase import create_client, Client
 
 # =========================================================
-# CONFIGURAÇÃO DA PÁGINA
+# CONFIGURAÇÃO DA PÁGINA (LOGO APLICADA AQUI)
 # =========================================================
 st.set_page_config(
     page_title="SurfaceXLab",
-    page_icon="",
+    page_icon="assets/surfacexlab_logo.png",  # ✅ LOGO DA PLATAFORMA
     layout="wide"
 )
 
-st.title("*SurfaceXLab — Plataforma Integrada*")
+st.title("SurfaceXLab — Plataforma Integrada")
 
 # =========================================================
 # CONEXÃO COM SUPABASE
@@ -49,23 +49,16 @@ supabase = init_supabase()
 # IMPORTAÇÃO SEGURA DOS MÓDULOS
 # =========================================================
 def safe_import(module_name: str, func_name: str):
-    """
-    Importa módulos de forma segura para evitar tela branca no Streamlit.
-    """
     try:
         module = __import__(module_name, fromlist=[func_name])
     except Exception as e:
-        st.error(f"❌ Erro ao importar o módulo `{module_name}.py`")
+        st.error(f"❌ Erro ao importar `{module_name}.py`")
         st.exception(e)
         st.stop()
 
     if not hasattr(module, func_name):
         st.error(
-            f"❌ Função `{func_name}` não encontrada em `{module_name}.py`\n\n"
-            "➡ Verifique:\n"
-            "- Nome da função\n"
-            "- Se o arquivo correto foi deployado\n"
-            "- Se não há erro de sintaxe no módulo"
+            f"❌ Função `{func_name}` não encontrada em `{module_name}.py`"
         )
         st.stop()
 
@@ -77,10 +70,14 @@ render_tensiometria_tab = safe_import("tensiometria_tab", "render_tensiometria_t
 render_ml_tab = safe_import("ml_tab", "render_ml_tab")
 
 # =========================================================
-# SIDEBAR — CADASTRO DE AMOSTRAS (NÚCLEO DO SISTEMA)
+# SIDEBAR — CADASTRO DE AMOSTRAS
 # =========================================================
 with st.sidebar:
-    st.header("Cadastro de Amostras")
+    # LOGO NA SIDEBAR
+    st.image("assets/surfacexlab_logo.png", use_column_width=True)
+    st.divider()
+
+    st.header("📦 Cadastro de Amostras")
 
     sample_code = st.text_input("Código da Amostra *")
     material_type = st.text_input("Tipo de Material")
@@ -100,9 +97,7 @@ with st.sidebar:
                     "surface_treatment": surface_treatment,
                     "description": description
                 }
-
                 res = supabase.table("samples").insert(data).execute()
-
                 if res.data:
                     st.success("✔ Amostra cadastrada com sucesso!")
                 else:
