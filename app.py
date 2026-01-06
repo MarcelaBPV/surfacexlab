@@ -4,26 +4,32 @@
 """
 SurfaceXLab
 Plataforma integrada para caracterização e otimização de superfícies
-
-Módulos:
-- Raman (molecular)
-- Resistividade elétrica
-- Tensiometria / Físico-mecânica
-- Otimizador (Machine Learning)
-
-Frontend: Streamlit
-Backend: Supabase (PostgreSQL)
 """
 
 import streamlit as st
 from supabase import create_client, Client
+from pathlib import Path
+from PIL import Image
 
 # =========================================================
-# CONFIGURAÇÃO DA PÁGINA (LOGO APLICADA AQUI)
+# LOGO (CARREGAMENTO SEGURO)
+# =========================================================
+BASE_DIR = Path(__file__).parent
+LOGO_PATH = BASE_DIR / "assets" / "surfacexlab_logo.png"
+
+logo_image = None
+if LOGO_PATH.exists():
+    try:
+        logo_image = Image.open(LOGO_PATH)
+    except Exception:
+        logo_image = None
+
+# =========================================================
+# CONFIGURAÇÃO DA PÁGINA
 # =========================================================
 st.set_page_config(
     page_title="SurfaceXLab",
-    page_icon="assets/surfacexlab_logo.png",  # ✅ LOGO DA PLATAFORMA
+    page_icon=logo_image if logo_image else "🧪",
     layout="wide"
 )
 
@@ -57,9 +63,7 @@ def safe_import(module_name: str, func_name: str):
         st.stop()
 
     if not hasattr(module, func_name):
-        st.error(
-            f"❌ Função `{func_name}` não encontrada em `{module_name}.py`"
-        )
+        st.error(f"❌ Função `{func_name}` não encontrada em `{module_name}.py`")
         st.stop()
 
     return getattr(module, func_name)
@@ -73,9 +77,10 @@ render_ml_tab = safe_import("ml_tab", "render_ml_tab")
 # SIDEBAR — CADASTRO DE AMOSTRAS
 # =========================================================
 with st.sidebar:
-    # LOGO NA SIDEBAR
-    st.image("assets/surfacexlab_logo.png", use_column_width=True)
-    st.divider()
+
+    if logo_image:
+        st.image(logo_image, use_column_width=True)
+        st.divider()
 
     st.header("📦 Cadastro de Amostras")
 
