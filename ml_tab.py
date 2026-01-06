@@ -1,60 +1,76 @@
 # ml_tab.py
 # -*- coding: utf-8 -*-
 
+"""
+SurfaceXLab — Módulo de Machine Learning (Raman)
+
+Funções:
+- Leitura segura das features Raman do Supabase
+- Visualização das features (fingerprints)
+- Preparação para treinamento de modelos ML (Random Forest)
+
+⚠ Uso científico / exploratório. Não diagnóstico.
+"""
+
 import streamlit as st
 import pandas as pd
-import numpy as np
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import r2_score, mean_squared_error
-from datetime import datetime
+import json
+
 
 # =========================================================
-# HELPERS — BANCO
+# LOAD FEATURES (ROBUSTO)
 # =========================================================
+def load_ml_features(supabase) -> pd.DataFrame:
+    """
+    Carrega features Raman do Supabase de forma segura.
+    """
+    try:
+        res = (
+            supabase
+            .table("raman_features")
+            .select(
+                "id, raman_measurement_id, features, rules_triggered, model_version, created_at"
+            )
+            .order("created_at", desc=True)
+            .execute()
+        )
+    except Exception as e:
+        st.error("❌ Erro ao consultar tabela raman_features no Supabase.")
+        st.exception(e)
+        return pd.DataFrame()
 
-def load_ml_features(supabase):
-    res = (
-        supabase
-        .table("ml_features")
-        .select("*")
-        .order("created_at", desc=True)
-        .execute()
-    )
-    return pd.DataFrame(res.data) if res.data else pd.DataFrame()
+    if not res.data:
+        return pd.DataFrame()
 
+    df = pd.DataFrame(res.data)
 
-def save_ml_result(
-    supabase,
-    ml_feature_id,
-    model_type,
-    target,
-    prediction,
-    confidence,
-    model_version="v1.0"
-):
-    supabase.table("ml_results").insert({
-        "ml_feature_id": ml_feature_id,
-        "model_type": model_type,
-        "target": target,
-        "prediction": float(prediction),
-        "confidence": float(confidence),
-        "model_version": model_version,
-        "created_at": str(datetime.utcnow())
-    }).execute()
+    # Expandir JSON de features em colunas
+    try:
+        features_expanded = df["features"].apply(
+            lambda x: x if isinstance(x, dict) else json.loads(x)
+        )
+        features_df = pd.json_normalize(features_expanded)
+        df = pd.concat([df.drop(columns=["features"]), features_df], axis=1)
+    except Exception as e:
+        st.warning("⚠ Não foi possível expandir o JSON de features.")
+        st.exception(e)
+
+    return df
+
 
 # =========================================================
-# UI — ML TAB
+# UI — ABA ML
 # =========================================================
-
 def render_ml_tab(supabase):
-    st.header("Otimizador — Machine Learning (Random Forest)")
+    st.header("🤖 Otimizador — Machine Learning (Raman)")
 
     st.markdown(
         """
-        Este módulo utiliza **Machine Learning supervisionado**
-        para identificar padrões entre propriedades moleculares,
-        elétricas e físico-mecânicas das superfícies.
+        Este módulo utiliza **features extraídas de espectros Raman**
+        para análises exploratórias e treinamento de modelos de Machine Learning
+        (ex.: Random Forest).
+
+        ⚠ **Uso científico / exploratório — não diagnóstico clínico.**
         """
     )
 
@@ -64,103 +80,82 @@ def render_ml_tab(supabase):
     df = load_ml_features(supabase)
 
     if df.empty:
-        st.warning("Nenhum conjunto de features disponível para ML.")
+        st.info(
+            "Nenhuma feature Raman encontrada.\n\n"
+            "➡ Execute análises Raman e gere features antes de usar o ML."
+        )
         return
 
-    st.subheader("📊 Dataset disponível")
-    st.dataframe(df)
-
     # -----------------------------------------------------
-    # Seleção de features e target
+    # Visão geral
     # -----------------------------------------------------
-    st.subheader("Configuração do Modelo")
+    st.subheader("📊 Visão geral do dataset")
 
-    feature_columns = [
-        "raman_peak_count",
-        "raman_intensity_mean",
-        "resistivity_mean",
-        "surface_energy_total",
-        "surface_energy_polar"
-    ]
+    st.write(f"Total de registros: **{len(df)}**")
 
-    feature_columns = [c for c in feature_columns if c in df.columns]
-
-    target = st.selectbox(
-        "Variável alvo (target)",
-        options=feature_columns
+    st.dataframe(
+        df.head(50),
+        use_container_width=True,
     )
 
-    X = df[feature_columns].drop(columns=[target])
-    y = df[target]
+    # -----------------------------------------------------
+    # Seleção de features numéricas
+    # -----------------------------------------------------
+    st.subheader("🔎 Seleção de Features")
+
+    numeric_cols = df.select_dtypes(include="number").columns.tolist()
+
+    if not numeric_cols:
+        st.warning("Nenhuma feature numérica disponível para ML.")
+        return
+
+    selected_features = st.multiselect(
+        "Selecione as features para o modelo",
+        numeric_cols,
+        default=numeric_cols,
+    )
+
+    if not selected_features:
+        st.warning("Selecione ao menos uma feature.")
+        return
+
+    X = df[selected_features].copy()
+
+    st.markdown("**Matriz de features (X):**")
+    st.dataframe(X.head(), use_container_width=True)
 
     # -----------------------------------------------------
-    # Parâmetros do modelo
+    # Placeholder para ML
     # -----------------------------------------------------
-    st.subheader("Parâmetros do Random Forest")
+    st.divider()
+    st.subheader("🚀 Treinamento de Modelo (em breve)")
 
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        n_estimators = st.number_input("n_estimators", 50, 500, 100)
-    with col2:
-        max_depth = st.number_input("max_depth", 2, 50, 10)
-    with col3:
-        test_size = st.slider("Proporção de teste", 0.1, 0.5, 0.2)
+    st.markdown(
+        """
+        Próximos passos previstos:
+        -  Definição de variável alvo (label)
+        -  Random Forest (classificação / regressão)
+        -  Métricas: accuracy, ROC, importância das features
+        -  Salvamento do modelo treinado
+        """
+    )
+
+    st.info(
+        "🔧 Este módulo já está **ML-ready**.\n\n"
+        "O treinamento pode ser ativado assim que houver rótulos "
+        "(ex.: condição experimental, classe clínica, tratamento)."
+    )
 
     # -----------------------------------------------------
-    # Treinar modelo
+    # Regras exploratórias (opcional)
     # -----------------------------------------------------
-    if st.button("Treinar Modelo"):
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=test_size, random_state=42
-        )
+    if "rules_triggered" in df.columns:
+        st.divider()
+        st.subheader("🧠 Regras exploratórias detectadas")
 
-        model = RandomForestRegressor(
-            n_estimators=n_estimators,
-            max_depth=max_depth,
-            random_state=42
-        )
+        rules_series = df["rules_triggered"].dropna()
 
-        model.fit(X_train, y_train)
-
-        y_pred = model.predict(X_test)
-
-        r2 = r2_score(y_test, y_pred)
-        rmse = np.sqrt(mean_squared_error(y_test, y_pred))
-
-        st.success("✔ Modelo treinado com sucesso")
-
-        col1, col2 = st.columns(2)
-        col1.metric("R²", f"{r2:.4f}")
-        col2.metric("RMSE", f"{rmse:.4f}")
-
-        # -------------------------------------------------
-        # Importância das features
-        # -------------------------------------------------
-        st.subheader("Importância das Features")
-
-        importances = pd.DataFrame({
-            "feature": X.columns,
-            "importance": model.feature_importances_
-        }).sort_values("importance", ascending=False)
-
-        st.bar_chart(importances.set_index("feature"))
-
-        # -------------------------------------------------
-        # Salvar resultados no banco
-        # -------------------------------------------------
-        for idx, row in df.iterrows():
-            prediction = model.predict(
-                row[X.columns].values.reshape(1, -1)
-            )[0]
-
-            save_ml_result(
-                supabase=supabase,
-                ml_feature_id=row["id"],
-                model_type="RandomForest",
-                target=target,
-                prediction=prediction,
-                confidence=r2
-            )
-
-        st.success("✔ Predições salvas no banco")
-
+        if not rules_series.empty:
+            st.json(rules_series.iloc[0])
+        else:
+            st.info("Nenhuma regra exploratória registrada.")
