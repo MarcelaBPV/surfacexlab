@@ -27,26 +27,54 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("*SurfaceXLab — Plataforma Integrada*")
+st.title("🧪 **SurfaceXLab — Plataforma Integrada**")
 
 # =========================================================
 # CONEXÃO COM SUPABASE
 # =========================================================
 @st.cache_resource
 def init_supabase() -> Client:
-    url = st.secrets["SUPABASE_URL"]
-    key = st.secrets["SUPABASE_ANON_KEY"]
-    return create_client(url, key)
+    try:
+        url = st.secrets["SUPABASE_URL"]
+        key = st.secrets["SUPABASE_ANON_KEY"]
+        return create_client(url, key)
+    except Exception as e:
+        st.error("❌ Erro ao conectar com o Supabase.")
+        st.exception(e)
+        st.stop()
 
 supabase = init_supabase()
 
 # =========================================================
-# IMPORTAÇÃO DOS MÓDULOS (NOMES REAIS DO REPO)
+# IMPORTAÇÃO SEGURA DOS MÓDULOS
 # =========================================================
-from raman_tab import render_raman_tab
-from resistividade_tab import render_resistividade_tab
-from tensiometria_tab import render_tensiometria_tab
-from ml_tab import render_ml_tab
+def safe_import(module_name: str, func_name: str):
+    """
+    Importa módulos de forma segura para evitar tela branca no Streamlit.
+    """
+    try:
+        module = __import__(module_name, fromlist=[func_name])
+    except Exception as e:
+        st.error(f"❌ Erro ao importar o módulo `{module_name}.py`")
+        st.exception(e)
+        st.stop()
+
+    if not hasattr(module, func_name):
+        st.error(
+            f"❌ Função `{func_name}` não encontrada em `{module_name}.py`\n\n"
+            "➡ Verifique:\n"
+            "- Nome da função\n"
+            "- Se o arquivo correto foi deployado\n"
+            "- Se não há erro de sintaxe no módulo"
+        )
+        st.stop()
+
+    return getattr(module, func_name)
+
+render_raman_tab = safe_import("raman_tab", "render_raman_tab")
+render_resistividade_tab = safe_import("resistividade_tab", "render_resistividade_tab")
+render_tensiometria_tab = safe_import("tensiometria_tab", "render_tensiometria_tab")
+render_ml_tab = safe_import("ml_tab", "render_ml_tab")
 
 # =========================================================
 # SIDEBAR — CADASTRO DE AMOSTRAS (NÚCLEO DO SISTEMA)
@@ -62,22 +90,26 @@ with st.sidebar:
 
     if st.button("Salvar Amostra"):
         if not sample_code:
-            st.warning("O código da amostra é obrigatório.")
+            st.warning("⚠ O código da amostra é obrigatório.")
         else:
-            data = {
-                "sample_code": sample_code,
-                "material_type": material_type,
-                "substrate": substrate,
-                "surface_treatment": surface_treatment,
-                "description": description
-            }
+            try:
+                data = {
+                    "sample_code": sample_code,
+                    "material_type": material_type,
+                    "substrate": substrate,
+                    "surface_treatment": surface_treatment,
+                    "description": description
+                }
 
-            res = supabase.table("samples").insert(data).execute()
+                res = supabase.table("samples").insert(data).execute()
 
-            if res.data:
-                st.success("✔ Amostra cadastrada com sucesso!")
-            else:
-                st.error("Erro ao salvar amostra.")
+                if res.data:
+                    st.success("✔ Amostra cadastrada com sucesso!")
+                else:
+                    st.error("❌ Erro ao salvar amostra.")
+            except Exception as e:
+                st.error("❌ Falha ao inserir amostra no banco.")
+                st.exception(e)
 
     st.divider()
     st.caption("SurfaceXLab © Pesquisa & Engenharia")
@@ -86,10 +118,10 @@ with st.sidebar:
 # ABAS (MÓDULOS)
 # =========================================================
 tabs = st.tabs([
-    "1 Molecular — Raman",
-    "2 Elétrica — Resistividade",
-    "3 Físico-Mecânica — Tensiometria",
-    "4 Otimizador — IA"
+    "1 🔬 Molecular — Raman",
+    "2 ⚡ Elétrica — Resistividade",
+    "3 💧 Físico-Mecânica — Tensiometria",
+    "4 🤖 Otimizador — IA"
 ])
 
 with tabs[0]:
