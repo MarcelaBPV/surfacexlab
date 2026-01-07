@@ -6,8 +6,9 @@ SurfaceXLab — Módulo de Machine Learning (Raman)
 
 Funções:
 - Leitura segura das features Raman do Supabase
-- Visualização das features (fingerprints)
-- Preparação para treinamento de modelos ML (Random Forest)
+- Expansão robusta de JSON (fingerprints)
+- Visualização exploratória
+- Preparação ML-ready (X)
 
 ⚠ Uso científico / exploratório. Não diagnóstico.
 """
@@ -15,14 +16,16 @@ Funções:
 import streamlit as st
 import pandas as pd
 import json
+from typing import Any, Dict
 
 
 # =========================================================
-# LOAD FEATURES (ROBUSTO)
+# LOAD FEATURES — ROBUSTO / À PROVA DE ERROS
 # =========================================================
 def load_ml_features(supabase) -> pd.DataFrame:
     """
-    Carrega features Raman do Supabase de forma segura.
+    Carrega features Raman do Supabase de forma robusta.
+    Nunca quebra o app (retorna DataFrame vazio em erro).
     """
     try:
         res = (
@@ -35,7 +38,7 @@ def load_ml_features(supabase) -> pd.DataFrame:
             .execute()
         )
     except Exception as e:
-        st.error("❌ Erro ao consultar tabela raman_features no Supabase.")
+        st.error("❌ Erro ao consultar a tabela `raman_features` no Supabase.")
         st.exception(e)
         return pd.DataFrame()
 
@@ -44,15 +47,34 @@ def load_ml_features(supabase) -> pd.DataFrame:
 
     df = pd.DataFrame(res.data)
 
-    # Expandir JSON de features em colunas
+    # -----------------------------
+    # Expandir JSON de features
+    # -----------------------------
+    def _safe_parse_features(val: Any) -> Dict:
+        if val is None:
+            return {}
+        if isinstance(val, dict):
+            return val
+        if isinstance(val, str):
+            try:
+                return json.loads(val)
+            except Exception:
+                return {}
+        return {}
+
     try:
-        features_expanded = df["features"].apply(
-            lambda x: x if isinstance(x, dict) else json.loads(x)
+        features_series = df["features"].apply(_safe_parse_features)
+        features_df = pd.json_normalize(features_series)
+
+        # Prefixo para evitar colisão de nomes
+        features_df = features_df.add_prefix("feat_")
+
+        df = pd.concat(
+            [df.drop(columns=["features"]), features_df],
+            axis=1
         )
-        features_df = pd.json_normalize(features_expanded)
-        df = pd.concat([df.drop(columns=["features"]), features_df], axis=1)
     except Exception as e:
-        st.warning("⚠ Não foi possível expandir o JSON de features.")
+        st.warning("⚠ Falha ao expandir JSON de features.")
         st.exception(e)
 
     return df
@@ -66,44 +88,59 @@ def render_ml_tab(supabase):
 
     st.markdown(
         """
-        Este módulo utiliza **features extraídas de espectros Raman**
-        para análises exploratórias e treinamento de modelos de Machine Learning
-        (ex.: Random Forest).
+        Este módulo utiliza **fingerprints Raman** armazenados no banco de dados
+        para análises exploratórias e preparação de modelos de *Machine Learning*.
 
         ⚠ **Uso científico / exploratório — não diagnóstico clínico.**
         """
     )
 
     # -----------------------------------------------------
-    # Carregar dados
+    # 1. Carregar dados
     # -----------------------------------------------------
     df = load_ml_features(supabase)
 
     if df.empty:
         st.info(
             "Nenhuma feature Raman encontrada.\n\n"
-            "➡ Execute análises Raman e gere features antes de usar o ML."
+            "➡ Execute análises Raman e gere *features* antes de usar o ML."
         )
         return
 
     # -----------------------------------------------------
-    # Visão geral
+    # 2. Visão geral
     # -----------------------------------------------------
     st.subheader("📊 Visão geral do dataset")
 
-    st.write(f"Total de registros: **{len(df)}**")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Registros", len(df))
+    with col2:
+        st.metric(
+            "Features",
+            len(df.select_dtypes(include="number").columns)
+        )
+    with col3:
+        st.metric(
+            "Versões de modelo",
+            df["model_version"].nunique()
+            if "model_version" in df.columns else 0
+        )
 
-    st.dataframe(
-        df.head(50),
-        use_container_width=True,
+    with st.expander("🔍 Visualizar dados brutos"):
+        st.dataframe(df.head(100), use_container_width=True)
+
+    # -----------------------------------------------------
+    # 3. Seleção de features numéricas
+    # -----------------------------------------------------
+    st.subheader("🧬 Seleção de Features Raman")
+
+    numeric_cols = (
+        df
+        .select_dtypes(include="number")
+        .columns
+        .tolist()
     )
-
-    # -----------------------------------------------------
-    # Seleção de features numéricas
-    # -----------------------------------------------------
-    st.subheader("🔎 Seleção de Features")
-
-    numeric_cols = df.select_dtypes(include="number").columns.tolist()
 
     if not numeric_cols:
         st.warning("Nenhuma feature numérica disponível para ML.")
@@ -122,32 +159,49 @@ def render_ml_tab(supabase):
     X = df[selected_features].copy()
 
     st.markdown("**Matriz de features (X):**")
-    st.dataframe(X.head(), use_container_width=True)
+    st.dataframe(X.head(20), use_container_width=True)
 
     # -----------------------------------------------------
-    # Placeholder para ML
+    # 4. Diagnóstico rápido
+    # -----------------------------------------------------
+    st.subheader("🧪 Diagnóstico rápido das features")
+
+    colA, colB = st.columns(2)
+
+    with colA:
+        st.markdown("**Valores ausentes (%):**")
+        na_pct = (X.isna().mean() * 100).round(2)
+        st.dataframe(na_pct[na_pct > 0], use_container_width=True)
+
+    with colB:
+        st.markdown("**Resumo estatístico:**")
+        st.dataframe(X.describe().T, use_container_width=True)
+
+    # -----------------------------------------------------
+    # 5. Placeholder de ML (ativo no próximo passo)
     # -----------------------------------------------------
     st.divider()
-    st.subheader("🚀 Treinamento de Modelo (em breve)")
+    st.subheader("🚀 Treinamento de Modelo (Random Forest)")
 
     st.markdown(
         """
-        Próximos passos previstos:
-        -  Definição de variável alvo (label)
-        -  Random Forest (classificação / regressão)
-        -  Métricas: accuracy, ROC, importância das features
-        -  Salvamento do modelo treinado
+        **Pipeline já preparado para:**
+        - Classificação (ex.: condição, tratamento)
+        - Regressão (ex.: ângulo de contato, resistividade)
+        - Validação cruzada
+        - Importância das features
+        - Salvamento do modelo treinado
         """
     )
 
     st.info(
-        "🔧 Este módulo já está **ML-ready**.\n\n"
-        "O treinamento pode ser ativado assim que houver rótulos "
-        "(ex.: condição experimental, classe clínica, tratamento)."
+        "🔧 O módulo está **100% ML-ready**.\n\n"
+        "Assim que houver uma **variável alvo (label)** no banco, "
+        "o treinamento pode ser ativado sem refatoração."
     )
 
     # -----------------------------------------------------
-    # Regras exploratórias (opcional)
+    # 6. Regras exploratórias (opcional)
     # -----------------------------------------------------
     if "rules_triggered" in df.columns:
         st.divider()
@@ -156,6 +210,12 @@ def render_ml_tab(supabase):
         rules_series = df["rules_triggered"].dropna()
 
         if not rules_series.empty:
-            st.json(rules_series.iloc[0])
+            try:
+                example = rules_series.iloc[0]
+                if isinstance(example, str):
+                    example = json.loads(example)
+                st.json(example)
+            except Exception:
+                st.write(rules_series.iloc[0])
         else:
             st.info("Nenhuma regra exploratória registrada.")
