@@ -3,18 +3,16 @@
 
 """
 SurfaceXLab
-Plataforma integrada para caracterização e otimização de superfícies
+Plataforma CRM para caracterização e otimização de superfícies
 
-Módulos:
-- Molecular (Raman)
-- Elétrica (Resistividade)
-- Físico-mecânica (Tensiometria)
-- Otimizador (Machine Learning)
+Fluxo:
+1. Cadastro da amostra
+2. Upload de dados experimentais (evento)
+3. Processamento por módulo (Raman / Elétrica / Tensiometria)
+4. ML e otimização
 
 Frontend: Streamlit
 Backend: Supabase (PostgreSQL)
-
-© Pesquisa & Engenharia
 """
 
 import streamlit as st
@@ -24,7 +22,7 @@ from PIL import Image
 
 
 # =========================================================
-# LOGO — CARREGAMENTO SEGURO
+# LOGO (CARREGAMENTO SEGURO)
 # =========================================================
 BASE_DIR = Path(__file__).parent
 LOGO_PATH = BASE_DIR / "assets" / "surfacexlab_logo.png"
@@ -46,21 +44,19 @@ st.set_page_config(
     layout="wide",
 )
 
-st.title("SurfaceXLab — Plataforma Integrada")
+st.title("SurfaceXLab — Plataforma Integrada de Pesquisa")
 
 
 # =========================================================
 # CONEXÃO COM SUPABASE
 # =========================================================
-@st.cache_resource(show_spinner=False)
+@st.cache_resource
 def init_supabase() -> Client:
-    """
-    Inicializa cliente Supabase de forma segura.
-    """
     try:
-        url = st.secrets["SUPABASE_URL"]
-        key = st.secrets["SUPABASE_ANON_KEY"]
-        return create_client(url, key)
+        return create_client(
+            st.secrets["SUPABASE_URL"],
+            st.secrets["SUPABASE_ANON_KEY"],
+        )
     except Exception as e:
         st.error("❌ Erro ao conectar com o Supabase.")
         st.exception(e)
@@ -74,10 +70,6 @@ supabase = init_supabase()
 # IMPORTAÇÃO SEGURA DE MÓDULOS
 # =========================================================
 def safe_import(module_name: str, func_name: str):
-    """
-    Importa funções de módulos de forma segura,
-    evitando falhas silenciosas no Streamlit.
-    """
     try:
         module = __import__(module_name, fromlist=[func_name])
     except Exception as e:
@@ -86,10 +78,7 @@ def safe_import(module_name: str, func_name: str):
         st.stop()
 
     if not hasattr(module, func_name):
-        st.error(
-            f"❌ Função `{func_name}` não encontrada em `{module_name}.py`.\n\n"
-            "➡ Verifique o nome da função e se o arquivo correto foi enviado."
-        )
+        st.error(f"❌ Função `{func_name}` não encontrada em `{module_name}.py`")
         st.stop()
 
     return getattr(module, func_name)
@@ -102,7 +91,7 @@ render_ml_tab = safe_import("ml_tab", "render_ml_tab")
 
 
 # =========================================================
-# SIDEBAR — CADASTRO DE AMOSTRAS (NÚCLEO DO SISTEMA)
+# SIDEBAR — CRM CORE
 # =========================================================
 with st.sidebar:
 
@@ -110,7 +99,10 @@ with st.sidebar:
         st.image(logo_image, use_column_width=True)
         st.divider()
 
-    st.header("Cadastro de Amostras")
+    # -----------------------------------------------------
+    # 1️⃣ CADASTRO DA AMOSTRA
+    # -----------------------------------------------------
+    st.header("📦 Amostra")
 
     sample_code = st.text_input("Código da Amostra *")
     material_type = st.text_input("Tipo de Material")
@@ -120,40 +112,96 @@ with st.sidebar:
 
     if st.button("Salvar Amostra"):
         if not sample_code:
-            st.warning("⚠ O código da amostra é obrigatório.")
+            st.warning("⚠ Código da amostra é obrigatório.")
         else:
             try:
-                payload = {
+                res = supabase.table("samples").insert({
                     "sample_code": sample_code,
                     "material_type": material_type,
                     "substrate": substrate,
                     "surface_treatment": surface_treatment,
                     "description": description,
-                }
-
-                res = supabase.table("samples").insert(payload).execute()
+                }).execute()
 
                 if res.data:
                     st.success("✔ Amostra cadastrada com sucesso!")
                 else:
-                    st.error("❌ Erro ao salvar amostra.")
-
+                    st.error("Erro ao salvar amostra.")
             except Exception as e:
-                st.error("❌ Falha ao inserir amostra no banco.")
+                st.error("❌ Falha ao salvar amostra.")
                 st.exception(e)
+
+    # -----------------------------------------------------
+    # 2️⃣ UPLOAD DE DADOS EXPERIMENTAIS (EVENTO CRM)
+    # -----------------------------------------------------
+    st.divider()
+    st.header("📤 Entrada de Dados")
+
+    samples_res = supabase.table("samples").select("id, sample_code").execute()
+    samples = samples_res.data if samples_res.data else []
+
+    if samples:
+        sample_map = {s["sample_code"]: s["id"] for s in samples}
+
+        selected_sample = st.selectbox(
+            "Amostra associada",
+            options=list(sample_map.keys()),
+        )
+
+        data_type = st.selectbox(
+            "Tipo de dado",
+            [
+                "Molecular — Raman (sangue)",
+                "Elétrico — Resistividade / Motores",
+                "Físico-Mecânico — Tensiometria",
+            ],
+        )
+
+        uploaded_file = st.file_uploader(
+            "Arquivo experimental",
+            type=["csv", "txt", "xlsx"],
+        )
+
+        if st.button("Registrar Upload"):
+            if not uploaded_file:
+                st.warning("Selecione um arquivo.")
+            else:
+                try:
+                    # Cria experimento automaticamente
+                    exp = supabase.table("experiments").insert({
+                        "sample_id": sample_map[selected_sample],
+                        "experiment_type": data_type.split("—")[0].strip(),
+                        "notes": f"Upload inicial: {uploaded_file.name}",
+                    }).execute()
+
+                    experiment_id = exp.data[0]["id"]
+
+                    # Registra upload (metadado)
+                    supabase.table("raw_uploads").insert({
+                        "experiment_id": experiment_id,
+                        "filename": uploaded_file.name,
+                        "file_type": data_type,
+                    }).execute()
+
+                    st.success("✔ Upload registrado com sucesso!")
+                except Exception as e:
+                    st.error("❌ Erro ao registrar upload.")
+                    st.exception(e)
+    else:
+        st.info("Cadastre uma amostra para habilitar upload.")
 
     st.divider()
     st.caption("SurfaceXLab © Pesquisa & Engenharia")
 
 
 # =========================================================
-# ABAS PRINCIPAIS (MÓDULOS)
+# ABAS — MÓDULOS DE ANÁLISE
 # =========================================================
 tabs = st.tabs([
-    "1 Molecular — Raman",
-    "2 Elétrica — Resistividade",
-    "3 Físico-Mecânica — Tensiometria",
-    "4 Otimizador — IA",
+    "🧬 Molecular — Raman",
+    "⚡ Elétrica — Resistividade",
+    "💧 Físico-Mecânica — Tensiometria",
+    "🤖 Otimizador — IA",
 ])
 
 with tabs[0]:
