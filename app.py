@@ -4,6 +4,17 @@
 """
 SurfaceXLab
 Plataforma integrada para caracterização e otimização de superfícies
+
+Módulos:
+- Molecular (Raman)
+- Elétrica (Resistividade)
+- Físico-mecânica (Tensiometria)
+- Otimizador (Machine Learning)
+
+Frontend: Streamlit
+Backend: Supabase (PostgreSQL)
+
+© Pesquisa & Engenharia
 """
 
 import streamlit as st
@@ -11,8 +22,9 @@ from supabase import create_client, Client
 from pathlib import Path
 from PIL import Image
 
+
 # =========================================================
-# LOGO (CARREGAMENTO SEGURO)
+# LOGO — CARREGAMENTO SEGURO
 # =========================================================
 BASE_DIR = Path(__file__).parent
 LOGO_PATH = BASE_DIR / "assets" / "surfacexlab_logo.png"
@@ -24,22 +36,27 @@ if LOGO_PATH.exists():
     except Exception:
         logo_image = None
 
+
 # =========================================================
 # CONFIGURAÇÃO DA PÁGINA
 # =========================================================
 st.set_page_config(
     page_title="SurfaceXLab",
     page_icon=logo_image if logo_image else "🧪",
-    layout="wide"
+    layout="wide",
 )
 
 st.title("SurfaceXLab — Plataforma Integrada")
 
+
 # =========================================================
 # CONEXÃO COM SUPABASE
 # =========================================================
-@st.cache_resource
+@st.cache_resource(show_spinner=False)
 def init_supabase() -> Client:
+    """
+    Inicializa cliente Supabase de forma segura.
+    """
     try:
         url = st.secrets["SUPABASE_URL"]
         key = st.secrets["SUPABASE_ANON_KEY"]
@@ -49,12 +66,18 @@ def init_supabase() -> Client:
         st.exception(e)
         st.stop()
 
+
 supabase = init_supabase()
 
+
 # =========================================================
-# IMPORTAÇÃO SEGURA DOS MÓDULOS
+# IMPORTAÇÃO SEGURA DE MÓDULOS
 # =========================================================
 def safe_import(module_name: str, func_name: str):
+    """
+    Importa funções de módulos de forma segura,
+    evitando falhas silenciosas no Streamlit.
+    """
     try:
         module = __import__(module_name, fromlist=[func_name])
     except Exception as e:
@@ -63,18 +86,23 @@ def safe_import(module_name: str, func_name: str):
         st.stop()
 
     if not hasattr(module, func_name):
-        st.error(f"❌ Função `{func_name}` não encontrada em `{module_name}.py`")
+        st.error(
+            f"❌ Função `{func_name}` não encontrada em `{module_name}.py`.\n\n"
+            "➡ Verifique o nome da função e se o arquivo correto foi enviado."
+        )
         st.stop()
 
     return getattr(module, func_name)
+
 
 render_raman_tab = safe_import("raman_tab", "render_raman_tab")
 render_resistividade_tab = safe_import("resistividade_tab", "render_resistividade_tab")
 render_tensiometria_tab = safe_import("tensiometria_tab", "render_tensiometria_tab")
 render_ml_tab = safe_import("ml_tab", "render_ml_tab")
 
+
 # =========================================================
-# SIDEBAR — CADASTRO DE AMOSTRAS
+# SIDEBAR — CADASTRO DE AMOSTRAS (NÚCLEO DO SISTEMA)
 # =========================================================
 with st.sidebar:
 
@@ -82,7 +110,7 @@ with st.sidebar:
         st.image(logo_image, use_column_width=True)
         st.divider()
 
-    st.header("📦 Cadastro de Amostras")
+    st.header("Cadastro de Amostras")
 
     sample_code = st.text_input("Código da Amostra *")
     material_type = st.text_input("Tipo de Material")
@@ -95,18 +123,21 @@ with st.sidebar:
             st.warning("⚠ O código da amostra é obrigatório.")
         else:
             try:
-                data = {
+                payload = {
                     "sample_code": sample_code,
                     "material_type": material_type,
                     "substrate": substrate,
                     "surface_treatment": surface_treatment,
-                    "description": description
+                    "description": description,
                 }
-                res = supabase.table("samples").insert(data).execute()
+
+                res = supabase.table("samples").insert(payload).execute()
+
                 if res.data:
                     st.success("✔ Amostra cadastrada com sucesso!")
                 else:
                     st.error("❌ Erro ao salvar amostra.")
+
             except Exception as e:
                 st.error("❌ Falha ao inserir amostra no banco.")
                 st.exception(e)
@@ -114,14 +145,15 @@ with st.sidebar:
     st.divider()
     st.caption("SurfaceXLab © Pesquisa & Engenharia")
 
+
 # =========================================================
-# ABAS (MÓDULOS)
+# ABAS PRINCIPAIS (MÓDULOS)
 # =========================================================
 tabs = st.tabs([
     "1 Molecular — Raman",
     "2 Elétrica — Resistividade",
     "3 Físico-Mecânica — Tensiometria",
-    "4 Otimizador — IA"
+    "4 Otimizador — IA",
 ])
 
 with tabs[0]:
