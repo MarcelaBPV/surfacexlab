@@ -19,15 +19,12 @@ def render_raman_tab(supabase):
         incluindo correção de baseline, suavização, normalização,
         detecção automática de picos e geração de gráfico científico.
 
-        ⚠️ **O arquivo deve conter exatamente duas colunas numéricas**:
+        ⚠️ O arquivo deve conter **duas colunas numéricas**:
         - Deslocamento Raman (cm⁻¹)
         - Intensidade
         """
     )
 
-    # -----------------------------------------------------
-    # Upload do arquivo
-    # -----------------------------------------------------
     uploaded_file = st.file_uploader(
         "Upload do espectro Raman (.csv, .txt, .xls, .xlsx)",
         type=["csv", "txt", "xls", "xlsx"],
@@ -41,7 +38,7 @@ def render_raman_tab(supabase):
     st.success(f"Arquivo carregado: {uploaded_file.name}")
 
     # -----------------------------------------------------
-    # Processamento com proteção
+    # Processamento
     # -----------------------------------------------------
     try:
         result = process_raman_spectrum_with_groups(
@@ -53,9 +50,6 @@ def render_raman_tab(supabase):
         st.exception(e)
         return
 
-    # -----------------------------------------------------
-    # Validação do retorno
-    # -----------------------------------------------------
     if not isinstance(result, dict):
         st.error("Retorno inválido do processamento Raman.")
         st.write(result)
@@ -64,26 +58,46 @@ def render_raman_tab(supabase):
     st.caption(f"Chaves retornadas: {list(result.keys())}")
 
     # -----------------------------------------------------
-    # Gráfico Raman
+    # Plot Raman — CORRIGIDO
     # -----------------------------------------------------
-    if "figure" in result and result["figure"] is not None:
-        st.subheader("📈 Espectro Raman Processado")
-        st.pyplot(result["figure"])
+    figures = result.get("figures")
+
+    if figures is not None:
+        st.subheader("Espectro Raman Processado")
+
+        # Caso 1: figura única
+        if hasattr(figures, "savefig"):
+            st.pyplot(figures)
+
+        # Caso 2: lista de figuras
+        elif isinstance(figures, (list, tuple)):
+            for i, fig in enumerate(figures, start=1):
+                st.markdown(f"**Figura {i}**")
+                st.pyplot(fig)
+
+        # Caso 3: dicionário de figuras
+        elif isinstance(figures, dict):
+            for name, fig in figures.items():
+                st.markdown(f"**{name}**")
+                st.pyplot(fig)
+
+        else:
+            st.warning("Formato de figura não reconhecido.")
+
     else:
         st.warning(
-            "O arquivo enviado não parece ser um espectro Raman bruto válido "
-            "(duas colunas numéricas: deslocamento Raman × intensidade)."
+            "Nenhuma figura Raman foi gerada. "
+            "O arquivo pode não representar um espectro Raman bruto."
         )
 
     # -----------------------------------------------------
     # Tabela de picos
     # -----------------------------------------------------
-    if "peaks_df" in result and isinstance(result["peaks_df"], pd.DataFrame):
-        st.subheader("Picos Identificados")
+    peaks_df = result.get("peaks_df")
 
-        if not result["peaks_df"].empty:
-            st.dataframe(result["peaks_df"], use_container_width=True)
-        else:
-            st.info("Nenhum pico Raman foi identificado neste espectro.")
+    st.subheader("Picos Identificados")
+
+    if isinstance(peaks_df, pd.DataFrame) and not peaks_df.empty:
+        st.dataframe(peaks_df, use_container_width=True)
     else:
-        st.info("Tabela de picos não disponível para este arquivo.")
+        st.info("Nenhum pico Raman identificado.")
