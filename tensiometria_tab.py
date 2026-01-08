@@ -24,8 +24,7 @@ def owkr_fit(contact_angles, liquids):
     Owens–Wendt–Rabel–Kaelble (OWRK)
     Retorna: gamma_total, gamma_d, gamma_p, R²
     """
-    y = []
-    x = []
+    y, x = [], []
 
     for angle, liquid in zip(contact_angles, liquids):
         theta = np.deg2rad(angle)
@@ -51,33 +50,49 @@ def owkr_fit(contact_angles, liquids):
 
 
 # =========================================================
-# HELPERS — BANCO
+# HELPERS — BANCO (BLINDADOS)
 # =========================================================
 def get_samples(supabase):
-    res = (
-        supabase
-        .table("samples")
-        .select("id, sample_code")
-        .order("created_at", desc=True)
-        .execute()
-    )
-    return res.data if res.data else []
+    try:
+        res = (
+            supabase
+            .table("samples")
+            .select("id, sample_code")
+            .order("created_at", desc=True)
+            .execute()
+        )
+        return res.data if res.data else []
+    except Exception:
+        return []
 
 
 def create_experiment(supabase, sample_id):
-    res = supabase.table("experiments").insert({
-        "sample_id": sample_id,
-        "experiment_type": "SurfaceEnergy",
-        "experiment_date": str(date.today())
-    }).execute()
-    return res.data[0]["id"]
+    try:
+        res = supabase.table("experiments").insert({
+            "sample_id": sample_id,
+            "experiment_type": "SurfaceEnergy",
+            "experiment_date": str(date.today())
+        }).execute()
+        return res.data[0]["id"]
+    except Exception:
+        return None
 
 
 # =========================================================
-# UI — ABA TENSIOMETRIA
+# UI — ABA TENSIOMETRIA (ROBUSTA)
 # =========================================================
 def render_tensiometria_tab(supabase):
-    st.header("🧲 Físico-Mecânica — Energia Livre de Superfície (OWRK)")
+    st.header("💧 Físico-Mecânica — Energia Livre de Superfície (OWRK)")
+
+    # -----------------------------------------------------
+    # 🔒 Teste rápido do banco
+    # -----------------------------------------------------
+    try:
+        supabase.table("surface_energy_measurements").select("id").limit(1).execute()
+    except Exception:
+        st.info("Módulo de tensiometria ainda não inicializado no banco.")
+        st.caption("A tabela `surface_energy_measurements` não está disponível.")
+        return
 
     # -----------------------------------------------------
     # 1️⃣ Seleção da amostra
@@ -122,26 +137,33 @@ def render_tensiometria_tab(supabase):
         key="tensio_calculate_button"
     )
 
-    if calculate_clicked:
-        contact_angles = list(angles.values())
-        liquids = list(angles.keys())
+    if not calculate_clicked:
+        return
 
-        gamma_total, gamma_d, gamma_p, r2 = owkr_fit(contact_angles, liquids)
+    contact_angles = list(angles.values())
+    liquids = list(angles.keys())
 
-        st.success("✔ Cálculo realizado com sucesso")
+    gamma_total, gamma_d, gamma_p, r2 = owkr_fit(contact_angles, liquids)
 
-        col1, col2, col3, col4 = st.columns(4)
-        col1.metric("γ Total (mJ/m²)", f"{gamma_total:.2f}")
-        col2.metric("γ Dispersiva", f"{gamma_d:.2f}")
-        col3.metric("γ Polar", f"{gamma_p:.2f}")
-        col4.metric("R²", f"{r2:.4f}")
+    st.success("✔ Cálculo realizado com sucesso")
 
-        # -------------------------------------------------
-        # 4️⃣ Salvar no banco
-        # -------------------------------------------------
-        experiment_id = create_experiment(supabase, sample_id)
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("γ Total (mJ/m²)", f"{gamma_total:.2f}")
+    col2.metric("γ Dispersiva", f"{gamma_d:.2f}")
+    col3.metric("γ Polar", f"{gamma_p:.2f}")
+    col4.metric("R²", f"{r2:.4f}")
 
-        for liquid, angle in angles.items():
+    # -----------------------------------------------------
+    # 4️⃣ Salvar no banco (BLINDADO)
+    # -----------------------------------------------------
+    experiment_id = create_experiment(supabase, sample_id)
+
+    if experiment_id is None:
+        st.warning("Não foi possível criar o experimento no banco.")
+        return
+
+    for liquid, angle in angles.items():
+        try:
             supabase.table("surface_energy_measurements").insert({
                 "experiment_id": experiment_id,
                 "liquid": liquid,
@@ -152,31 +174,32 @@ def render_tensiometria_tab(supabase):
                 "model": "OWRK",
                 "r2_fit": r2
             }).execute()
+        except Exception:
+            st.warning(f"Falha ao salvar dados para o líquido {liquid}.")
 
-        st.success("✔ Resultados salvos no banco")
+    st.success("✔ Resultados salvos no banco")
 
     # -----------------------------------------------------
-    # 5️⃣ Histórico
+    # 5️⃣ Histórico (BLINDADO)
     # -----------------------------------------------------
     st.subheader("Histórico de Energia Superficial")
 
-    history = (
-        supabase
-        .table("surface_energy_measurements")
-        .select(
-            "created_at, liquid, contact_angle_deg, "
-            "surface_energy_total, surface_energy_dispersive, "
-            "surface_energy_polar, r2_fit"
+    try:
+        history = (
+            supabase
+            .table("surface_energy_measurements")
+            .select(
+                "created_at, liquid, contact_angle_deg, "
+                "surface_energy_total, surface_energy_dispersive, "
+                "surface_energy_polar, r2_fit"
+            )
+            .order("created_at", desc=True)
+            .execute()
         )
-        .order("created_at", desc=True)
-        .execute()
-    )
-
-    if history.data:
-        df = pd.DataFrame(history.data)
-        st.dataframe(
-            df,
-            key="tensio_history_table"
-        )
-    else:
-        st.info("Nenhum resultado de tensiometria registrado.")
+        if history.data:
+            df = pd.DataFrame(history.data)
+            st.dataframe(df, key="tensio_history_table")
+        else:
+            st.info("Nenhum resultado de tensiometria registrado.")
+    except Exception:
+        st.info("Histórico indisponível no momento.")
