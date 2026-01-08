@@ -1,263 +1,125 @@
+# ml_tab.py
 # -*- coding: utf-8 -*-
 
 """
-SurfaceXLab — Machine Learning & Análise Multivariada
-
-Funcionalidades:
-- Leitura robusta de features multimodais (Raman, Tensiometria, Elétrica)
-- PCA (Análise de Componentes Principais) multimodal
-- Visualização PC1 × PC2
-- Base pronta para Random Forest (classificação ou regressão)
-
-⚠ Uso científico / exploratório — não diagnóstico.
+SurfaceXLab — Otimizador IA
+PCA + Machine Learning supervisionado
 """
 
 import streamlit as st
 import pandas as pd
-import json
 import numpy as np
 
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
-import matplotlib.pyplot as plt
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score, confusion_matrix
+from sklearn.ensemble import RandomForestClassifier
 
 
-# =========================================================
-# LOAD FEATURES — MULTIMODAL
-# =========================================================
-def load_ml_features(supabase) -> pd.DataFrame:
-    """
-    Carrega features Raman, Tensiometria e Elétrica do Supabase.
-    Todas são consolidadas em um único DataFrame ML-ready.
-    """
+def render_ml_tab(supabase=None):
 
-    dfs = []
+    st.header("🤖 Otimizador — Análise Multivariada e IA")
 
-    # ---------------- RAMAN ----------------
-    try:
-        res = (
-            supabase
-            .table("raman_features")
-            .select("raman_measurement_id, features, created_at")
-            .execute()
-        )
-
-        if res.data:
-            df_r = pd.DataFrame(res.data)
-            features = df_r["features"].apply(
-                lambda x: x if isinstance(x, dict) else json.loads(x)
-            )
-            df_feat = pd.json_normalize(features)
-            df_r = pd.concat([df_r[["raman_measurement_id"]], df_feat], axis=1)
-            df_r["modality"] = "Raman"
-            dfs.append(df_r)
-
-    except Exception as e:
-        st.warning("⚠ Falha ao carregar features Raman.")
-        st.exception(e)
-
-    # ---------------- TENSIOMETRIA ----------------
-    try:
-        res = (
-            supabase
-            .table("tensiometry_measurements")
-            .select(
-                "experiment_id, contact_angle_deg, contact_angle_std_deg"
-            )
-            .execute()
-        )
-
-        if res.data:
-            df_t = pd.DataFrame(res.data)
-            df_t["modality"] = "Tensiometria"
-            dfs.append(df_t)
-
-    except Exception as e:
-        st.warning("⚠ Falha ao carregar dados de tensiometria.")
-        st.exception(e)
-
-    # ---------------- ELÉTRICA ----------------
-    try:
-        res = (
-            supabase
-            .table("electrical_measurements")
-            .select(
-                "experiment_id, sheet_resistance_ohm_sq, resistivity_ohm_cm, conductivity_s_cm"
-            )
-            .execute()
-        )
-
-        if res.data:
-            df_e = pd.DataFrame(res.data)
-            df_e["modality"] = "Elétrica"
-            dfs.append(df_e)
-
-    except Exception as e:
-        st.warning("⚠ Falha ao carregar dados elétricos.")
-        st.exception(e)
-
-    if not dfs:
-        return pd.DataFrame()
-
-    df = pd.concat(dfs, axis=0, ignore_index=True)
-    return df
-
-
-# =========================================================
-# UI — ABA ML + PCA
-# =========================================================
-def render_ml_tab(supabase):
-    st.header("🤖 Análise Multivariada & Machine Learning")
-
-    st.markdown(
-        """
-        Este módulo integra **dados multimodais** provenientes de:
-        - Espectroscopia Raman
-        - Tensiometria
-        - Medições Elétricas
-
-        Inclui **Análise de Componentes Principais (PCA)** como etapa
-        exploratória e preparatória para modelos supervisionados.
-        """
-    )
+    st.markdown("""
+    Esta aba integra **Análise de Componentes Principais (PCA)** e
+    **modelos de aprendizado supervisionado**, utilizando fingerprints
+    espectrais extraídos previamente.
+    """)
 
     # -----------------------------------------------------
-    # 1️⃣ Carregar dados
+    # 1️⃣ Carregar fingerprints (exemplo: tabela fingerprints)
     # -----------------------------------------------------
-    df = load_ml_features(supabase)
+    st.subheader("Base de dados")
 
-    if df.empty:
-        st.info(
-            "Nenhum dado multimodal disponível para análise.",
-            key="ml_no_data_info"
-        )
+    try:
+        res = supabase.table("raman_fingerprints").select("*").execute()
+        data = res.data if res.data else []
+    except Exception:
+        data = []
+
+    if not data:
+        st.warning("Nenhum fingerprint disponível no banco.")
         return
 
-    st.subheader("📊 Dataset consolidado")
-    st.dataframe(
-        df.head(50),
-        use_container_width=True,
-        key="ml_dataset_preview"
+    df = pd.DataFrame(data)
+
+    label_col = st.selectbox(
+        "Variável alvo (classe)",
+        options=[c for c in df.columns if c not in ("id", "created_at")]
     )
 
-    # -----------------------------------------------------
-    # 2️⃣ Seleção de features numéricas
-    # -----------------------------------------------------
-    numeric_cols = df.select_dtypes(include="number").columns.tolist()
+    X = df.drop(columns=[label_col, "id", "created_at"], errors="ignore")
+    y = df[label_col]
 
-    if len(numeric_cols) < 2:
-        st.warning(
-            "Dados numéricos insuficientes para PCA.",
-            key="ml_not_enough_numeric"
-        )
-        return
+    # -----------------------------------------------------
+    # 2️⃣ PCA
+    # -----------------------------------------------------
+    st.subheader("Análise de Componentes Principais (PCA)")
 
-    selected_features = st.multiselect(
-        "Selecione as variáveis para PCA",
-        numeric_cols,
-        default=numeric_cols,
-        key="ml_feature_select"
+    n_components = st.slider(
+        "Número de componentes principais",
+        min_value=2,
+        max_value=min(6, X.shape[1]),
+        value=2
     )
-
-    if len(selected_features) < 2:
-        st.warning(
-            "Selecione ao menos duas variáveis.",
-            key="ml_select_min_features"
-        )
-        return
-
-    X = df[selected_features].dropna()
-
-    # -----------------------------------------------------
-    # 3️⃣ PCA
-    # -----------------------------------------------------
-    st.divider()
-    st.subheader("📉 Análise de Componentes Principais (PCA)")
 
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
 
-    pca = PCA(n_components=2)
-    pcs = pca.fit_transform(X_scaled)
+    pca = PCA(n_components=n_components)
+    scores = pca.fit_transform(X_scaled)
 
-    df_pca = pd.DataFrame(
-        pcs,
-        columns=["PC1", "PC2"],
-        index=X.index,
+    scores_df = pd.DataFrame(
+        scores,
+        columns=[f"PC{i+1}" for i in range(n_components)]
     )
 
-    df_pca["modality"] = df.loc[X.index, "modality"].values
+    st.write("📊 Variância explicada:")
+    st.write(pca.explained_variance_ratio_)
 
-    explained = pca.explained_variance_ratio_ * 100
-
-    st.markdown(
-        f"""
-        **Variância explicada:**
-        - PC1: {explained[0]:.2f} %
-        - PC2: {explained[1]:.2f} %
-        """,
-        key="ml_explained_variance"
-    )
+    st.dataframe(scores_df)
 
     # -----------------------------------------------------
-    # 4️⃣ Plot PC1 × PC2
+    # 3️⃣ Loadings
     # -----------------------------------------------------
-    fig, ax = plt.subplots(figsize=(7, 5))
+    st.subheader("Loadings (contribuição das variáveis)")
 
-    for mod in df_pca["modality"].unique():
-        mask = df_pca["modality"] == mod
-        ax.scatter(
-            df_pca.loc[mask, "PC1"],
-            df_pca.loc[mask, "PC2"],
-            label=mod,
-            alpha=0.7,
-        )
-
-    ax.set_xlabel("PC1")
-    ax.set_ylabel("PC2")
-    ax.set_title("PCA Multimodal — PC1 × PC2")
-    ax.legend()
-    ax.grid(alpha=0.3)
-
-    st.pyplot(fig, key="ml_pca_plot")
-
-    # -----------------------------------------------------
-    # 5️⃣ Loadings (interpretação física)
-    # -----------------------------------------------------
-    st.subheader("🧠 Importância das variáveis (Loadings PCA)")
-
-    loadings = pd.DataFrame(
+    loadings_df = pd.DataFrame(
         pca.components_.T,
-        index=selected_features,
-        columns=["PC1", "PC2"],
+        index=X.columns,
+        columns=[f"PC{i+1}" for i in range(n_components)]
     )
 
+    st.dataframe(loadings_df)
+
+    # -----------------------------------------------------
+    # 4️⃣ ML supervisionado
+    # -----------------------------------------------------
+    st.subheader("Aprendizado supervisionado")
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        scores, y, test_size=0.25, random_state=42
+    )
+
+    model = RandomForestClassifier(
+        n_estimators=200,
+        random_state=42
+    )
+
+    model.fit(X_train, y_train)
+
+    y_pred = model.predict(X_test)
+
+    acc = accuracy_score(y_test, y_pred)
+
+    st.metric("Acurácia", f"{acc:.2f}")
+
+    st.write("📉 Matriz de confusão:")
     st.dataframe(
-        loadings.sort_values("PC1", key=np.abs, ascending=False),
-        key="ml_pca_loadings"
-    )
-
-    # -----------------------------------------------------
-    # 6️⃣ ML-ready
-    # -----------------------------------------------------
-    st.divider()
-    st.subheader("🚀 Pronto para Machine Learning")
-
-    st.markdown(
-        """
-        O dataset já se encontra:
-        - Normalizado
-        - Reduzido (opcionalmente via PCA)
-        - Multimodal
-
-        ➡ Pode ser utilizado diretamente para:
-        - Random Forest (classificação ou regressão)
-        - Validação cruzada
-        - Análise de importância das features
-        """
-    )
-
-    st.success(
-        "Pipeline PCA + ML pronto para uso.",
-        key="ml_success_message"
+        pd.DataFrame(
+            confusion_matrix(y_test, y_pred),
+            index=["Real 0", "Real 1"],
+            columns=["Pred 0", "Pred 1"]
+        )
     )
