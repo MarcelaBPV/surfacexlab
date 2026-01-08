@@ -1,42 +1,51 @@
-# ml_tab.py
 # -*- coding: utf-8 -*-
 
 """
 SurfaceXLab — Otimizador IA
-PCA + Machine Learning supervisionado
+PCA Multivariado + Machine Learning Supervisionado
 """
 
 import streamlit as st
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
 
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score, confusion_matrix
-from sklearn.ensemble import RandomForestClassifier
+
+from ml_models import (
+    random_forest_cv,
+    temporal_pca,
+)
 
 
-def render_ml_tab(supabase=None):
+# =========================================================
+# UI — ABA ML / IA
+# =========================================================
+def render_ml_tab(supabase):
 
     st.header("🤖 Otimizador — Análise Multivariada e IA")
 
-    st.markdown("""
-    Esta aba integra **Análise de Componentes Principais (PCA)** e
-    **modelos de aprendizado supervisionado**, utilizando fingerprints
-    espectrais extraídos previamente.
-    """)
+    st.markdown(
+        """
+        Este módulo integra **Análise de Componentes Principais (PCA)** e
+        **Machine Learning supervisionado**, utilizando fingerprints
+        experimentais previamente extraídos e armazenados no banco.
+        """
+    )
 
     # -----------------------------------------------------
-    # 1️⃣ Carregar fingerprints (exemplo: tabela fingerprints)
+    # 1️⃣ Carregar fingerprints
     # -----------------------------------------------------
-    st.subheader("Base de dados")
+    st.subheader("📦 Base de dados")
 
     try:
         res = supabase.table("raman_fingerprints").select("*").execute()
         data = res.data if res.data else []
-    except Exception:
-        data = []
+    except Exception as e:
+        st.error("Erro ao carregar fingerprints do banco.")
+        st.exception(e)
+        return
 
     if not data:
         st.warning("Nenhum fingerprint disponível no banco.")
@@ -44,82 +53,176 @@ def render_ml_tab(supabase=None):
 
     df = pd.DataFrame(data)
 
+    st.dataframe(
+        df.head(50),
+        use_container_width=True,
+        key="ml_fingerprint_preview"
+    )
+
+    # -----------------------------------------------------
+    # 2️⃣ Seleção da variável alvo
+    # -----------------------------------------------------
     label_col = st.selectbox(
-        "Variável alvo (classe)",
-        options=[c for c in df.columns if c not in ("id", "created_at")]
+        "Variável alvo (classe ou resposta)",
+        options=[c for c in df.columns if c not in ("id", "created_at")],
+        key="ml_target_select"
     )
 
     X = df.drop(columns=[label_col, "id", "created_at"], errors="ignore")
     y = df[label_col]
 
+    numeric_cols = X.select_dtypes(include="number").columns.tolist()
+
+    if len(numeric_cols) < 2:
+        st.warning("Número insuficiente de variáveis numéricas para PCA.")
+        return
+
     # -----------------------------------------------------
-    # 2️⃣ PCA
+    # 3️⃣ PCA MULTIVARIADO
     # -----------------------------------------------------
-    st.subheader("Análise de Componentes Principais (PCA)")
+    st.divider()
+    st.subheader("📉 Análise de Componentes Principais (PCA)")
 
     n_components = st.slider(
         "Número de componentes principais",
         min_value=2,
-        max_value=min(6, X.shape[1]),
-        value=2
+        max_value=min(6, len(numeric_cols)),
+        value=2,
+        key="ml_pca_n_components"
     )
 
     scaler = StandardScaler()
-    X_scaled = scaler.fit_transform(X)
+    X_scaled = scaler.fit_transform(X[numeric_cols])
 
     pca = PCA(n_components=n_components)
     scores = pca.fit_transform(X_scaled)
 
     scores_df = pd.DataFrame(
         scores,
-        columns=[f"PC{i+1}" for i in range(n_components)]
+        columns=[f"PC{i+1}" for i in range(n_components)],
+        index=df.index
     )
 
-    st.write("📊 Variância explicada:")
-    st.write(pca.explained_variance_ratio_)
+    explained = pca.explained_variance_ratio_ * 100
 
-    st.dataframe(scores_df)
+    st.markdown(
+        f"""
+        **Variância explicada:**
+        - PC1: {explained[0]:.2f} %
+        - PC2: {explained[1]:.2f} %
+        """,
+        key="ml_pca_explained"
+    )
+
+    st.dataframe(
+        scores_df,
+        use_container_width=True,
+        key="ml_pca_scores"
+    )
 
     # -----------------------------------------------------
-    # 3️⃣ Loadings
+    # 4️⃣ Loadings (interpretação física)
     # -----------------------------------------------------
-    st.subheader("Loadings (contribuição das variáveis)")
+    st.subheader("🧠 Loadings — contribuição das variáveis")
 
     loadings_df = pd.DataFrame(
         pca.components_.T,
-        index=X.columns,
+        index=numeric_cols,
         columns=[f"PC{i+1}" for i in range(n_components)]
     )
 
-    st.dataframe(loadings_df)
-
-    # -----------------------------------------------------
-    # 4️⃣ ML supervisionado
-    # -----------------------------------------------------
-    st.subheader("Aprendizado supervisionado")
-
-    X_train, X_test, y_train, y_test = train_test_split(
-        scores, y, test_size=0.25, random_state=42
-    )
-
-    model = RandomForestClassifier(
-        n_estimators=200,
-        random_state=42
-    )
-
-    model.fit(X_train, y_train)
-
-    y_pred = model.predict(X_test)
-
-    acc = accuracy_score(y_test, y_pred)
-
-    st.metric("Acurácia", f"{acc:.2f}")
-
-    st.write("📉 Matriz de confusão:")
     st.dataframe(
-        pd.DataFrame(
-            confusion_matrix(y_test, y_pred),
-            index=["Real 0", "Real 1"],
-            columns=["Pred 0", "Pred 1"]
-        )
+        loadings_df.sort_values("PC1", key=np.abs, ascending=False),
+        key="ml_pca_loadings"
     )
+
+    # -----------------------------------------------------
+    # 5️⃣ PCA TEMPORAL (opcional)
+    # -----------------------------------------------------
+    if "created_at" in df.columns and "sample_code" in df.columns:
+
+        st.divider()
+        st.subheader("⏱ PCA Multi-Amostra Temporal")
+
+        run_temporal = st.button(
+            "Executar PCA Temporal",
+            key="ml_temporal_pca_button"
+        )
+
+        if run_temporal:
+            out = temporal_pca(
+                df,
+                feature_cols=numeric_cols,
+                sample_col="sample_code",
+                time_col="created_at"
+            )
+
+            df_pca_t = out["df_pca"]
+            explained_t = out["explained_variance"] * 100
+
+            fig, ax = plt.subplots(figsize=(7, 5))
+            for sample in df_pca_t["sample_code"].unique():
+                d = df_pca_t[df_pca_t["sample_code"] == sample].sort_values("created_at")
+                ax.plot(d["PC1"], d["PC2"], marker="o", label=sample)
+
+            ax.set_xlabel("PC1")
+            ax.set_ylabel("PC2")
+            ax.set_title("PCA Temporal — Evolução das Amostras")
+            ax.legend()
+            ax.grid(alpha=0.3)
+
+            st.pyplot(fig, key="ml_temporal_pca_plot")
+
+            st.markdown(
+                f"""
+                **Variância explicada (temporal):**
+                - PC1: {explained_t[0]:.2f} %
+                - PC2: {explained_t[1]:.2f} %
+                """
+            )
+
+    # -----------------------------------------------------
+    # 6️⃣ RANDOM FOREST + VALIDAÇÃO CRUZADA
+    # -----------------------------------------------------
+    st.divider()
+    st.subheader("🌲 Random Forest com Validação Cruzada")
+
+    task_type = st.selectbox(
+        "Tipo de tarefa",
+        ["classification", "regression"],
+        key="ml_rf_task"
+    )
+
+    run_rf = st.button(
+        "Executar Random Forest + CV",
+        key="ml_rf_button"
+    )
+
+    if run_rf:
+        X_rf = scores_df.dropna()
+        y_rf = y.loc[X_rf.index]
+
+        out = random_forest_cv(
+            X_rf,
+            y_rf,
+            task=task_type,
+            cv=5
+        )
+
+        st.success("✔ Random Forest executado com sucesso")
+
+        st.markdown(
+            f"""
+            **Validação cruzada (5-fold):**
+            - Média: {out['cv_mean']:.3f}
+            - Desvio padrão: {out['cv_std']:.3f}
+            """
+        )
+
+        st.subheader("📌 Importância das componentes (PCs)")
+        st.bar_chart(
+            out["feature_importance"],
+            key="ml_rf_importance"
+        )
+
+    st.success("Pipeline PCA + IA pronto para uso científico.")
