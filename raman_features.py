@@ -28,50 +28,37 @@ from sklearn.decomposition import PCA
 # MAPA MOLECULAR (BIO / GERAL)
 # =========================================================
 MOLECULAR_MAP = [
-    # ==============================
-    # ÁCIDOS NUCLEICOS / BIO
-    # ==============================
+    # ÁCIDOS NUCLEICOS
     {"range": (720, 735), "group": "Adenina / nucleotídeos (DNA/RNA)"},
     {"range": (780, 790), "group": "DNA/RNA – ligações fosfato"},
 
-    # ==============================
     # HEME / PORFIRINAS
-    # ==============================
     {"range": (730, 750), "group": "Hemoglobina / porfirinas"},
     {"range": (748, 760), "group": "Citocromo c / heme"},
 
-    # ==============================
-    # PROTEÍNAS / AMINOÁCIDOS
-    # ==============================
+    # PROTEÍNAS
     {"range": (935, 955), "group": "Proteínas – esqueleto α-hélice"},
     {"range": (1000, 1008), "group": "Fenilalanina"},
     {"range": (1240, 1280), "group": "Amida III (proteínas)"},
     {"range": (1535, 1560), "group": "Amida II (proteínas)"},
     {"range": (1650, 1680), "group": "Amida I / C=C (proteínas e NR)"},
 
-    # ==============================
     # LIPÍDIOS / FOSFOLIPÍDIOS
-    # ==============================
     {"range": (1120, 1135), "group": "Lipídios – C–C estiramento"},
     {"range": (1295, 1315), "group": "Lipídios – CH2 torção"},
     {"range": (1440, 1475), "group": "Lipídios – CH2 deformação"},
     {"range": (2850, 2885), "group": "Lipídios – CH2 simétrico"},
     {"range": (2920, 2960), "group": "Lipídios / proteínas – CH3"},
 
-    # ==============================
     # BORRACHA NATURAL (NR)
-    # ==============================
     {"range": (1660, 1685), "group": "NR – C=C cis-1,4-poliisopreno"},
     {"range": (2820, 3030), "group": "NR – C–H stretching (CH2/CH3)"},
 
-    # ==============================
-    # FOSFATOS / BIOATIVIDADE (CaP / SBF)
-    # ==============================
+    # FOSFATOS / BIOATIVIDADE
     {"range": (940, 960), "group": "Fosfato PO4³⁻ ν1 (CaP amorfo)"},
     {"range": (980, 1000), "group": "P–O stretching (CaP / DCPD)"},
     {"range": (1000, 1070), "group": "Fosfatos secundários / Mg-fosfatos"},
 ]
-
 
 
 # =========================================================
@@ -137,7 +124,7 @@ def map_peaks_to_groups(peaks_df: pd.DataFrame) -> pd.DataFrame:
 
 
 # =========================================================
-# ÁREAS INTEGRADAS POR GRUPO
+# ÁREAS INTEGRADAS POR GRUPO (ROBUSTO NUMPY)
 # =========================================================
 def compute_group_areas(
     spectrum_df: pd.DataFrame,
@@ -147,6 +134,7 @@ def compute_group_areas(
     """
     Integra área espectral normalizada em torno dos picos
     associados a cada grupo molecular.
+    Compatível com NumPy antigo e NumPy >= 2.0
     """
     areas: Dict[str, float] = {}
 
@@ -164,7 +152,12 @@ def compute_group_areas(
         if mask.sum() < 3:
             continue
 
-        area = np.trapz(y[mask], x[mask])
+        # 🔒 integração numérica robusta
+        try:
+            area = np.trapezoid(y[mask], x[mask])
+        except AttributeError:
+            area = np.trapz(y[mask], x[mask])
+
         areas[group] = areas.get(group, 0.0) + float(area)
 
     return areas
@@ -228,9 +221,7 @@ def build_fingerprint(
 def apply_exploratory_rules(peaks_df: pd.DataFrame) -> List[Dict[str, str]]:
     triggered = []
 
-    present_groups = set(
-        peaks_df["molecular_group"].dropna().unique()
-    )
+    present_groups = set(peaks_df["molecular_group"].dropna().unique())
 
     for rule in DISEASE_RULES:
         if all(g in present_groups for g in rule["groups_required"]):
@@ -249,9 +240,6 @@ def run_pca_on_fingerprints(
     fingerprints: List[Dict[str, float]],
     n_components: int = 3,
 ) -> Dict[str, Any]:
-    """
-    Executa PCA sobre fingerprints Raman consolidados.
-    """
     df = pd.DataFrame(fingerprints).fillna(0.0)
 
     scaler = StandardScaler()
@@ -281,9 +269,6 @@ def extract_raman_features(
     spectrum_df: pd.DataFrame,
     peaks_df: pd.DataFrame,
 ) -> Dict[str, Any]:
-    """
-    Pipeline principal consumido pelo Streamlit / Supabase / ML.
-    """
     peaks_mapped = map_peaks_to_groups(peaks_df)
 
     group_areas = compute_group_areas(spectrum_df, peaks_mapped)
