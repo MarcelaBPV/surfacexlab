@@ -1,4 +1,3 @@
-# ml_tab.py
 # -*- coding: utf-8 -*-
 
 """
@@ -123,40 +122,54 @@ def render_ml_tab(supabase):
     )
 
     # -----------------------------------------------------
-    # Carregar dados
+    # 1️⃣ Carregar dados
     # -----------------------------------------------------
     df = load_ml_features(supabase)
 
     if df.empty:
-        st.info("Nenhum dado multimodal disponível para análise.")
+        st.info(
+            "Nenhum dado multimodal disponível para análise.",
+            key="ml_no_data_info"
+        )
         return
 
     st.subheader("📊 Dataset consolidado")
-    st.dataframe(df.head(50), use_container_width=True)
+    st.dataframe(
+        df.head(50),
+        use_container_width=True,
+        key="ml_dataset_preview"
+    )
 
     # -----------------------------------------------------
-    # Seleção de features numéricas
+    # 2️⃣ Seleção de features numéricas
     # -----------------------------------------------------
     numeric_cols = df.select_dtypes(include="number").columns.tolist()
 
     if len(numeric_cols) < 2:
-        st.warning("Dados numéricos insuficientes para PCA.")
+        st.warning(
+            "Dados numéricos insuficientes para PCA.",
+            key="ml_not_enough_numeric"
+        )
         return
 
     selected_features = st.multiselect(
         "Selecione as variáveis para PCA",
         numeric_cols,
         default=numeric_cols,
+        key="ml_feature_select"
     )
 
     if len(selected_features) < 2:
-        st.warning("Selecione ao menos duas variáveis.")
+        st.warning(
+            "Selecione ao menos duas variáveis.",
+            key="ml_select_min_features"
+        )
         return
 
     X = df[selected_features].dropna()
 
     # -----------------------------------------------------
-    # PCA
+    # 3️⃣ PCA
     # -----------------------------------------------------
     st.divider()
     st.subheader("📉 Análise de Componentes Principais (PCA)")
@@ -182,11 +195,12 @@ def render_ml_tab(supabase):
         **Variância explicada:**
         - PC1: {explained[0]:.2f} %
         - PC2: {explained[1]:.2f} %
-        """
+        """,
+        key="ml_explained_variance"
     )
 
     # -----------------------------------------------------
-    # Plot PC1 × PC2
+    # 4️⃣ Plot PC1 × PC2
     # -----------------------------------------------------
     fig, ax = plt.subplots(figsize=(7, 5))
 
@@ -205,10 +219,10 @@ def render_ml_tab(supabase):
     ax.legend()
     ax.grid(alpha=0.3)
 
-    st.pyplot(fig)
+    st.pyplot(fig, key="ml_pca_plot")
 
     # -----------------------------------------------------
-    # Loadings (interpretação física)
+    # 5️⃣ Loadings (interpretação física)
     # -----------------------------------------------------
     st.subheader("🧠 Importância das variáveis (Loadings PCA)")
 
@@ -218,10 +232,13 @@ def render_ml_tab(supabase):
         columns=["PC1", "PC2"],
     )
 
-    st.dataframe(loadings.sort_values("PC1", key=np.abs, ascending=False))
+    st.dataframe(
+        loadings.sort_values("PC1", key=np.abs, ascending=False),
+        key="ml_pca_loadings"
+    )
 
     # -----------------------------------------------------
-    # ML-ready
+    # 6️⃣ ML-ready
     # -----------------------------------------------------
     st.divider()
     st.subheader("🚀 Pronto para Machine Learning")
@@ -240,4 +257,7 @@ def render_ml_tab(supabase):
         """
     )
 
-    st.success("Pipeline PCA + ML pronto para uso.")
+    st.success(
+        "Pipeline PCA + ML pronto para uso.",
+        key="ml_success_message"
+    )
