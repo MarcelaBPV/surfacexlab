@@ -91,7 +91,12 @@ def render_raman_tab(supabase):
         return
 
     sample_map = {s["sample_code"]: s["id"] for s in samples}
-    sample_code = st.selectbox("Amostra", list(sample_map.keys()))
+
+    sample_code = st.selectbox(
+        "Amostra",
+        list(sample_map.keys()),
+        key="raman_sample_select"
+    )
     sample_id = sample_map[sample_code]
 
     # -----------------------------------------------------
@@ -101,10 +106,20 @@ def render_raman_tab(supabase):
 
     col1, col2 = st.columns(2)
     with col1:
-        operator = st.text_input("Operador")
-        equipment = st.text_input("Equipamento", "Raman Spectrometer")
+        operator = st.text_input(
+            "Operador",
+            key="raman_operator"
+        )
+        equipment = st.text_input(
+            "Equipamento",
+            "Raman Spectrometer",
+            key="raman_equipment"
+        )
     with col2:
-        notes = st.text_area("Observações")
+        notes = st.text_area(
+            "Observações",
+            key="raman_notes"
+        )
 
     # -----------------------------------------------------
     # 3️⃣ Parâmetros Raman
@@ -114,29 +129,39 @@ def render_raman_tab(supabase):
     col3, col4, col5 = st.columns(3)
     with col3:
         laser_wavelength_nm = st.number_input(
-            "Comprimento de onda do laser (nm)", value=785.0
+            "Comprimento de onda do laser (nm)",
+            value=785.0,
+            key="raman_laser_wavelength"
         )
     with col4:
         laser_power_mw = st.number_input(
-            "Potência do laser (mW)", value=50.0
+            "Potência do laser (mW)",
+            value=50.0,
+            key="raman_laser_power"
         )
     with col5:
         acquisition_time_s = st.number_input(
-            "Tempo de aquisição (s)", value=10.0
+            "Tempo de aquisição (s)",
+            value=10.0,
+            key="raman_acquisition_time"
         )
 
     baseline_method = st.selectbox(
         "Método de correção de baseline",
-        ["ASLS", "None"]
+        ["ASLS", "None"],
+        key="raman_baseline_method"
     )
 
     normalization_method = st.selectbox(
         "Método de normalização",
-        ["Máx.", "None"]
+        ["Máx.", "None"],
+        key="raman_normalization_method"
     )
 
     r2_fit = st.number_input(
-        "R² do ajuste (opcional)", value=0.0
+        "R² do ajuste (opcional)",
+        value=0.0,
+        key="raman_r2"
     )
 
     # -----------------------------------------------------
@@ -146,10 +171,16 @@ def render_raman_tab(supabase):
 
     uploaded_file = st.file_uploader(
         "Arquivo do espectro",
-        type=["csv", "txt", "xls", "xlsx"]
+        type=["csv", "txt", "xls", "xlsx"],
+        key="raman_upload_file"
     )
 
-    if uploaded_file and st.button("Processar e Salvar"):
+    process_clicked = st.button(
+        "Processar e Salvar",
+        key="raman_process_button"
+    )
+
+    if uploaded_file and process_clicked:
 
         with st.spinner("Processando espectro Raman..."):
             result = process_raman_spectrum_with_groups(
@@ -221,6 +252,9 @@ def render_raman_tab(supabase):
     )
 
     if history.data:
-        st.dataframe(pd.DataFrame(history.data))
+        st.dataframe(
+            pd.DataFrame(history.data),
+            key="raman_history_table"
+        )
     else:
         st.info("Nenhuma análise Raman registrada.")
