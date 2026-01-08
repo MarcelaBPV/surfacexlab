@@ -1,260 +1,150 @@
 # -*- coding: utf-8 -*-
+"""
+SurfaceXLab — Raman Processing Pipeline
+Scientific-grade, PCA-ready
+"""
 
-import streamlit as st
+import numpy as np
 import pandas as pd
-from datetime import date
-
-from raman_processing import process_raman_spectrum_with_groups
+import matplotlib.pyplot as plt
+from scipy.signal import find_peaks
+from scipy.sparse import diags
+from scipy.sparse.linalg import spsolve
+from sklearn.preprocessing import StandardScaler
 
 
 # =========================================================
-# HELPERS — BANCO DE DADOS
+# BASELINE — ASLS
 # =========================================================
+def baseline_asls(y, lam=1e5, p=0.01, niter=10):
+    L = len(y)
+    D = diags([1, -2, 1], [0, -1, -2], shape=(L, L-2))
+    w = np.ones(L)
 
-def get_samples(supabase):
-    res = (
-        supabase
-        .table("samples")
-        .select("id, sample_code")
-        .order("created_at", desc=True)
-        .execute()
-    )
-    return res.data if res.data else []
+    for _ in range(niter):
+        W = diags(w, 0)
+        Z = W + lam * D.dot(D.T)
+        z = spsolve(Z, w * y)
+        w = p * (y > z) + (1 - p) * (y < z)
 
-
-def create_experiment(supabase, sample_id, operator, equipment, notes):
-    res = supabase.table("experiments").insert({
-        "sample_id": sample_id,
-        "experiment_type": "Raman",
-        "operator": operator,
-        "equipment": equipment,
-        "notes": notes,
-        "experiment_date": str(date.today())
-    }).execute()
-    return res.data[0]["id"]
+    return z
 
 
-def create_raman_measurement(
-    supabase,
-    experiment_id,
-    laser_wavelength_nm,
-    laser_power_mw,
-    acquisition_time_s,
-    baseline_method,
-    normalization_method,
-    r2_fit
+# =========================================================
+# FIGURES — PADRÃO ARTIGO
+# =========================================================
+def article_figure(figsize=(8, 4)):
+    fig, ax = plt.subplots(figsize=figsize, dpi=300)
+    ax.tick_params(direction="in", top=True, right=True)
+    return fig, ax
+
+
+# =========================================================
+# PIPELINE PRINCIPAL
+# =========================================================
+def process_raman_spectrum_with_groups(
+    file_like,
+    peak_prominence=0.02
 ):
-    res = supabase.table("raman_measurements").insert({
-        "experiment_id": experiment_id,
-        "laser_wavelength_nm": laser_wavelength_nm,
-        "laser_power_mw": laser_power_mw,
-        "acquisition_time_s": acquisition_time_s,
-        "baseline_method": baseline_method,
-        "normalization_method": normalization_method,
-        "r2_fit": r2_fit
-    }).execute()
-    return res.data[0]["id"]
-
-
-def insert_raman_peaks(supabase, raman_measurement_id, peaks_df):
-    if peaks_df is None or peaks_df.empty:
-        return
-
-    records = []
-    for _, row in peaks_df.iterrows():
-        records.append({
-            "raman_measurement_id": raman_measurement_id,
-            "peak_position_cm": float(row["center_fit"]),
-            "peak_intensity": float(row["intensity_norm"]),
-            "peak_fwhm": float(row["fwhm"]),
-            "molecular_group": None
-        })
-
-    if records:
-        supabase.table("raman_peaks").insert(records).execute()
-
-
-# =========================================================
-# UI — ABA RAMAN
-# =========================================================
-
-def render_raman_tab(supabase):
-    st.header("🔬 Análises Moleculares — Espectroscopia Raman")
-
     # -----------------------------------------------------
-    # 1️⃣ Seleção da amostra
+    # 1️⃣ Leitura
     # -----------------------------------------------------
-    samples = get_samples(supabase)
-
-    if not samples:
-        st.warning("Nenhuma amostra cadastrada.")
-        return
-
-    sample_map = {s["sample_code"]: s["id"] for s in samples}
-
-    sample_code = st.selectbox(
-        "Amostra",
-        list(sample_map.keys()),
-        key="raman_sample_select"
-    )
-    sample_id = sample_map[sample_code]
-
-    # -----------------------------------------------------
-    # 2️⃣ Metadados do experimento
-    # -----------------------------------------------------
-    st.subheader("Metadados do Experimento")
-
-    col1, col2 = st.columns(2)
-    with col1:
-        operator = st.text_input(
-            "Operador",
-            key="raman_operator"
-        )
-        equipment = st.text_input(
-            "Equipamento",
-            "Raman Spectrometer",
-            key="raman_equipment"
-        )
-    with col2:
-        notes = st.text_area(
-            "Observações",
-            key="raman_notes"
-        )
-
-    # -----------------------------------------------------
-    # 3️⃣ Parâmetros Raman
-    # -----------------------------------------------------
-    st.subheader("Parâmetros de Aquisição")
-
-    col3, col4, col5 = st.columns(3)
-    with col3:
-        laser_wavelength_nm = st.number_input(
-            "Comprimento de onda do laser (nm)",
-            value=785.0,
-            key="raman_laser_wavelength"
-        )
-    with col4:
-        laser_power_mw = st.number_input(
-            "Potência do laser (mW)",
-            value=50.0,
-            key="raman_laser_power"
-        )
-    with col5:
-        acquisition_time_s = st.number_input(
-            "Tempo de aquisição (s)",
-            value=10.0,
-            key="raman_acquisition_time"
-        )
-
-    baseline_method = st.selectbox(
-        "Método de correção de baseline",
-        ["ASLS", "None"],
-        key="raman_baseline_method"
-    )
-
-    normalization_method = st.selectbox(
-        "Método de normalização",
-        ["Máx.", "None"],
-        key="raman_normalization_method"
-    )
-
-    r2_fit = st.number_input(
-        "R² do ajuste (opcional)",
-        value=0.0,
-        key="raman_r2"
-    )
-
-    # -----------------------------------------------------
-    # 4️⃣ Upload e processamento Raman
-    # -----------------------------------------------------
-    st.subheader("Upload do Espectro Raman")
-
-    uploaded_file = st.file_uploader(
-        "Arquivo do espectro",
-        type=["csv", "txt", "xls", "xlsx"],
-        key="raman_upload_file"
-    )
-
-    process_clicked = st.button(
-        "Processar e Salvar",
-        key="raman_process_button"
-    )
-
-    if uploaded_file and process_clicked:
-
-        with st.spinner("Processando espectro Raman..."):
-            result = process_raman_spectrum_with_groups(
-                file_like=uploaded_file,
-                peak_prominence=0.02
-            )
-
-        spectrum_df = result["spectrum_df"]
-        peaks_df = result["peaks_df"]
-        fig = result["figure"]
-
-        # -------------------------------------------------
-        # 4.1️⃣ Gráfico Raman
-        # -------------------------------------------------
-        st.subheader("Espectro Raman Processado")
-        st.pyplot(fig)
-
-        # -------------------------------------------------
-        # 4.2️⃣ Tabela de picos
-        # -------------------------------------------------
-        st.subheader("Picos identificados")
-
-        if not peaks_df.empty:
-            st.dataframe(peaks_df)
-        else:
-            st.info("Nenhum pico detectado.")
-
-        # -------------------------------------------------
-        # 5️⃣ Salvar no banco
-        # -------------------------------------------------
-        experiment_id = create_experiment(
-            supabase,
-            sample_id,
-            operator,
-            equipment,
-            notes
-        )
-
-        raman_measurement_id = create_raman_measurement(
-            supabase,
-            experiment_id,
-            laser_wavelength_nm,
-            laser_power_mw,
-            acquisition_time_s,
-            baseline_method,
-            normalization_method,
-            r2_fit
-        )
-
-        insert_raman_peaks(
-            supabase,
-            raman_measurement_id,
-            peaks_df
-        )
-
-        st.success("✔ Análise Raman processada e salva com sucesso!")
-
-    # -----------------------------------------------------
-    # 6️⃣ Histórico
-    # -----------------------------------------------------
-    st.subheader("Histórico de Análises Raman")
-
-    history = (
-        supabase
-        .table("raman_measurements")
-        .select("id, created_at, experiment_id")
-        .order("created_at", desc=True)
-        .execute()
-    )
-
-    if history.data:
-        st.dataframe(
-            pd.DataFrame(history.data),
-            key="raman_history_table"
-        )
+    if file_like.name.endswith(".csv"):
+        df = pd.read_csv(file_like)
+    elif file_like.name.endswith((".xls", ".xlsx")):
+        df = pd.read_excel(file_like)
     else:
-        st.info("Nenhuma análise Raman registrada.")
+        df = pd.read_csv(file_like, sep=None, engine="python")
+
+    df.columns = ["shift", "intensity"]
+    df = df.sort_values("shift")
+
+    raw_df = df.copy()
+
+    # -----------------------------------------------------
+    # 2️⃣ Baseline
+    # -----------------------------------------------------
+    baseline = baseline_asls(df["intensity"].values)
+    baseline_df = pd.DataFrame({
+        "shift": df["shift"],
+        "baseline": baseline
+    })
+
+    corrected_intensity = df["intensity"] - baseline
+
+    # -----------------------------------------------------
+    # 3️⃣ Normalização
+    # -----------------------------------------------------
+    norm_intensity = corrected_intensity / np.max(corrected_intensity)
+
+    spectrum_df = pd.DataFrame({
+        "shift": df["shift"],
+        "intensity_norm": norm_intensity
+    })
+
+    # -----------------------------------------------------
+    # 4️⃣ Detecção de picos
+    # -----------------------------------------------------
+    peaks, props = find_peaks(
+        norm_intensity,
+        prominence=peak_prominence
+    )
+
+    peaks_df = pd.DataFrame({
+        "peak_cm1": df["shift"].iloc[peaks],
+        "intensity_norm": norm_intensity[peaks],
+        "center_fit": df["shift"].iloc[peaks],
+        "amplitude": props["prominences"],
+        "width": props.get("widths", np.nan),
+        "fwhm": props.get("widths", np.nan),
+        "offset": 0.0
+    })
+
+    # -----------------------------------------------------
+    # 5️⃣ FIGURAS
+    # -----------------------------------------------------
+
+    # 🔹 Bruto
+    fig_raw, ax = article_figure()
+    ax.plot(raw_df["shift"], raw_df["intensity"], color="black")
+    ax.set_title("Espectro Raman Bruto")
+    ax.set_xlabel("Raman shift (cm⁻¹)")
+    ax.set_ylabel("Intensidade (a.u.)")
+
+    # 🔹 Baseline
+    fig_baseline, ax = article_figure()
+    ax.plot(raw_df["shift"], raw_df["intensity"], color="black", label="Bruto")
+    ax.plot(baseline_df["shift"], baseline_df["baseline"],
+            "--", color="gray", label="Baseline")
+    ax.legend()
+    ax.set_title("Correção de Baseline (ASLS)")
+
+    # 🔹 Processado
+    fig_processed, ax = article_figure()
+    ax.plot(spectrum_df["shift"], spectrum_df["intensity_norm"], color="black")
+
+    for peak in peaks_df["center_fit"]:
+        ax.axvline(peak, color="dodgerblue", linestyle="--", alpha=0.5)
+
+    ax.set_title("Espectro Raman Processado")
+    ax.set_xlabel("Raman shift (cm⁻¹)")
+    ax.set_ylabel("Intensidade normalizada")
+
+    # -----------------------------------------------------
+    # 6️⃣ RETORNO COMPLETO
+    # -----------------------------------------------------
+    return {
+        "raw_df": raw_df,
+        "baseline_df": baseline_df,
+        "corrected_df": pd.DataFrame({
+            "shift": df["shift"],
+            "intensity": corrected_intensity
+        }),
+        "spectrum_df": spectrum_df,
+        "peaks_df": peaks_df,
+        "figures": {
+            "raw": fig_raw,
+            "baseline": fig_baseline,
+            "processed": fig_processed
+        }
+    }
