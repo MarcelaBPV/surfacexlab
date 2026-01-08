@@ -1,12 +1,12 @@
-# resistividade_tab.py
 # -*- coding: utf-8 -*-
 
 import streamlit as st
 import pandas as pd
 from datetime import date
 
+
 # =========================================================
-# HELPERS
+# HELPERS — BANCO DE DADOS
 # =========================================================
 
 def get_samples(supabase):
@@ -30,14 +30,14 @@ def create_experiment(supabase, sample_id):
 
 
 # =========================================================
-# UI – RESISTIVIDADE
+# UI — ABA RESISTIVIDADE
 # =========================================================
 
 def render_resistividade_tab(supabase):
     st.header("⚡ Análises Elétricas — Resistividade Superficial")
 
     # -----------------------------------------------------
-    # Seleção da amostra
+    # 1️⃣ Seleção da amostra
     # -----------------------------------------------------
     samples = get_samples(supabase)
 
@@ -46,11 +46,16 @@ def render_resistividade_tab(supabase):
         return
 
     sample_map = {s["sample_code"]: s["id"] for s in samples}
-    sample_code = st.selectbox("Amostra", list(sample_map.keys()))
+
+    sample_code = st.selectbox(
+        "Amostra",
+        list(sample_map.keys()),
+        key="res_sample_select"
+    )
     sample_id = sample_map[sample_code]
 
     # -----------------------------------------------------
-    # Parâmetros do experimento
+    # 2️⃣ Parâmetros do experimento
     # -----------------------------------------------------
     st.subheader("Parâmetros da Medição")
 
@@ -58,21 +63,53 @@ def render_resistividade_tab(supabase):
     with col1:
         method = st.selectbox(
             "Método",
-            ["Four-Point Probe", "Large-Area Electrodes"]
+            ["Four-Point Probe", "Large-Area Electrodes"],
+            key="res_method"
         )
     with col2:
-        current_a = st.number_input("Corrente (A)", value=0.0, format="%.6f")
+        current_a = st.number_input(
+            "Corrente (A)",
+            value=0.0,
+            format="%.6f",
+            key="res_current"
+        )
     with col3:
-        voltage_v = st.number_input("Tensão (V)", value=0.0, format="%.6f")
+        voltage_v = st.number_input(
+            "Tensão (V)",
+            value=0.0,
+            format="%.6f",
+            key="res_voltage"
+        )
 
-    resistance_ohm = st.number_input("Resistência (Ω)", value=0.0, format="%.6f")
-    resistivity_ohm_cm = st.number_input("Resistividade (Ω·cm)", value=0.0, format="%.6f")
-    temperature_c = st.number_input("Temperatura (°C)", value=25.0)
+    resistance_ohm = st.number_input(
+        "Resistência (Ω)",
+        value=0.0,
+        format="%.6f",
+        key="res_resistance"
+    )
+
+    resistivity_ohm_cm = st.number_input(
+        "Resistividade (Ω·cm)",
+        value=0.0,
+        format="%.6f",
+        key="res_resistivity"
+    )
+
+    temperature_c = st.number_input(
+        "Temperatura (°C)",
+        value=25.0,
+        key="res_temperature"
+    )
 
     # -----------------------------------------------------
-    # Salvar no banco
+    # 3️⃣ Salvar no banco
     # -----------------------------------------------------
-    if st.button("Salvar Medição Elétrica"):
+    save_clicked = st.button(
+        "Salvar Medição Elétrica",
+        key="res_save_button"
+    )
+
+    if save_clicked:
         experiment_id = create_experiment(supabase, sample_id)
 
         supabase.table("electrical_measurements").insert({
@@ -88,7 +125,7 @@ def render_resistividade_tab(supabase):
         st.success("✔ Medição elétrica salva com sucesso!")
 
     # -----------------------------------------------------
-    # Histórico
+    # 4️⃣ Histórico
     # -----------------------------------------------------
     st.subheader("Histórico de Medições Elétricas")
 
@@ -104,4 +141,9 @@ def render_resistividade_tab(supabase):
 
     if history.data:
         df = pd.DataFrame(history.data)
-        st.dataframe(df)
+        st.dataframe(
+            df,
+            key="res_history_table"
+        )
+    else:
+        st.info("Nenhuma medição elétrica registrada.")
