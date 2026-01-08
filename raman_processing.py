@@ -3,7 +3,7 @@
 SurfaceXLab — Raman Processing Pipeline (Scientific / ML / DB Ready)
 
 Pipeline:
-1. Leitura espectral (txt, csv, xlsx)
+1. Leitura espectral (txt, csv, xls, xlsx)
 2. Harmonização espectral
 3. Subtração de substrato (opcional)
 4. Correção de baseline (ASLS)
@@ -31,38 +31,60 @@ from scipy.optimize import curve_fit
 from scipy import sparse
 from scipy.sparse.linalg import spsolve
 
+
 # =========================================================
-# IO
+# IO — LEITURA ROBUSTA (TXT / CSV / XLS / XLSX)
 # =========================================================
 def read_spectrum(file_like) -> Tuple[np.ndarray, np.ndarray]:
     """
-    Lê espectros Raman em:
+    Lê espectros Raman a partir de:
     - .txt
     - .csv
+    - .xls
     - .xlsx
+
     Espera ao menos duas colunas numéricas:
     [Raman shift (cm⁻¹), intensidade]
     """
-    try:
-        df = pd.read_csv(
-            file_like,
-            sep=None,
-            engine="python",
-            comment="#",
-            header=None
-        )
-    except Exception:
-        file_like.seek(0)
+
+    filename = getattr(file_like, "name", "").lower()
+
+    # -------------------------------
+    # Excel (binário) → leitura direta
+    # -------------------------------
+    if filename.endswith((".xls", ".xlsx")):
+        df = pd.read_excel(file_like, header=None)
+
+    # -------------------------------
+    # Texto / CSV
+    # -------------------------------
+    else:
         try:
-            df = pd.read_excel(file_like, header=None)
+            df = pd.read_csv(
+                file_like,
+                sep=None,
+                engine="python",
+                comment="#",
+                header=None
+            )
         except Exception:
             file_like.seek(0)
-            df = pd.read_csv(file_like, delim_whitespace=True, header=None)
+            df = pd.read_csv(
+                file_like,
+                delim_whitespace=True,
+                header=None
+            )
 
+    # -------------------------------
+    # Sanitização
+    # -------------------------------
     df = df.select_dtypes(include=[np.number])
 
     if df.shape[1] < 2:
-        raise ValueError("O arquivo deve conter ao menos duas colunas numéricas.")
+        raise ValueError(
+            "Arquivo inválido: é necessário ao menos duas colunas numéricas "
+            "(Raman shift e intensidade)."
+        )
 
     x = df.iloc[:, 0].values.astype(float)
     y = df.iloc[:, 1].values.astype(float)
@@ -75,9 +97,7 @@ def read_spectrum(file_like) -> Tuple[np.ndarray, np.ndarray]:
 # BASELINE — ASLS
 # =========================================================
 def asls_baseline(y, lam=1e5, p=0.01, niter=10):
-    """
-    Asymmetric Least Squares baseline correction
-    """
+    """Asymmetric Least Squares baseline correction"""
     y = np.asarray(y, dtype=float)
     N = len(y)
 
@@ -106,9 +126,7 @@ def lorentz(x, amp, cen, wid, offset):
 
 
 def fit_lorentz(x, y, center, window=20.0):
-    """
-    Ajuste Lorentziano local ao redor do pico detectado
-    """
+    """Ajuste Lorentziano local ao redor do pico detectado"""
     mask = (x > center - window / 2) & (x < center + window / 2)
     if mask.sum() < 6:
         return None
@@ -150,7 +168,7 @@ def process_raman_pipeline(
     peak_prominence: float = 0.02,
 ) -> Tuple[pd.DataFrame, pd.DataFrame, plt.Figure]:
 
-    # 1. Leitura
+    # 1️⃣ Leitura
     x_s, y_s = read_spectrum(sample_input)
 
     if substrate_input is not None:
@@ -158,7 +176,7 @@ def process_raman_pipeline(
     else:
         x_b, y_b = x_s, np.zeros_like(y_s)
 
-    # 2. Harmonização espectral
+    # 2️⃣ Harmonização espectral
     x_min = max(x_s.min(), x_b.min())
     x_max = min(x_s.max(), x_b.max())
     x = np.linspace(x_min, x_max, resample_points)
@@ -166,26 +184,26 @@ def process_raman_pipeline(
     y_s = np.interp(x, x_s, y_s)
     y_b = np.interp(x, x_b, y_b)
 
-    # 3. Subtração de substrato
+    # 3️⃣ Subtração de substrato
     A = np.vstack([y_b, np.ones_like(y_b)]).T
     alpha, beta = np.linalg.lstsq(A, y_s, rcond=None)[0]
     alpha = max(alpha, 0.0)
     y_sub = y_s - alpha * y_b - beta
 
-    # 4. Baseline
+    # 4️⃣ Baseline
     baseline = asls_baseline(y_sub, lam=asls_lambda, p=asls_p)
     y_corr = y_sub - baseline
 
-    # 5. Suavização
+    # 5️⃣ Suavização
     if sg_window % 2 == 0:
         sg_window += 1
     y_smooth = savgol_filter(y_corr, sg_window, sg_poly)
 
-    # 6. Normalização
+    # 6️⃣ Normalização
     norm = np.nanmax(np.abs(y_smooth))
     y_norm = y_smooth / norm if norm > 0 else y_smooth
 
-    # 7. Detecção de picos
+    # 7️⃣ Detecção de picos
     peak_idx, _ = find_peaks(
         y_norm,
         prominence=peak_prominence,
@@ -226,7 +244,6 @@ def process_raman_pipeline(
     ax.set_ylabel("Intensidade normalizada")
     ax.grid(alpha=0.3)
     ax.legend(frameon=False)
-
     fig.tight_layout()
 
     return spectrum_df, peaks_df, fig
@@ -240,9 +257,7 @@ def process_raman_spectrum_with_groups(
     preprocess_kwargs: Optional[Dict[str, Any]] = None,
     peak_prominence: float = 0.02,
 ):
-    """
-    Wrapper padrão esperado pelo app SurfaceXLab
-    """
+    """Wrapper padrão esperado pelo app SurfaceXLab"""
     spectrum_df, peaks_df, fig = process_raman_pipeline(
         sample_input=file_like,
         peak_prominence=peak_prominence,
