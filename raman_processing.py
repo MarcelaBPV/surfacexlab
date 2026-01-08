@@ -38,13 +38,18 @@ def read_spectrum(file_like) -> Tuple[np.ndarray, np.ndarray]:
     else:
         try:
             df = pd.read_csv(
-                file_like, sep=None, engine="python",
-                comment="#", header=None
+                file_like,
+                sep=None,
+                engine="python",
+                comment="#",
+                header=None
             )
         except Exception:
             file_like.seek(0)
             df = pd.read_csv(
-                file_like, delim_whitespace=True, header=None
+                file_like,
+                delim_whitespace=True,
+                header=None
             )
 
     df = df.select_dtypes(include=[np.number])
@@ -126,8 +131,12 @@ def process_raman_pipeline(
     peak_prominence: float = 0.02,
 ):
 
-    # 1️⃣ Leitura
-    x_s, y_s = read_spectrum(sample_input)
+    # 1️⃣ Leitura (DADOS BRUTOS PRESERVADOS)
+    x_raw, y_raw = read_spectrum(sample_input)
+
+    # cópias para processamento
+    x_s = x_raw.copy()
+    y_s = y_raw.copy()
 
     if substrate_input is not None:
         x_b, y_b = read_spectrum(substrate_input)
@@ -190,13 +199,13 @@ def process_raman_pipeline(
     })
 
     # =====================================================
-    # FIGURAS (3 ESTADOS)
+    # FIGURAS (3 ESTADOS — CONSISTENTES)
     # =====================================================
     figs = {}
 
-    # 🔹 Bruto
+    # 🔹 Bruto (dados originais)
     fig_raw, ax = plt.subplots(figsize=(10, 4), dpi=300)
-    ax.plot(x_s, y_s, color="black")
+    ax.plot(x_raw, y_raw, color="black")
     ax.set_title("Espectro Raman Bruto")
     ax.set_xlabel("Raman shift (cm⁻¹)")
     ax.set_ylabel("Intensidade (a.u.)")
