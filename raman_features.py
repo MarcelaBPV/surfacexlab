@@ -1,285 +1,191 @@
-# raman_features.py
 # -*- coding: utf-8 -*-
 
 """
-SurfaceXLab — Raman Feature Engineering & Chemometrics
+SurfaceXLab — Otimização, PCA e Machine Learning
 
-Gera:
-- Mapeamento molecular automático
-- Áreas integradas por grupo molecular
-- Razões espectrais relevantes
-- Fingerprint vetorial ML-ready
-- PCA quimiométrico (exploratório)
-- Regras exploratórias científicas (não diagnósticas)
-
-© 2025 Marcela Veiga
+- PCA estatístico (biplot: scores + loadings)
+- PCA temporal multi-amostra
+- Random Forest com validação cruzada
+- Fingerprints Raman derivados automaticamente (sem tabela fixa)
 """
 
-from dataclasses import dataclass
-from typing import List, Dict, Optional, Any
-
-import numpy as np
+import streamlit as st
 import pandas as pd
-from sklearn.preprocessing import StandardScaler
-from sklearn.decomposition import PCA
 
-
-# =========================================================
-# MAPA MOLECULAR (BIO / GERAL)
-# =========================================================
-MOLECULAR_MAP = [
-    # ÁCIDOS NUCLEICOS
-    {"range": (720, 735), "group": "Adenina / nucleotídeos (DNA/RNA)"},
-    {"range": (780, 790), "group": "DNA/RNA – ligações fosfato"},
-
-    # HEME / PORFIRINAS
-    {"range": (730, 750), "group": "Hemoglobina / porfirinas"},
-    {"range": (748, 760), "group": "Citocromo c / heme"},
-
-    # PROTEÍNAS
-    {"range": (935, 955), "group": "Proteínas – esqueleto α-hélice"},
-    {"range": (1000, 1008), "group": "Fenilalanina"},
-    {"range": (1240, 1280), "group": "Amida III (proteínas)"},
-    {"range": (1535, 1560), "group": "Amida II (proteínas)"},
-    {"range": (1650, 1680), "group": "Amida I / C=C (proteínas e NR)"},
-
-    # LIPÍDIOS / FOSFOLIPÍDIOS
-    {"range": (1120, 1135), "group": "Lipídios – C–C estiramento"},
-    {"range": (1295, 1315), "group": "Lipídios – CH2 torção"},
-    {"range": (1440, 1475), "group": "Lipídios – CH2 deformação"},
-    {"range": (2850, 2885), "group": "Lipídios – CH2 simétrico"},
-    {"range": (2920, 2960), "group": "Lipídios / proteínas – CH3"},
-
-    # BORRACHA NATURAL (NR)
-    {"range": (1660, 1685), "group": "NR – C=C cis-1,4-poliisopreno"},
-    {"range": (2820, 3030), "group": "NR – C–H stretching (CH2/CH3)"},
-
-    # FOSFATOS / BIOATIVIDADE
-    {"range": (940, 960), "group": "Fosfato PO4³⁻ ν1 (CaP amorfo)"},
-    {"range": (980, 1000), "group": "P–O stretching (CaP / DCPD)"},
-    {"range": (1000, 1070), "group": "Fosfatos secundários / Mg-fosfatos"},
-]
-
+from raman_features import extract_raman_features
+from ml_models import (
+    pca_biplot,
+    random_forest_cv,
+    temporal_pca
+)
 
 # =========================================================
-# REGRAS EXPLORATÓRIAS (NÃO DIAGNÓSTICAS)
+# UI — ABA ML / OTIMIZAÇÃO
 # =========================================================
-DISEASE_RULES = [
-    {
-        "name": "Alteração hemoglobina",
-        "description": "Possíveis alterações estruturais no grupo heme/porfirinas.",
-        "groups_required": [
-            "Hemoglobina / porfirinas",
-            "Citocromo c / heme",
-        ],
-    },
-    {
-        "name": "Alteração proteica",
-        "description": "Alterações conformacionais em proteínas.",
-        "groups_required": [
-            "Amida I (proteínas, C=O)",
-            "Amida II",
-            "Amida III (proteínas)",
-        ],
-    },
-    {
-        "name": "Alteração lipídica de membrana",
-        "description": "Modificações estruturais em lipídios de membrana.",
-        "groups_required": [
-            "Lipídios – CH2 deformação",
-            "Lipídios – CH2 torção",
-            "Lipídios – C–C estiramento",
-        ],
-    },
-]
+def render_ml_tab(supabase):
 
+    st.header("🤖 Otimização — PCA & Machine Learning")
 
-# =========================================================
-# DATACLASS DE PICO
-# =========================================================
-@dataclass
-class Peak:
-    position_cm1: float
-    intensity: float
-    width: Optional[float] = None
-    molecular_group: Optional[str] = None
-    fit_params: Optional[Dict[str, Any]] = None
-
-
-# =========================================================
-# MAPEAMENTO MOLECULAR
-# =========================================================
-def assign_molecular_group(peak_cm1: float) -> Optional[str]:
-    for item in MOLECULAR_MAP:
-        lo, hi = item["range"]
-        if lo <= peak_cm1 <= hi:
-            return item["group"]
-    return None
-
-
-def map_peaks_to_groups(peaks_df: pd.DataFrame) -> pd.DataFrame:
-    df = peaks_df.copy()
-    df["molecular_group"] = df["peak_cm1"].apply(assign_molecular_group)
-    return df
-
-
-# =========================================================
-# ÁREAS INTEGRADAS POR GRUPO (ROBUSTO NUMPY)
-# =========================================================
-def compute_group_areas(
-    spectrum_df: pd.DataFrame,
-    peaks_df: pd.DataFrame,
-    window_cm1: float = 10.0,
-) -> Dict[str, float]:
-    """
-    Integra área espectral normalizada em torno dos picos
-    associados a cada grupo molecular.
-    Compatível com NumPy antigo e NumPy >= 2.0
-    """
-    areas: Dict[str, float] = {}
-
-    x = spectrum_df["shift"].values
-    y = spectrum_df["intensity_norm"].values
-
-    for _, row in peaks_df.iterrows():
-        group = row.get("molecular_group")
-        if not group:
-            continue
-
-        cen = row["peak_cm1"]
-        mask = (x >= cen - window_cm1 / 2) & (x <= cen + window_cm1 / 2)
-
-        if mask.sum() < 3:
-            continue
-
-        # 🔒 integração numérica robusta
-        try:
-            area = np.trapezoid(y[mask], x[mask])
-        except AttributeError:
-            area = np.trapz(y[mask], x[mask])
-
-        areas[group] = areas.get(group, 0.0) + float(area)
-
-    return areas
-
-
-# =========================================================
-# RAZÕES ESPECTRAIS
-# =========================================================
-def compute_peak_ratios(peaks_df: pd.DataFrame) -> Dict[str, float]:
-    ratios: Dict[str, float] = {}
-
-    def _mean(group_name: str) -> float:
-        vals = peaks_df.loc[
-            peaks_df["molecular_group"] == group_name, "intensity_norm"
-        ]
-        return float(vals.mean()) if not vals.empty else np.nan
-
-    I_phenyl = _mean("Fenilalanina")
-    I_amide_I = _mean("Amida I (proteínas, C=O)")
-    I_amide_III = _mean("Amida III (proteínas)")
-    I_lipid = _mean("Lipídios – CH2 deformação")
-    I_heme = _mean("Hemoglobina / porfirinas")
-
-    if np.isfinite(I_phenyl) and np.isfinite(I_amide_I):
-        ratios["phenylalanine_amideI"] = I_phenyl / I_amide_I
-
-    if np.isfinite(I_amide_I) and np.isfinite(I_amide_III):
-        ratios["amideI_amideIII"] = I_amide_I / I_amide_III
-
-    if np.isfinite(I_lipid) and np.isfinite(I_amide_I):
-        ratios["lipid_protein"] = I_lipid / I_amide_I
-
-    if np.isfinite(I_heme) and np.isfinite(I_phenyl):
-        ratios["heme_phenylalanine"] = I_heme / I_phenyl
-
-    return ratios
-
-
-# =========================================================
-# FINGERPRINT ML-READY
-# =========================================================
-def build_fingerprint(
-    group_areas: Dict[str, float],
-    peak_ratios: Dict[str, float],
-) -> Dict[str, float]:
-    features: Dict[str, float] = {}
-
-    for g in sorted(group_areas.keys()):
-        key = f"area_{g.lower().replace(' ', '_').replace('/', '_').replace('–', '_')}"
-        features[key] = group_areas[g]
-
-    for r, v in peak_ratios.items():
-        features[f"ratio_{r}"] = v
-
-    return features
-
-
-# =========================================================
-# REGRAS EXPLORATÓRIAS
-# =========================================================
-def apply_exploratory_rules(peaks_df: pd.DataFrame) -> List[Dict[str, str]]:
-    triggered = []
-
-    present_groups = set(peaks_df["molecular_group"].dropna().unique())
-
-    for rule in DISEASE_RULES:
-        if all(g in present_groups for g in rule["groups_required"]):
-            triggered.append({
-                "rule": rule["name"],
-                "description": rule["description"],
-            })
-
-    return triggered
-
-
-# =========================================================
-# PCA QUIMIOMÉTRICO (EXPLORATÓRIO)
-# =========================================================
-def run_pca_on_fingerprints(
-    fingerprints: List[Dict[str, float]],
-    n_components: int = 3,
-) -> Dict[str, Any]:
-    df = pd.DataFrame(fingerprints).fillna(0.0)
-
-    scaler = StandardScaler()
-    X_scaled = scaler.fit_transform(df.values)
-
-    pca = PCA(n_components=min(n_components, X_scaled.shape[1]))
-    scores = pca.fit_transform(X_scaled)
-
-    loadings = pd.DataFrame(
-        pca.components_.T,
-        index=df.columns,
-        columns=[f"PC{i+1}" for i in range(scores.shape[1])]
+    st.markdown(
+        """
+        Este módulo integra **análise estatística multivariada (PCA)** e
+        **modelos supervisionados (Random Forest)** a partir de
+        **fingerprints espectrais Raman derivados automaticamente**.
+        """
     )
 
-    return {
-        "scores": scores,
-        "loadings": loadings,
-        "explained_variance": pca.explained_variance_ratio_,
-        "features": df.columns.tolist(),
-    }
+    # =====================================================
+    # 1️⃣ CARREGAR DADOS RAMAN DO BANCO
+    # =====================================================
+    try:
+        res_meas = (
+            supabase
+            .table("raman_measurements")
+            .select("id, created_at")
+            .execute()
+        )
 
+        res_peaks = (
+            supabase
+            .table("raman_peaks")
+            .select("""
+                raman_measurement_id,
+                peak_position_cm,
+                peak_intensity,
+                peak_fwhm
+            """)
+            .execute()
+        )
 
-# =========================================================
-# PIPELINE COMPLETO DE FEATURES
-# =========================================================
-def extract_raman_features(
-    spectrum_df: pd.DataFrame,
-    peaks_df: pd.DataFrame,
-) -> Dict[str, Any]:
-    peaks_mapped = map_peaks_to_groups(peaks_df)
+    except Exception as e:
+        st.error("Erro ao carregar dados Raman do banco.")
+        st.exception(e)
+        return
 
-    group_areas = compute_group_areas(spectrum_df, peaks_mapped)
-    peak_ratios = compute_peak_ratios(peaks_mapped)
-    fingerprint = build_fingerprint(group_areas, peak_ratios)
-    rules = apply_exploratory_rules(peaks_mapped)
+    if not res_meas.data or not res_peaks.data:
+        st.warning("Dados Raman insuficientes para análise.")
+        return
 
-    return {
-        "group_areas": group_areas,
-        "peak_ratios": peak_ratios,
-        "fingerprint": fingerprint,
-        "exploratory_rules": rules,
-        "peaks_annotated": peaks_mapped,
-    }
+    df_meas = pd.DataFrame(res_meas.data)
+    df_peaks = pd.DataFrame(res_peaks.data)
+
+    # =====================================================
+    # 2️⃣ GERAR FINGERPRINTS RAMAN (DINÂMICO)
+    # =====================================================
+    fingerprints = []
+
+    for mid in df_meas["id"]:
+        peaks_df = df_peaks[
+            df_peaks["raman_measurement_id"] == mid
+        ].copy()
+
+        if peaks_df.empty:
+            continue
+
+        # Normalização de nomes esperados pelo módulo
+        peaks_df = peaks_df.rename(columns={
+            "peak_position_cm": "peak_cm1",
+            "peak_intensity": "intensity_norm",
+            "peak_fwhm": "width",
+        })
+
+        features_out = extract_raman_features(
+            spectrum_df=None,  # áreas podem ser desativadas se necessário
+            peaks_df=peaks_df
+        )
+
+        fingerprint = features_out["fingerprint"]
+        fingerprint["measurement_id"] = mid
+        fingerprint["created_at"] = df_meas.loc[
+            df_meas["id"] == mid, "created_at"
+        ].values[0]
+
+        fingerprints.append(fingerprint)
+
+    if not fingerprints:
+        st.warning("Fingerprints Raman não puderam ser gerados.")
+        return
+
+    df_fp = pd.DataFrame(fingerprints).fillna(0.0)
+
+    st.subheader("📊 Fingerprints Raman (ML-ready)")
+    st.dataframe(df_fp.head(20), use_container_width=True)
+
+    feature_cols = df_fp.drop(
+        columns=["measurement_id", "created_at"],
+        errors="ignore"
+    ).columns.tolist()
+
+    # =====================================================
+    # 3️⃣ PCA ESTATÍSTICO — BIPLOT (PAPER-LEVEL)
+    # =====================================================
+    st.divider()
+    st.subheader("PCA Estatístico — Biplot")
+
+    pca_out = pca_biplot(
+        X=df_fp[feature_cols],
+        n_components=2
+    )
+
+    st.pyplot(pca_out["figure"])
+
+    st.markdown(
+        f"""
+        **Variância explicada:**
+        - PC1: {pca_out['explained_variance'][0]*100:.2f} %
+        - PC2: {pca_out['explained_variance'][1]*100:.2f} %
+        """
+    )
+
+    # =====================================================
+    # 4️⃣ PCA MULTI-AMOSTRA TEMPORAL
+    # =====================================================
+    st.divider()
+    st.subheader("⏱ PCA Temporal — Evolução das Amostras")
+
+    df_fp_time = df_fp.copy()
+    df_fp_time["created_at"] = pd.to_datetime(df_fp_time["created_at"])
+    df_fp_time["sample_code"] = "Raman"
+
+    temp_out = temporal_pca(
+        df=df_fp_time,
+        feature_cols=feature_cols,
+        sample_col="sample_code",
+        time_col="created_at",
+        n_components=2
+    )
+
+    st.dataframe(temp_out["df_pca"].head(20), use_container_width=True)
+
+    # =====================================================
+    # 5️⃣ RANDOM FOREST + VALIDAÇÃO CRUZADA
+    # =====================================================
+    st.divider()
+    st.subheader("Random Forest com Validação Cruzada")
+
+    target = st.selectbox(
+        "Selecione a variável alvo (fingerprint)",
+        options=feature_cols
+    )
+
+    X = df_fp[feature_cols].drop(columns=[target])
+    y = df_fp[target]
+
+    rf_out = random_forest_cv(
+        X=X,
+        y=y,
+        task="regression",
+        cv=5
+    )
+
+    col1, col2 = st.columns(2)
+    col1.metric("R² médio (CV)", f"{rf_out['cv_mean']:.3f}")
+    col2.metric("Desvio padrão", f"{rf_out['cv_std']:.3f}")
+
+    st.subheader("Importância das variáveis")
+    st.dataframe(
+        rf_out["feature_importance"].head(10),
+        use_container_width=True
+    )
+
+    st.success("Pipeline PCA + Random Forest executado com sucesso.")
