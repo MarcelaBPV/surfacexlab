@@ -2,13 +2,14 @@
 # -*- coding: utf-8 -*-
 
 """
-SurfaceXLab — Raman Feature Engineering
+SurfaceXLab — Raman Feature Engineering & Chemometrics
 
 Gera:
 - Mapeamento molecular automático
 - Áreas integradas por grupo molecular
 - Razões espectrais relevantes
 - Fingerprint vetorial ML-ready
+- PCA quimiométrico (exploratório)
 - Regras exploratórias científicas (não diagnósticas)
 
 © 2025 Marcela Veiga
@@ -16,11 +17,15 @@ Gera:
 
 from dataclasses import dataclass
 from typing import List, Dict, Optional, Any
+
 import numpy as np
 import pandas as pd
+from sklearn.preprocessing import StandardScaler
+from sklearn.decomposition import PCA
+
 
 # =========================================================
-# MAPA MOLECULAR (SANGUE / BIOLÓGICO)
+# MAPA MOLECULAR (BIO / GERAL)
 # =========================================================
 MOLECULAR_MAP = [
     {"range": (720, 735), "group": "Adenina / nucleotídeos (DNA/RNA)"},
@@ -41,6 +46,7 @@ MOLECULAR_MAP = [
     {"range": (2850, 2885), "group": "Lipídios – CH2 simétrico"},
     {"range": (2920, 2960), "group": "Lipídios / proteínas – CH3"},
 ]
+
 
 # =========================================================
 # REGRAS EXPLORATÓRIAS (NÃO DIAGNÓSTICAS)
@@ -74,6 +80,7 @@ DISEASE_RULES = [
     },
 ]
 
+
 # =========================================================
 # DATACLASS DE PICO
 # =========================================================
@@ -82,7 +89,7 @@ class Peak:
     position_cm1: float
     intensity: float
     width: Optional[float] = None
-    group: Optional[str] = None
+    molecular_group: Optional[str] = None
     fit_params: Optional[Dict[str, Any]] = None
 
 
@@ -112,11 +119,12 @@ def compute_group_areas(
     window_cm1: float = 10.0,
 ) -> Dict[str, float]:
     """
-    Integra área espectral em torno dos picos associados a cada grupo.
+    Integra área espectral normalizada em torno dos picos
+    associados a cada grupo molecular.
     """
     areas: Dict[str, float] = {}
 
-    x = spectrum_df["raman_shift_cm1"].values
+    x = spectrum_df["shift"].values
     y = spectrum_df["intensity_norm"].values
 
     for _, row in peaks_df.iterrows():
@@ -126,6 +134,7 @@ def compute_group_areas(
 
         cen = row["peak_cm1"]
         mask = (x >= cen - window_cm1 / 2) & (x <= cen + window_cm1 / 2)
+
         if mask.sum() < 3:
             continue
 
@@ -136,25 +145,22 @@ def compute_group_areas(
 
 
 # =========================================================
-# RAZÕES ESPECTRAIS (ROBUSTAS)
+# RAZÕES ESPECTRAIS
 # =========================================================
 def compute_peak_ratios(peaks_df: pd.DataFrame) -> Dict[str, float]:
-    """
-    Razões clássicas e biologicamente relevantes.
-    """
     ratios: Dict[str, float] = {}
 
-    def _mean_intensity(group_name: str) -> float:
+    def _mean(group_name: str) -> float:
         vals = peaks_df.loc[
             peaks_df["molecular_group"] == group_name, "intensity_norm"
         ]
         return float(vals.mean()) if not vals.empty else np.nan
 
-    I_phenyl = _mean_intensity("Fenilalanina")
-    I_amide_I = _mean_intensity("Amida I (proteínas, C=O)")
-    I_amide_III = _mean_intensity("Amida III (proteínas)")
-    I_lipid = _mean_intensity("Lipídios – CH2 deformação")
-    I_heme = _mean_intensity("Hemoglobina / porfirinas")
+    I_phenyl = _mean("Fenilalanina")
+    I_amide_I = _mean("Amida I (proteínas, C=O)")
+    I_amide_III = _mean("Amida III (proteínas)")
+    I_lipid = _mean("Lipídios – CH2 deformação")
+    I_heme = _mean("Hemoglobina / porfirinas")
 
     if np.isfinite(I_phenyl) and np.isfinite(I_amide_I):
         ratios["phenylalanine_amideI"] = I_phenyl / I_amide_I
@@ -178,13 +184,10 @@ def build_fingerprint(
     group_areas: Dict[str, float],
     peak_ratios: Dict[str, float],
 ) -> Dict[str, float]:
-    """
-    Vetor numérico consolidado para ML.
-    """
     features: Dict[str, float] = {}
 
     for g in sorted(group_areas.keys()):
-        key = f"area_{g.lower().replace(' ', '_').replace('/', '_')}"
+        key = f"area_{g.lower().replace(' ', '_').replace('/', '_').replace('–', '_')}"
         features[key] = group_areas[g]
 
     for r, v in peak_ratios.items():
@@ -200,7 +203,7 @@ def apply_exploratory_rules(peaks_df: pd.DataFrame) -> List[Dict[str, str]]:
     triggered = []
 
     present_groups = set(
-        g for g in peaks_df["molecular_group"].dropna().unique()
+        peaks_df["molecular_group"].dropna().unique()
     )
 
     for rule in DISEASE_RULES:
@@ -214,6 +217,38 @@ def apply_exploratory_rules(peaks_df: pd.DataFrame) -> List[Dict[str, str]]:
 
 
 # =========================================================
+# PCA QUIMIOMÉTRICO (EXPLORATÓRIO)
+# =========================================================
+def run_pca_on_fingerprints(
+    fingerprints: List[Dict[str, float]],
+    n_components: int = 3,
+) -> Dict[str, Any]:
+    """
+    Executa PCA sobre fingerprints Raman consolidados.
+    """
+    df = pd.DataFrame(fingerprints).fillna(0.0)
+
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(df.values)
+
+    pca = PCA(n_components=min(n_components, X_scaled.shape[1]))
+    scores = pca.fit_transform(X_scaled)
+
+    loadings = pd.DataFrame(
+        pca.components_.T,
+        index=df.columns,
+        columns=[f"PC{i+1}" for i in range(scores.shape[1])]
+    )
+
+    return {
+        "scores": scores,
+        "loadings": loadings,
+        "explained_variance": pca.explained_variance_ratio_,
+        "features": df.columns.tolist(),
+    }
+
+
+# =========================================================
 # PIPELINE COMPLETO DE FEATURES
 # =========================================================
 def extract_raman_features(
@@ -221,7 +256,7 @@ def extract_raman_features(
     peaks_df: pd.DataFrame,
 ) -> Dict[str, Any]:
     """
-    Função principal consumida pelo CRM / ML / Supabase.
+    Pipeline principal consumido pelo Streamlit / Supabase / ML.
     """
     peaks_mapped = map_peaks_to_groups(peaks_df)
 
