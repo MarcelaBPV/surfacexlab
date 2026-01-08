@@ -10,13 +10,18 @@ from datetime import date
 # =========================================================
 
 def get_samples(supabase):
+    rtry:
     res = (
         supabase
-        .table("samples")
-        .select("id, sample_code")
-        .order("created_at", desc=True)
+        .table("alguma_tabela")
+        .select("*")
         .execute()
     )
+    data = res.data if res.data else []
+except Exception as e:
+    st.warning("⚠ Módulo de resistividade ainda não configurado no banco.")
+    st.stop()
+
     return res.data if res.data else []
 
 
