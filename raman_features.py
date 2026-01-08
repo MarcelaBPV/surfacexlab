@@ -28,24 +28,50 @@ from sklearn.decomposition import PCA
 # MAPA MOLECULAR (BIO / GERAL)
 # =========================================================
 MOLECULAR_MAP = [
+    # ==============================
+    # ÁCIDOS NUCLEICOS / BIO
+    # ==============================
     {"range": (720, 735), "group": "Adenina / nucleotídeos (DNA/RNA)"},
-    {"range": (730, 750), "group": "Hemoglobina / porfirinas"},
-    {"range": (748, 755), "group": "Citocromo c / heme"},
     {"range": (780, 790), "group": "DNA/RNA – ligações fosfato"},
-    {"range": (820, 850), "group": "Proteínas – C–C / tirosina"},
+
+    # ==============================
+    # HEME / PORFIRINAS
+    # ==============================
+    {"range": (730, 750), "group": "Hemoglobina / porfirinas"},
+    {"range": (748, 760), "group": "Citocromo c / heme"},
+
+    # ==============================
+    # PROTEÍNAS / AMINOÁCIDOS
+    # ==============================
     {"range": (935, 955), "group": "Proteínas – esqueleto α-hélice"},
     {"range": (1000, 1008), "group": "Fenilalanina"},
-    {"range": (1120, 1135), "group": "Lipídios – C–C estiramento"},
     {"range": (1240, 1280), "group": "Amida III (proteínas)"},
-    {"range": (1300, 1315), "group": "Lipídios – CH2 torção"},
-    {"range": (1335, 1365), "group": "Nucleotídeos / triptofano"},
+    {"range": (1535, 1560), "group": "Amida II (proteínas)"},
+    {"range": (1650, 1680), "group": "Amida I / C=C (proteínas e NR)"},
+
+    # ==============================
+    # LIPÍDIOS / FOSFOLIPÍDIOS
+    # ==============================
+    {"range": (1120, 1135), "group": "Lipídios – C–C estiramento"},
+    {"range": (1295, 1315), "group": "Lipídios – CH2 torção"},
     {"range": (1440, 1475), "group": "Lipídios – CH2 deformação"},
-    {"range": (1540, 1580), "group": "Amida II"},
-    {"range": (1600, 1620), "group": "Tirosina / fenilalanina"},
-    {"range": (1650, 1670), "group": "Amida I (proteínas, C=O)"},
     {"range": (2850, 2885), "group": "Lipídios – CH2 simétrico"},
     {"range": (2920, 2960), "group": "Lipídios / proteínas – CH3"},
+
+    # ==============================
+    # BORRACHA NATURAL (NR)
+    # ==============================
+    {"range": (1660, 1685), "group": "NR – C=C cis-1,4-poliisopreno"},
+    {"range": (2820, 3030), "group": "NR – C–H stretching (CH2/CH3)"},
+
+    # ==============================
+    # FOSFATOS / BIOATIVIDADE (CaP / SBF)
+    # ==============================
+    {"range": (940, 960), "group": "Fosfato PO4³⁻ ν1 (CaP amorfo)"},
+    {"range": (980, 1000), "group": "P–O stretching (CaP / DCPD)"},
+    {"range": (1000, 1070), "group": "Fosfatos secundários / Mg-fosfatos"},
 ]
+
 
 
 # =========================================================
