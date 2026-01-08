@@ -39,7 +39,15 @@ def create_experiment(supabase, sample_id):
 # =========================================================
 
 def render_resistividade_tab(supabase):
-    st.header("⚡ Análises Elétricas — Resistividade Superficial")
+    st.header("⚡ Resistividade Elétrica")
+
+    try:
+        res = supabase.table("resistivity_measurements").select("*").limit(1).execute()
+    except Exception:
+        st.info("Módulo de resistividade ainda não inicializado no banco.")
+        return
+
+    st.success("Tabela de resistividade encontrada.")
 
     # -----------------------------------------------------
     # 1️⃣ Seleção da amostra
