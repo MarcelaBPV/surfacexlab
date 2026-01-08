@@ -1,10 +1,10 @@
-# tensiometria_tab.py
 # -*- coding: utf-8 -*-
 
 import streamlit as st
 import pandas as pd
 import numpy as np
 from datetime import date
+
 
 # =========================================================
 # CONSTANTES — LÍQUIDOS PADRÃO
@@ -14,6 +14,7 @@ LIQUIDS = {
     "Diiodomethane": {"gamma_total": 50.8, "gamma_d": 50.8, "gamma_p": 0.0},
     "Ethylene Glycol": {"gamma_total": 47.7, "gamma_d": 29.0, "gamma_p": 18.7},
 }
+
 
 # =========================================================
 # OWRK — MODELO
@@ -48,6 +49,7 @@ def owkr_fit(contact_angles, liquids):
 
     return gamma_total, gamma_sd, gamma_sp, r2
 
+
 # =========================================================
 # HELPERS — BANCO
 # =========================================================
@@ -70,14 +72,15 @@ def create_experiment(supabase, sample_id):
     }).execute()
     return res.data[0]["id"]
 
+
 # =========================================================
-# UI — TENSIOMETRIA
+# UI — ABA TENSIOMETRIA
 # =========================================================
 def render_tensiometria_tab(supabase):
     st.header("🧲 Físico-Mecânica — Energia Livre de Superfície (OWRK)")
 
     # -----------------------------------------------------
-    # Seleção da amostra
+    # 1️⃣ Seleção da amostra
     # -----------------------------------------------------
     samples = get_samples(supabase)
     if not samples:
@@ -85,29 +88,41 @@ def render_tensiometria_tab(supabase):
         return
 
     sample_map = {s["sample_code"]: s["id"] for s in samples}
-    sample_code = st.selectbox("Amostra", list(sample_map.keys()))
+
+    sample_code = st.selectbox(
+        "Amostra",
+        list(sample_map.keys()),
+        key="tensio_sample_select"
+    )
     sample_id = sample_map[sample_code]
 
     # -----------------------------------------------------
-    # Ângulos de contato
+    # 2️⃣ Ângulos de contato
     # -----------------------------------------------------
     st.subheader("Ângulos de Contato (graus)")
 
     angles = {}
     cols = st.columns(len(LIQUIDS))
+
     for col, liquid in zip(cols, LIQUIDS.keys()):
         with col:
             angles[liquid] = st.number_input(
                 f"{liquid}",
                 min_value=0.0,
                 max_value=180.0,
-                value=60.0
+                value=60.0,
+                key=f"tensio_angle_{liquid.lower()}"
             )
 
     # -----------------------------------------------------
-    # Cálculo OWRK
+    # 3️⃣ Cálculo OWRK
     # -----------------------------------------------------
-    if st.button("Calcular Energia de Superfície"):
+    calculate_clicked = st.button(
+        "Calcular Energia de Superfície",
+        key="tensio_calculate_button"
+    )
+
+    if calculate_clicked:
         contact_angles = list(angles.values())
         liquids = list(angles.keys())
 
@@ -122,7 +137,7 @@ def render_tensiometria_tab(supabase):
         col4.metric("R²", f"{r2:.4f}")
 
         # -------------------------------------------------
-        # Salvar no banco
+        # 4️⃣ Salvar no banco
         # -------------------------------------------------
         experiment_id = create_experiment(supabase, sample_id)
 
@@ -141,7 +156,7 @@ def render_tensiometria_tab(supabase):
         st.success("✔ Resultados salvos no banco")
 
     # -----------------------------------------------------
-    # Histórico
+    # 5️⃣ Histórico
     # -----------------------------------------------------
     st.subheader("Histórico de Energia Superficial")
 
@@ -149,7 +164,9 @@ def render_tensiometria_tab(supabase):
         supabase
         .table("surface_energy_measurements")
         .select(
-            "created_at, liquid, contact_angle_deg, surface_energy_total, surface_energy_dispersive, surface_energy_polar, r2_fit"
+            "created_at, liquid, contact_angle_deg, "
+            "surface_energy_total, surface_energy_dispersive, "
+            "surface_energy_polar, r2_fit"
         )
         .order("created_at", desc=True)
         .execute()
@@ -157,4 +174,9 @@ def render_tensiometria_tab(supabase):
 
     if history.data:
         df = pd.DataFrame(history.data)
-        st.dataframe(df)
+        st.dataframe(
+            df,
+            key="tensio_history_table"
+        )
+    else:
+        st.info("Nenhum resultado de tensiometria registrado.")
