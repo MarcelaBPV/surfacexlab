@@ -1,205 +1,177 @@
+# tensiometria_pca_tab.py
 # -*- coding: utf-8 -*-
 
 import streamlit as st
 import pandas as pd
 import numpy as np
-from datetime import date
+import matplotlib.pyplot as plt
+
+from sklearn.preprocessing import StandardScaler
+from sklearn.decomposition import PCA
 
 
 # =========================================================
-# CONSTANTES — LÍQUIDOS PADRÃO
+# ABA PCA — TENSIOMETRIA
 # =========================================================
-LIQUIDS = {
-    "Water": {"gamma_total": 72.8, "gamma_d": 21.8, "gamma_p": 51.0},
-    "Diiodomethane": {"gamma_total": 50.8, "gamma_d": 50.8, "gamma_p": 0.0},
-    "Ethylene Glycol": {"gamma_total": 47.7, "gamma_d": 29.0, "gamma_p": 18.7},
-}
+def render_tensiometria_pca_tab():
+    st.header("📊 PCA — Tensiometria (Energia de Superfície)")
 
+    st.markdown(
+        """
+        Esta seção permite realizar **Análise de Componentes Principais (PCA)**
+        a partir de **tabelas consolidadas de tensiometria**, geradas a partir
+        dos arquivos `.LOG` processados no módulo físico-mecânico.
 
-# =========================================================
-# OWRK — MODELO
-# =========================================================
-def owkr_fit(contact_angles, liquids):
-    """
-    Owens–Wendt–Rabel–Kaelble (OWRK)
-    Retorna: gamma_total, gamma_d, gamma_p, R²
-    """
-    y, x = [], []
-
-    for angle, liquid in zip(contact_angles, liquids):
-        theta = np.deg2rad(angle)
-        gamma_l = LIQUIDS[liquid]["gamma_total"]
-        gamma_ld = LIQUIDS[liquid]["gamma_d"]
-        gamma_lp = LIQUIDS[liquid]["gamma_p"]
-
-        y.append((gamma_l * (1 + np.cos(theta))) / (2 * np.sqrt(gamma_ld)))
-        x.append(np.sqrt(gamma_lp / gamma_ld))
-
-    x = np.array(x)
-    y = np.array(y)
-
-    coeffs = np.polyfit(x, y, 1)
-    gamma_sd = coeffs[1] ** 2
-    gamma_sp = coeffs[0] ** 2
-    gamma_total = gamma_sd + gamma_sp
-
-    y_pred = coeffs[0] * x + coeffs[1]
-    r2 = 1 - np.sum((y - y_pred) ** 2) / np.sum((y - np.mean(y)) ** 2)
-
-    return gamma_total, gamma_sd, gamma_sp, r2
-
-
-# =========================================================
-# HELPERS — BANCO (BLINDADOS)
-# =========================================================
-def get_samples(supabase):
-    try:
-        res = (
-            supabase
-            .table("samples")
-            .select("id, sample_code")
-            .order("created_at", desc=True)
-            .execute()
-        )
-        return res.data if res.data else []
-    except Exception:
-        return []
-
-
-def create_experiment(supabase, sample_id):
-    try:
-        res = supabase.table("experiments").insert({
-            "sample_id": sample_id,
-            "experiment_type": "SurfaceEnergy",
-            "experiment_date": str(date.today())
-        }).execute()
-        return res.data[0]["id"]
-    except Exception:
-        return None
-
-
-# =========================================================
-# UI — ABA TENSIOMETRIA (ROBUSTA)
-# =========================================================
-def render_tensiometria_tab(supabase):
-    st.header("💧 Físico-Mecânica — Energia Livre de Superfície (OWRK)")
-
-    # -----------------------------------------------------
-    # 🔒 Teste rápido do banco
-    # -----------------------------------------------------
-    try:
-        supabase.table("surface_energy_measurements").select("id").limit(1).execute()
-    except Exception:
-        st.info("Módulo de tensiometria ainda não inicializado no banco.")
-        st.caption("A tabela `surface_energy_measurements` não está disponível.")
-        return
-
-    # -----------------------------------------------------
-    # 1️⃣ Seleção da amostra
-    # -----------------------------------------------------
-    samples = get_samples(supabase)
-    if not samples:
-        st.warning("Nenhuma amostra cadastrada.")
-        return
-
-    sample_map = {s["sample_code"]: s["id"] for s in samples}
-
-    sample_code = st.selectbox(
-        "Amostra",
-        list(sample_map.keys()),
-        key="tensio_sample_select"
-    )
-    sample_id = sample_map[sample_code]
-
-    # -----------------------------------------------------
-    # 2️⃣ Ângulos de contato
-    # -----------------------------------------------------
-    st.subheader("Ângulos de Contato (graus)")
-
-    angles = {}
-    cols = st.columns(len(LIQUIDS))
-
-    for col, liquid in zip(cols, LIQUIDS.keys()):
-        with col:
-            angles[liquid] = st.number_input(
-                f"{liquid}",
-                min_value=0.0,
-                max_value=180.0,
-                value=60.0,
-                key=f"tensio_angle_{liquid.lower()}"
-            )
-
-    # -----------------------------------------------------
-    # 3️⃣ Cálculo OWRK
-    # -----------------------------------------------------
-    calculate_clicked = st.button(
-        "Calcular Energia de Superfície",
-        key="tensio_calculate_button"
+        A PCA é utilizada para avaliar a **influência da temperatura, ângulo
+        de contato e componentes da energia de superfície** sobre o
+        comportamento global das amostras.
+        """
     )
 
-    if not calculate_clicked:
+    # =====================================================
+    # Upload
+    # =====================================================
+    uploaded_file = st.file_uploader(
+        "Upload da tabela de tensiometria",
+        type=["csv", "txt", "xls", "xlsx"]
+    )
+
+    if uploaded_file is None:
+        st.info("Envie uma tabela para iniciar a PCA.")
         return
 
-    contact_angles = list(angles.values())
-    liquids = list(angles.keys())
-
-    gamma_total, gamma_d, gamma_p, r2 = owkr_fit(contact_angles, liquids)
-
-    st.success("✔ Cálculo realizado com sucesso")
-
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("γ Total (mJ/m²)", f"{gamma_total:.2f}")
-    col2.metric("γ Dispersiva", f"{gamma_d:.2f}")
-    col3.metric("γ Polar", f"{gamma_p:.2f}")
-    col4.metric("R²", f"{r2:.4f}")
-
-    # -----------------------------------------------------
-    # 4️⃣ Salvar no banco (BLINDADO)
-    # -----------------------------------------------------
-    experiment_id = create_experiment(supabase, sample_id)
-
-    if experiment_id is None:
-        st.warning("Não foi possível criar o experimento no banco.")
-        return
-
-    for liquid, angle in angles.items():
-        try:
-            supabase.table("surface_energy_measurements").insert({
-                "experiment_id": experiment_id,
-                "liquid": liquid,
-                "contact_angle_deg": angle,
-                "surface_energy_total": gamma_total,
-                "surface_energy_dispersive": gamma_d,
-                "surface_energy_polar": gamma_p,
-                "model": "OWRK",
-                "r2_fit": r2
-            }).execute()
-        except Exception:
-            st.warning(f"Falha ao salvar dados para o líquido {liquid}.")
-
-    st.success("✔ Resultados salvos no banco")
-
-    # -----------------------------------------------------
-    # 5️⃣ Histórico (BLINDADO)
-    # -----------------------------------------------------
-    st.subheader("Histórico de Energia Superficial")
-
+    # =====================================================
+    # Leitura robusta
+    # =====================================================
     try:
-        history = (
-            supabase
-            .table("surface_energy_measurements")
-            .select(
-                "created_at, liquid, contact_angle_deg, "
-                "surface_energy_total, surface_energy_dispersive, "
-                "surface_energy_polar, r2_fit"
-            )
-            .order("created_at", desc=True)
-            .execute()
-        )
-        if history.data:
-            df = pd.DataFrame(history.data)
-            st.dataframe(df, key="tensio_history_table")
+        if uploaded_file.name.lower().endswith((".xls", ".xlsx")):
+            df = pd.read_excel(uploaded_file)
         else:
-            st.info("Nenhum resultado de tensiometria registrado.")
-    except Exception:
-        st.info("Histórico indisponível no momento.")
+            df = pd.read_csv(uploaded_file, sep=None, engine="python")
+    except Exception as e:
+        st.error("❌ Erro ao ler o arquivo.")
+        st.exception(e)
+        return
+
+    if df.empty:
+        st.error("A tabela está vazia.")
+        return
+
+    st.subheader("Pré-visualização dos dados")
+    st.dataframe(df)
+
+    # =====================================================
+    # Seleções
+    # =====================================================
+    st.subheader("Configuração da PCA")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        sample_col = st.selectbox(
+            "Coluna identificadora da amostra",
+            options=df.columns
+        )
+
+    with col2:
+        temp_col = st.selectbox(
+            "Coluna da temperatura (°C)",
+            options=df.columns
+        )
+
+    numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+
+    feature_cols = st.multiselect(
+        "Variáveis físico-químicas (features)",
+        options=[c for c in numeric_cols if c not in [temp_col]],
+        default=[c for c in numeric_cols if c not in [temp_col]][:4]
+    )
+
+    if len(feature_cols) < 2:
+        st.warning("Selecione ao menos duas variáveis.")
+        return
+
+    # =====================================================
+    # Preparação dos dados
+    # =====================================================
+    X = df[feature_cols].values
+    labels = df[sample_col].astype(str).values
+    temperatures = df[temp_col].values
+
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
+
+    # =====================================================
+    # PCA
+    # =====================================================
+    pca = PCA(n_components=2)
+    scores = pca.fit_transform(X_scaled)
+    loadings = pca.components_.T
+    explained_var = pca.explained_variance_ratio_ * 100
+
+    # =====================================================
+    # BIPLOT (Scores + Loadings)
+    # =====================================================
+    st.subheader("PCA — Biplot (Tensiometria)")
+
+    fig, ax = plt.subplots(figsize=(6, 6), dpi=300)
+
+    scatter = ax.scatter(
+        scores[:, 0],
+        scores[:, 1],
+        c=temperatures,
+        cmap="plasma",
+        s=70
+    )
+
+    for i, label in enumerate(labels):
+        ax.text(
+            scores[i, 0] + 0.04,
+            scores[i, 1] + 0.04,
+            label,
+            fontsize=8
+        )
+
+    # Loadings
+    scale = 2.5
+    for i, var in enumerate(feature_cols):
+        ax.arrow(
+            0, 0,
+            loadings[i, 0] * scale,
+            loadings[i, 1] * scale,
+            color="black",
+            width=0.01,
+            head_width=0.08
+        )
+        ax.text(
+            loadings[i, 0] * scale * 1.1,
+            loadings[i, 1] * scale * 1.1,
+            var,
+            fontsize=9
+        )
+
+    ax.axhline(0, color="gray", lw=0.6)
+    ax.axvline(0, color="gray", lw=0.6)
+
+    ax.set_xlabel(f"PC1 ({explained_var[0]:.1f}%)")
+    ax.set_ylabel(f"PC2 ({explained_var[1]:.1f}%)")
+    ax.set_title("PCA — Energia de Superfície vs Temperatura")
+    ax.set_aspect("equal", adjustable="box")
+    ax.grid(alpha=0.3)
+
+    cbar = plt.colorbar(scatter, ax=ax)
+    cbar.set_label("Temperatura (°C)")
+
+    st.pyplot(fig)
+
+    # =====================================================
+    # Variância explicada
+    # =====================================================
+    st.subheader("Variância explicada")
+
+    var_df = pd.DataFrame({
+        "Componente": ["PC1", "PC2"],
+        "Variância explicada (%)": explained_var.round(2)
+    })
+
+    st.dataframe(var_df)
