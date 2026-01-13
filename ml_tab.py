@@ -11,170 +11,163 @@ from sklearn.decomposition import PCA
 
 
 # =========================================================
-# ABA OTIMIZAÇÃO — PCA MULTIVARIADO
+# LEITURA ROBUSTA DE LOG (TENSIOMETRIA)
+# =========================================================
+def read_tensiometry_log_safe(file):
+    """
+    Lê LOGs irregulares ignorando linhas malformadas.
+    """
+    df = pd.read_csv(
+        file,
+        sep=None,
+        engine="python",
+        comment="#",
+        on_bad_lines="skip"
+    )
+
+    df.columns = [c.strip() for c in df.columns]
+
+    rename_map = {
+        "Mean": "theta_mean",
+        "Dev.": "theta_std",
+        "Time": "time_s",
+        "Area": "area",
+        "Volume": "volume",
+        "Height": "height",
+        "Width": "width",
+    }
+
+    df = df.rename(columns={k: v for k, v in rename_map.items() if k in df.columns})
+    return df
+
+
+def summarize_log(df, sample_name):
+    return {
+        "Amostra": sample_name,
+        "Theta_medio": df["theta_mean"].mean(),
+        "Theta_std": df["theta_mean"].std(ddof=1),
+        "Volume_medio": df["volume"].mean() if "volume" in df else np.nan,
+        "Area_media": df["area"].mean() if "area" in df else np.nan,
+        "Altura_media": df["height"].mean() if "height" in df else np.nan,
+        "Largura_media": df["width"].mean() if "width" in df else np.nan,
+    }
+
+
+# =========================================================
+# ABA OTIMIZAÇÃO — PCA
 # =========================================================
 def render_ml_tab(supabase=None):
-
     st.header("🤖 Otimização — PCA Multivariado")
 
     st.markdown(
         """
-        Esta seção permite realizar **Análise de Componentes Principais (PCA)**
-        a partir de **tabelas experimentais consolidadas**, como:
-        - Raman (fingerprints espectrais)
-        - Tensiometria (ângulo de contato, energia de superfície, temperatura)
-        - Ensaios elétricos ou físico-químicos
-
-        Os arquivos devem estar em formato **.CSV, .TXT ou .XLS(X)**.
+        Esta aba executa **PCA multivariado entre amostras** a partir de:
+        - Tabelas consolidadas (`.csv`, `.xlsx`)
+        - Arquivos `.LOG` de tensiometria (convertidos automaticamente)
         """
     )
 
-    # =====================================================
-    # Upload
-    # =====================================================
-    uploaded_file = st.file_uploader(
-        "Upload da tabela consolidada",
-        type=["csv", "txt", "xls", "xlsx"]
+    uploaded_files = st.file_uploader(
+        "Upload dos arquivos (LOG ou tabelas)",
+        type=["log", "csv", "txt", "xls", "xlsx"],
+        accept_multiple_files=True
     )
 
-    if uploaded_file is None:
-        st.info("Envie uma tabela para iniciar a PCA.")
+    if not uploaded_files:
+        st.info("Envie ao menos dois arquivos para PCA.")
         return
 
-    # =====================================================
-    # Leitura robusta
-    # =====================================================
-    try:
-        if uploaded_file.name.lower().endswith((".xls", ".xlsx")):
-            df = pd.read_excel(uploaded_file)
-        else:
-            df = pd.read_csv(uploaded_file, sep=None, engine="python")
-    except Exception as e:
-        st.error("❌ Erro ao ler o arquivo.")
-        st.exception(e)
+    rows = []
+
+    for file in uploaded_files:
+        try:
+            if file.name.lower().endswith(".log"):
+                df_log = read_tensiometry_log_safe(file)
+
+                if "theta_mean" not in df_log.columns:
+                    st.warning(f"{file.name} ignorado (sem coluna Mean).")
+                    continue
+
+                rows.append(summarize_log(df_log, file.name))
+
+            else:
+                df = pd.read_excel(file) if file.name.endswith(("xls", "xlsx")) else pd.read_csv(file)
+                rows.extend(df.to_dict(orient="records"))
+
+        except Exception as e:
+            st.error(f"Erro ao processar {file.name}")
+            st.exception(e)
+
+    df_pca = pd.DataFrame(rows).dropna()
+
+    if df_pca.shape[0] < 2:
+        st.error("São necessárias pelo menos duas amostras válidas para PCA.")
         return
 
-    if df.empty:
-        st.error("A tabela está vazia.")
-        return
-
-    st.subheader("Pré-visualização dos dados")
-    st.dataframe(df)
+    st.subheader("Tabela consolidada (entrada da PCA)")
+    st.dataframe(df_pca)
 
     # =====================================================
-    # Seleções
+    # Seleção das variáveis
     # =====================================================
-    st.subheader("Configuração da PCA")
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        sample_col = st.selectbox(
-            "Coluna identificadora da amostra",
-            options=df.columns
-        )
-
-    numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
-
-    with col2:
-        feature_cols = st.multiselect(
-            "Variáveis numéricas (features)",
-            options=numeric_cols,
-            default=numeric_cols[:4]
-        )
+    feature_cols = st.multiselect(
+        "Variáveis para PCA",
+        options=[c for c in df_pca.columns if c != "Amostra"],
+        default=[c for c in df_pca.columns if c != "Amostra"][:4]
+    )
 
     if len(feature_cols) < 2:
-        st.warning("Selecione ao menos **duas variáveis numéricas**.")
+        st.warning("Selecione ao menos duas variáveis.")
         return
-
-    # =====================================================
-    # Preparação dos dados
-    # =====================================================
-    X = df[feature_cols].values
-    labels = df[sample_col].astype(str).values
-
-    # remove linhas inválidas
-    mask = np.all(np.isfinite(X), axis=1)
-    X = X[mask]
-    labels = labels[mask]
-
-    scaler = StandardScaler()
-    X_scaled = scaler.fit_transform(X)
 
     # =====================================================
     # PCA
     # =====================================================
+    X = df_pca[feature_cols].values
+    labels = df_pca["Amostra"].values
+
+    X_scaled = StandardScaler().fit_transform(X)
     pca = PCA(n_components=2)
     scores = pca.fit_transform(X_scaled)
     loadings = pca.components_.T
-    explained_var = pca.explained_variance_ratio_ * 100
+    explained = pca.explained_variance_ratio_ * 100
 
     # =====================================================
     # BIPLOT
     # =====================================================
-    st.subheader("PCA — Biplot (Scores + Loadings)")
-
     fig, ax = plt.subplots(figsize=(6, 6), dpi=300)
 
-    ax.scatter(scores[:, 0], scores[:, 1], s=70, color="steelblue")
+    ax.scatter(scores[:, 0], scores[:, 1], s=80)
 
     for i, label in enumerate(labels):
-        ax.text(
-            scores[i, 0] + 0.03,
-            scores[i, 1] + 0.03,
-            label,
-            fontsize=8
-        )
+        ax.text(scores[i, 0] + 0.03, scores[i, 1] + 0.03, label, fontsize=9)
 
-    scale = 2.5
+    scale = np.max(np.abs(scores)) * 0.8
     for i, var in enumerate(feature_cols):
         ax.arrow(
             0, 0,
             loadings[i, 0] * scale,
             loadings[i, 1] * scale,
-            color="black",
-            width=0.01,
+            color="red",
             head_width=0.08
         )
         ax.text(
             loadings[i, 0] * scale * 1.1,
             loadings[i, 1] * scale * 1.1,
             var,
+            color="red",
             fontsize=9
         )
 
-    ax.axhline(0, color="gray", lw=0.6)
-    ax.axvline(0, color="gray", lw=0.6)
-
-    ax.set_xlabel(f"PC1 ({explained_var[0]:.1f}%)")
-    ax.set_ylabel(f"PC2 ({explained_var[1]:.1f}%)")
-    ax.set_title("PCA — Análise Multivariada")
-    ax.set_aspect("equal", adjustable="box")
+    ax.set_xlabel(f"PC1 ({explained[0]:.1f}%)")
+    ax.set_ylabel(f"PC2 ({explained[1]:.1f}%)")
+    ax.set_title("PCA — Otimização Multivariada")
     ax.grid(alpha=0.3)
 
     st.pyplot(fig)
 
-    # =====================================================
-    # Variância explicada
-    # =====================================================
-    st.subheader("Variância explicada")
-
-    var_df = pd.DataFrame({
+    st.subheader("Variância explicada (%)")
+    st.dataframe(pd.DataFrame({
         "Componente": ["PC1", "PC2"],
-        "Variância explicada (%)": explained_var.round(2)
-    })
-
-    st.dataframe(var_df)
-
-    # =====================================================
-    # Loadings (importância das variáveis)
-    # =====================================================
-    st.subheader("Contribuição das variáveis (Loadings)")
-
-    loadings_df = pd.DataFrame(
-        loadings,
-        index=feature_cols,
-        columns=["PC1", "PC2"]
-    )
-
-    st.dataframe(loadings_df.round(3))
+        "Variância (%)": explained.round(2)
+    }))
