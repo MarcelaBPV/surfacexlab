@@ -15,20 +15,51 @@ from sklearn.decomposition import PCA
 # =========================================================
 def read_tensiometry_log(file):
     """
-    Leitura segura de arquivos .LOG de goniômetro óptico
-    (ignora linhas malformadas e variação de colunas)
+    Leitura robusta de arquivos .LOG de goniômetro óptico
+    (detecta automaticamente onde começa a tabela)
     """
+
+    # -----------------------------------------------------
+    # 1️⃣ Ler todas as linhas como texto
+    # -----------------------------------------------------
+    file.seek(0)
+    lines = file.read().decode("latin1", errors="ignore").splitlines()
+
+    # -----------------------------------------------------
+    # 2️⃣ Encontrar linha de cabeçalho da tabela
+    # -----------------------------------------------------
+    header_line = None
+    for i, line in enumerate(lines):
+        if "Mean" in line and ("Theta" in line or "Time" in line):
+            header_line = i
+            break
+
+    if header_line is None:
+        return pd.DataFrame()  # não achou tabela
+
+    # -----------------------------------------------------
+    # 3️⃣ Recriar conteúdo apenas da tabela
+    # -----------------------------------------------------
+    table_text = "\n".join(lines[header_line:])
+
+    from io import StringIO
+    buffer = StringIO(table_text)
+
+    # -----------------------------------------------------
+    # 4️⃣ Ler como CSV estruturado
+    # -----------------------------------------------------
     df = pd.read_csv(
-        file,
-        sep=None,
+        buffer,
+        sep=";",
         engine="python",
-        comment="#",
-        skip_blank_lines=True,
         on_bad_lines="skip"
     )
 
     df.columns = [c.strip() for c in df.columns]
 
+    # -----------------------------------------------------
+    # 5️⃣ Normalização de nomes
+    # -----------------------------------------------------
     rename_map = {
         "Time": "time_s",
         "Mean": "theta_mean",
@@ -43,16 +74,28 @@ def read_tensiometry_log(file):
 
     df = df.rename(columns={k: v for k, v in rename_map.items() if k in df.columns})
 
-    # conversão numérica segura
-    for col in ["theta_mean", "theta_std", "area", "volume", "height", "width"]:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
+    # -----------------------------------------------------
+    # 6️⃣ Conversão numérica segura
+    # -----------------------------------------------------
+    for col in df.columns:
+        df[col] = (
+            df[col]
+            .astype(str)
+            .str.replace(",", ".", regex=False)
+        )
+        df[col] = pd.to_numeric(df[col], errors="coerce")
 
-    # remove leituras inválidas
+    # -----------------------------------------------------
+    # 7️⃣ Limpeza física
+    # -----------------------------------------------------
+    if "theta_mean" not in df.columns:
+        return pd.DataFrame()
+
     df = df.dropna(subset=["theta_mean"])
     df = df[(df["theta_mean"] > 0) & (df["theta_mean"] < 180)]
 
     return df.reset_index(drop=True)
+
 
 
 # =========================================================
