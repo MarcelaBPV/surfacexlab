@@ -14,12 +14,17 @@ from sklearn.decomposition import PCA
 # LEITURA ROBUSTA DO LOG DE TENSIOMETRIA
 # =========================================================
 def read_tensiometry_log(file):
+    """
+    Leitura segura de arquivos .LOG de goniômetro óptico
+    (ignora linhas malformadas e variação de colunas)
+    """
     df = pd.read_csv(
         file,
         sep=None,
         engine="python",
         comment="#",
-        skip_blank_lines=True
+        skip_blank_lines=True,
+        on_bad_lines="skip"
     )
 
     df.columns = [c.strip() for c in df.columns]
@@ -38,14 +43,23 @@ def read_tensiometry_log(file):
 
     df = df.rename(columns={k: v for k, v in rename_map.items() if k in df.columns})
 
-    return df
+    # conversão numérica segura
+    for col in ["theta_mean", "theta_std", "area", "volume", "height", "width"]:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    # remove leituras inválidas
+    df = df.dropna(subset=["theta_mean"])
+    df = df[(df["theta_mean"] > 0) & (df["theta_mean"] < 180)]
+
+    return df.reset_index(drop=True)
 
 
 # =========================================================
 # CONSOLIDAÇÃO FÍSICA DO ENSAIO
 # =========================================================
 def summarize_tensiometry(df, sample_name):
-    summary = {
+    return {
         "Amostra": sample_name,
         "Theta_medio (°)": df["theta_mean"].mean(),
         "Theta_std (°)": df["theta_mean"].std(ddof=1),
@@ -53,16 +67,15 @@ def summarize_tensiometry(df, sample_name):
         "Area_media": df["area"].mean() if "area" in df else np.nan,
         "Altura_media": df["height"].mean() if "height" in df else np.nan,
         "Largura_media": df["width"].mean() if "width" in df else np.nan,
-        "N_pontos": len(df),
+        "N_pontos": int(len(df)),
     }
-    return summary
 
 
 # =========================================================
 # ABA PCA — TENSIOMETRIA
 # =========================================================
 def render_tensiometria_tab(supabase=None):
-    st.header("💧 PCA — Tensiometria (LOG → Energia de Superfície)")
+    st.header("💧 PCA — Tensiometria (arquivos .LOG)")
 
     st.markdown(
         """
@@ -93,12 +106,11 @@ def render_tensiometria_tab(supabase=None):
         try:
             df_log = read_tensiometry_log(file)
 
-            if "theta_mean" not in df_log.columns:
-                st.warning(f"{file.name} ignorado (sem coluna Mean).")
+            if df_log.empty:
+                st.warning(f"{file.name} ignorado (sem dados válidos).")
                 continue
 
-            summary = summarize_tensiometry(df_log, file.name)
-            summaries.append(summary)
+            summaries.append(summarize_tensiometry(df_log, file.name))
 
         except Exception as e:
             st.error(f"Erro ao processar {file.name}")
@@ -109,6 +121,7 @@ def render_tensiometria_tab(supabase=None):
         return
 
     df_pca = pd.DataFrame(summaries)
+
     st.subheader("Tabela consolidada (entrada da PCA)")
     st.dataframe(df_pca)
 
@@ -143,19 +156,20 @@ def render_tensiometria_tab(supabase=None):
     # =====================================================
     fig, ax = plt.subplots(figsize=(6, 6), dpi=300)
 
-    ax.scatter(scores[:, 0], scores[:, 1], s=80)
+    ax.scatter(scores[:, 0], scores[:, 1], s=80, edgecolor="black")
 
     for i, label in enumerate(labels):
         ax.text(scores[i, 0] + 0.03, scores[i, 1] + 0.03, label, fontsize=9)
 
-    scale = np.max(np.abs(scores)) * 0.8
+    scale = np.max(np.abs(scores)) * 0.9
     for i, var in enumerate(feature_cols):
         ax.arrow(
             0, 0,
             loadings[i, 0] * scale,
             loadings[i, 1] * scale,
             color="red",
-            head_width=0.08
+            head_width=0.08,
+            length_includes_head=True
         )
         ax.text(
             loadings[i, 0] * scale * 1.1,
