@@ -1,4 +1,4 @@
-# tensiometria_pca_tab.py
+# tensiometria_tab.py
 # -*- coding: utf-8 -*-
 
 import streamlit as st
@@ -19,12 +19,12 @@ def render_tensiometria_pca_tab():
     st.markdown(
         """
         Esta seção permite realizar **Análise de Componentes Principais (PCA)**
-        a partir de **tabelas consolidadas de tensiometria**, geradas a partir
-        dos arquivos `.LOG` processados no módulo físico-mecânico.
+        a partir de **tabelas consolidadas de tensiometria**, geradas após o
+        processamento de arquivos `.LOG` no módulo físico-mecânico.
 
-        A PCA é utilizada para avaliar a **influência da temperatura, ângulo
-        de contato e componentes da energia de superfície** sobre o
-        comportamento global das amostras.
+        A PCA avalia a **influência da temperatura, ângulo de contato e
+        componentes da energia livre de superfície** sobre o comportamento
+        global das amostras.
         """
     )
 
@@ -83,8 +83,8 @@ def render_tensiometria_pca_tab():
 
     feature_cols = st.multiselect(
         "Variáveis físico-químicas (features)",
-        options=[c for c in numeric_cols if c not in [temp_col]],
-        default=[c for c in numeric_cols if c not in [temp_col]][:4]
+        options=[c for c in numeric_cols if c != temp_col],
+        default=[c for c in numeric_cols if c != temp_col][:4]
     )
 
     if len(feature_cols) < 2:
@@ -92,11 +92,20 @@ def render_tensiometria_pca_tab():
         return
 
     # =====================================================
-    # Preparação dos dados
+    # Preparação dos dados (BLINDADA)
     # =====================================================
-    X = df[feature_cols].values
-    labels = df[sample_col].astype(str).values
-    temperatures = df[temp_col].values
+    df_pca = df[[sample_col, temp_col] + feature_cols].copy()
+
+    df_pca[temp_col] = pd.to_numeric(df_pca[temp_col], errors="coerce")
+    df_pca = df_pca.dropna()
+
+    if df_pca.shape[0] < 3:
+        st.error("Número insuficiente de amostras válidas para PCA.")
+        return
+
+    X = df_pca[feature_cols].values
+    labels = df_pca[sample_col].astype(str).values
+    temperatures = df_pca[temp_col].values
 
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
@@ -121,7 +130,8 @@ def render_tensiometria_pca_tab():
         scores[:, 1],
         c=temperatures,
         cmap="plasma",
-        s=70
+        s=80,
+        edgecolor="black"
     )
 
     for i, label in enumerate(labels):
@@ -129,11 +139,12 @@ def render_tensiometria_pca_tab():
             scores[i, 0] + 0.04,
             scores[i, 1] + 0.04,
             label,
-            fontsize=8
+            fontsize=9
         )
 
-    # Loadings
-    scale = 2.5
+    # Escala dinâmica dos vetores
+    scale = np.max(np.abs(scores)) * 0.9
+
     for i, var in enumerate(feature_cols):
         ax.arrow(
             0, 0,
@@ -141,13 +152,16 @@ def render_tensiometria_pca_tab():
             loadings[i, 1] * scale,
             color="black",
             width=0.01,
-            head_width=0.08
+            head_width=0.08,
+            length_includes_head=True
         )
         ax.text(
             loadings[i, 0] * scale * 1.1,
             loadings[i, 1] * scale * 1.1,
             var,
-            fontsize=9
+            fontsize=9,
+            ha="center",
+            va="center"
         )
 
     ax.axhline(0, color="gray", lw=0.6)
@@ -155,8 +169,7 @@ def render_tensiometria_pca_tab():
 
     ax.set_xlabel(f"PC1 ({explained_var[0]:.1f}%)")
     ax.set_ylabel(f"PC2 ({explained_var[1]:.1f}%)")
-    ax.set_title("PCA — Energia de Superfície vs Temperatura")
-    ax.set_aspect("equal", adjustable="box")
+    ax.set_title("PCA — Energia de Superfície × Temperatura")
     ax.grid(alpha=0.3)
 
     cbar = plt.colorbar(scatter, ax=ax)
