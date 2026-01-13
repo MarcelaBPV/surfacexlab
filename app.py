@@ -70,13 +70,18 @@ def safe_import(module_name: str, func_name: str, optional: bool = False):
 
 render_raman_tab = safe_import("raman_tab", "render_raman_tab")
 
-# módulos opcionais (não quebram o app)
 render_resistividade_tab = safe_import(
     "resistividade_tab", "render_resistividade_tab", optional=True
 )
+
+# 👉 TENSIOMETRIA (PROCESSAMENTO + PCA NO MESMO ARQUIVO)
 render_tensiometria_tab = safe_import(
     "tensiometria_tab", "render_tensiometria_tab", optional=True
 )
+render_tensiometria_pca_tab = safe_import(
+    "tensiometria_tab", "render_tensiometria_pca_tab", optional=True
+)
+
 render_ml_tab = safe_import(
     "ml_tab", "render_ml_tab", optional=True
 )
@@ -123,21 +128,50 @@ tabs = st.tabs([
     "🤖 Otimizador — IA",
 ])
 
+
+# -------------------------
+# RAMAN
+# -------------------------
 with tabs[0]:
     render_raman_tab(supabase)
 
+
+# -------------------------
+# RESISTIVIDADE
+# -------------------------
 with tabs[1]:
     if render_resistividade_tab:
         render_resistividade_tab(supabase)
     else:
         st.info("Módulo de resistividade ainda não implementado.")
 
-with tabs[2]:
-    if render_tensiometria_tab:
-        render_tensiometria_tab(supabase)
-    else:
-        st.info("Módulo de tensiometria ainda não implementado.")
 
+# -------------------------
+# TENSIOMETRIA (PROCESSAMENTO + PCA)
+# -------------------------
+with tabs[2]:
+
+    if not render_tensiometria_tab:
+        st.info("Módulo de tensiometria ainda não implementado.")
+    else:
+        subtabs = st.tabs([
+            "📐 Processamento (.LOG)",
+            "📊 PCA — Energia de Superfície"
+        ])
+
+        with subtabs[0]:
+            render_tensiometria_tab(supabase)
+
+        with subtabs[1]:
+            if render_tensiometria_pca_tab:
+                render_tensiometria_pca_tab()
+            else:
+                st.info("PCA de tensiometria não disponível.")
+
+
+# -------------------------
+# OTIMIZAÇÃO / IA
+# -------------------------
 with tabs[3]:
     if render_ml_tab:
         render_ml_tab(supabase)
