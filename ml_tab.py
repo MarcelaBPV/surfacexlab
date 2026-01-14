@@ -11,97 +11,88 @@ from sklearn.decomposition import PCA
 
 
 # =========================================================
-# FUNÇÃO AUXILIAR — CLASSIFICAÇÃO QUALITATIVA
+# CLASSIFICAÇÃO QUALITATIVA DE CONTRIBUIÇÃO
 # =========================================================
-def qualitative_contribution(value, thresholds):
-    if abs(value) >= thresholds[1]:
+def qualitative_contribution(value):
+    if value >= 0.7:
         return "Alta"
-    elif abs(value) >= thresholds[0]:
+    if value >= 0.4:
         return "Média"
-    else:
-        return "Baixa"
+    return "Baixa"
 
 
 # =========================================================
-# ABA OTIMIZAÇÃO — PCA INTEGRADO
+# ABA ML / OTIMIZAÇÃO
 # =========================================================
 def render_ml_tab(supabase=None):
 
-    st.header("🤖 Otimização — PCA Integrado Multivariado")
+    st.header("🤖 Otimizador — PCA Global & Contribuição Qualitativa")
 
     st.markdown(
         """
-        Este módulo realiza **Análise de Componentes Principais (PCA) integrada**
-        combinando informações:
+        Este módulo integra **Raman + Tensiometria + Resistividade**
+        em uma **análise multivariada global**, permitindo identificar:
 
-        - **Raman** → ID/IG, I2D/IG  
-        - **Tensiometria** → Energia de superfície (OWRK)  
-        
-        A saída inclui:
-        - **Biplot padronizado**
-        - **Tabela automática de contribuição qualitativa**
+        • Variáveis dominantes por amostra  
+        • Correlações cruzadas entre propriedades  
+        • Contribuições físicas e químicas relevantes  
         """
     )
 
     # =====================================================
-    # VERIFICAÇÃO DOS DADOS
+    # COLETA DOS DADOS (SESSION STATE)
     # =====================================================
-    if (
-        "raman_features" not in st.session_state or
-        "tensiometry_samples" not in st.session_state
-    ):
-        st.info(
-            "⚠ Para executar o PCA integrado:\n"
-            "- Processe amostras na aba **Raman**\n"
-            "- Processe amostras na aba **Tensiometria**"
-        )
-        return
+    data_sources = []
 
-    df_raman = pd.DataFrame(st.session_state.raman_features)
-    df_tens  = pd.DataFrame(st.session_state.tensiometry_samples)
+    if "raman_fingerprint" in st.session_state:
+        data_sources.append(st.session_state.raman_fingerprint)
 
-    if df_raman.empty or df_tens.empty:
-        st.warning("Dados insuficientes para PCA.")
+    if "tensiometry_samples" in st.session_state:
+        data_sources.append(pd.DataFrame(st.session_state.tensiometry_samples))
+
+    if "electrical_samples" in st.session_state:
+        data_sources.append(pd.DataFrame(st.session_state.electrical_samples))
+
+    if not data_sources:
+        st.info("Nenhum dado disponível ainda. Execute ao menos um módulo.")
         return
 
     # =====================================================
-    # MERGE PELO NOME DA AMOSTRA
+    # MERGE GLOBAL
     # =====================================================
-    df = pd.merge(df_raman, df_tens, on="Amostra", how="inner")
+    df_global = None
 
-    if df.shape[0] < 2:
-        st.warning("São necessárias pelo menos duas amostras comuns.")
+    for df in data_sources:
+        if "Amostra" not in df.columns:
+            continue
+
+        if df_global is None:
+            df_global = df.copy()
+        else:
+            df_global = pd.merge(
+                df_global,
+                df,
+                on="Amostra",
+                how="outer"
+            )
+
+    if df_global is None or len(df_global) < 2:
+        st.warning("Dados insuficientes para PCA global.")
         return
 
-    st.subheader("Matriz integrada de entrada")
-    st.dataframe(df, use_container_width=True)
+    df_global = df_global.set_index("Amostra")
+    df_global = df_global.apply(pd.to_numeric, errors="coerce")
+    df_global = df_global.fillna(0.0)
+
+    st.subheader("Matriz global integrada")
+    st.dataframe(df_global, use_container_width=True)
 
     # =====================================================
-    # SELEÇÃO DAS VARIÁVEIS
+    # PCA GLOBAL
     # =====================================================
-    feature_cols = st.multiselect(
-        "Variáveis para PCA",
-        options=[c for c in df.columns if c != "Amostra"],
-        default=[
-            "ID_IG",
-            "I2D_IG",
-            "Theta médio (°)",
-            "gamma_total",
-            "gamma_p",
-            "gamma_d",
-            "polar_fraction"
-        ]
-    )
-
-    if len(feature_cols) < 2:
-        st.warning("Selecione ao menos duas variáveis.")
-        return
-
-    # =====================================================
-    # PCA
-    # =====================================================
-    X = df[feature_cols].values
-    labels = df["Amostra"].values
+    X = df_global.values
+    labels = df_global.index.values
+    features = df_global.columns.values
 
     X_scaled = StandardScaler().fit_transform(X)
 
@@ -111,9 +102,9 @@ def render_ml_tab(supabase=None):
     explained = pca.explained_variance_ratio_ * 100
 
     # =====================================================
-    # BIPLOT PADRONIZADO (IGUAL RAMAN/TENSIOMETRIA)
+    # BIPLOT GLOBAL
     # =====================================================
-    st.subheader("PCA Integrado — Biplot")
+    st.subheader("📊 PCA Global — Raman + Tensiometria + Elétrica")
 
     fig, ax = plt.subplots(figsize=(7, 7), dpi=300)
 
@@ -128,75 +119,69 @@ def render_ml_tab(supabase=None):
         )
 
     scale = np.max(np.abs(scores)) * 0.85
-
-    for i, var in enumerate(feature_cols):
+    for i, var in enumerate(features):
         ax.arrow(
             0, 0,
             loadings[i, 0] * scale,
             loadings[i, 1] * scale,
             color="black",
-            width=0.003,
+            alpha=0.6,
+            head_width=0.06,
             length_includes_head=True
         )
         ax.text(
             loadings[i, 0] * scale * 1.1,
             loadings[i, 1] * scale * 1.1,
             var,
-            fontsize=9
+            fontsize=8
         )
 
     ax.axhline(0, color="gray", lw=0.6)
     ax.axvline(0, color="gray", lw=0.6)
     ax.set_xlabel(f"PC1 ({explained[0]:.1f}%)")
     ax.set_ylabel(f"PC2 ({explained[1]:.1f}%)")
-    ax.set_title("PCA Integrado — Raman + Energia de Superfície")
+    ax.set_title("PCA Global — SurfaceXLab")
     ax.set_aspect("equal", adjustable="box")
     ax.grid(alpha=0.3)
 
     st.pyplot(fig)
 
     # =====================================================
-    # VARIÂNCIA EXPLICADA
+    # CONTRIBUIÇÃO QUALITATIVA
     # =====================================================
-    st.subheader("Variância explicada")
+    st.subheader("📋 Tabela de contribuição qualitativa")
 
-    st.dataframe(pd.DataFrame({
-        "Componente": ["PC1", "PC2"],
-        "Variância (%)": explained.round(2)
-    }))
+    contrib = np.abs(loadings)
+    contrib_norm = contrib / contrib.max(axis=0)
 
-    # =====================================================
-    # TABELA DE CONTRIBUIÇÃO QUALITATIVA
-    # =====================================================
-    st.subheader("Contribuição qualitativa das variáveis")
-
-    loadings_df = pd.DataFrame(
-        loadings,
-        index=feature_cols,
+    table = pd.DataFrame(
+        contrib_norm,
+        index=features,
         columns=["PC1", "PC2"]
     )
 
-    # Limiares automáticos
-    abs_vals = np.abs(loadings_df.values.flatten())
-    t_low  = np.percentile(abs_vals, 33)
-    t_high = np.percentile(abs_vals, 66)
+    table["Contribuição PC1"] = table["PC1"].apply(qualitative_contribution)
+    table["Contribuição PC2"] = table["PC2"].apply(qualitative_contribution)
 
-    contrib_table = []
+    st.dataframe(
+        table[["Contribuição PC1", "Contribuição PC2"]],
+        use_container_width=True
+    )
 
-    for var in feature_cols:
-        contrib_table.append({
-            "Variável": var,
-            "PC1": qualitative_contribution(loadings_df.loc[var, "PC1"], (t_low, t_high)),
-            "PC2": qualitative_contribution(loadings_df.loc[var, "PC2"], (t_low, t_high)),
-            "Sinal PC1": "Positivo" if loadings_df.loc[var, "PC1"] > 0 else "Negativo",
-            "Sinal PC2": "Positivo" if loadings_df.loc[var, "PC2"] > 0 else "Negativo",
-        })
+    # =====================================================
+    # INTERPRETAÇÃO AUTOMÁTICA
+    # =====================================================
+    st.subheader("🧠 Interpretação automática")
 
-    contrib_df = pd.DataFrame(contrib_table)
+    dominant_pc1 = table["PC1"].idxmax()
+    dominant_pc2 = table["PC2"].idxmax()
 
-    st.dataframe(contrib_df, use_container_width=True)
+    st.markdown(
+        f"""
+        • **PC1** é dominada principalmente por **{dominant_pc1}**, indicando que
+        esta variável governa a separação principal das amostras.
 
-    st.caption(
-        "Classificação automática baseada na magnitude relativa dos loadings.\n"
-        "Alta / Média / Baixa contribuição para cada componente principal."
+        • **PC2** é dominada principalmente por **{dominant_pc2}**, refletindo
+        um segundo mecanismo físico/químico independente.
+        """
     )
