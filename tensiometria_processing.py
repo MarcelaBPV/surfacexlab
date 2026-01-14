@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 
 """
-Processamento de Análises Físico-Mecânicas por Tensiometria Óptica
-Método: Ângulo de contato + OWRK (Owens–Wendt–Rabel–Kaelble)
+SurfaceXLab — Tensiometria Óptica
+Processamento físico + OWRK + integração Raman/Topografia
 """
 
 import numpy as np
@@ -24,7 +24,7 @@ LIQUIDS = {
 
 
 # =========================================================
-# LEITURA ROBUSTA DE LOG
+# LEITURA ROBUSTA DO LOG
 # =========================================================
 def read_contact_angle_log(file_like) -> pd.DataFrame:
     file_like.seek(0)
@@ -42,14 +42,7 @@ def read_contact_angle_log(file_like) -> pd.DataFrame:
 
     buffer = StringIO("\n".join(lines[header_idx:]))
 
-    try:
-        df = pd.read_csv(buffer, sep=";", engine="python", on_bad_lines="skip")
-        if df.shape[1] < 2:
-            buffer.seek(0)
-            df = pd.read_csv(buffer, sep="\t", engine="python", on_bad_lines="skip")
-    except Exception:
-        return pd.DataFrame()
-
+    df = pd.read_csv(buffer, sep=None, engine="python", on_bad_lines="skip")
     df.columns = [c.strip() for c in df.columns]
 
     rename_map = {
@@ -77,14 +70,12 @@ def read_contact_angle_log(file_like) -> pd.DataFrame:
 # LIMPEZA
 # =========================================================
 def clean_contact_angle(df: pd.DataFrame) -> pd.DataFrame:
-    dfc = df.copy()
-
-    if "theta_mean" not in dfc.columns:
+    if "theta_mean" not in df.columns:
         return pd.DataFrame()
 
-    dfc = dfc[
-        (dfc["theta_mean"] > 0) &
-        (dfc["theta_mean"] < 180)
+    dfc = df[
+        (df["theta_mean"] > 0) &
+        (df["theta_mean"] < 180)
     ]
 
     if "messages" in dfc.columns:
@@ -94,72 +85,54 @@ def clean_contact_angle(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # =========================================================
-# ESTATÍSTICAS
+# q* — ÂNGULO CARACTERÍSTICO
 # =========================================================
-def contact_angle_statistics(df: pd.DataFrame) -> Dict:
-    theta = df["theta_mean"].values
+def compute_q_star(df: pd.DataFrame) -> float:
+    """
+    Ângulo médio estável (q*)
+    Últimos 30% da curva
+    """
+    n = len(df)
+    if n < 10:
+        return float(df["theta_mean"].mean())
 
-    return {
-        "Theta médio (°)": float(np.mean(theta)),
-        "Theta std (°)": float(np.std(theta, ddof=1)),
-        "Theta mediano (°)": float(np.median(theta)),
-        "N pontos": int(len(theta)),
-    }
+    tail = df.iloc[int(0.7 * n):]
+    return float(tail["theta_mean"].mean())
 
 
 # =========================================================
 # OWRK
 # =========================================================
 def owkr_surface_energy(theta_by_liquid: Dict[str, float]) -> Dict:
-
     if len(theta_by_liquid) < 2:
         raise ValueError("OWRK requer pelo menos dois líquidos.")
 
     X, Y = [], []
 
     for liq, theta in theta_by_liquid.items():
-        props = LIQUIDS[liq]
+        p = LIQUIDS[liq]
 
         cos_t = np.cos(np.deg2rad(theta))
-        y = props["gamma_L"] * (1 + cos_t) / (2 * np.sqrt(props["gamma_d"]))
-        x = np.sqrt(props["gamma_p"] / props["gamma_d"]) if props["gamma_d"] > 0 else 0
+        y = p["gamma_L"] * (1 + cos_t) / (2 * np.sqrt(p["gamma_d"]))
+        x = np.sqrt(p["gamma_p"] / p["gamma_d"]) if p["gamma_d"] > 0 else 0
 
         X.append(x)
         Y.append(y)
 
-    X = np.array(X)
-    Y = np.array(Y)
+    X, Y = np.array(X), np.array(Y)
 
     A = np.vstack([X, np.ones_like(X)]).T
     slope, intercept = np.linalg.lstsq(A, Y, rcond=None)[0]
 
     gamma_d = intercept ** 2
     gamma_p = slope ** 2
-    gamma_total = gamma_d + gamma_p
-
-    Y_pred = slope * X + intercept
-    ss_res = np.sum((Y - Y_pred) ** 2)
-    ss_tot = np.sum((Y - np.mean(Y)) ** 2)
-    R2 = 1 - ss_res / ss_tot if ss_tot != 0 else np.nan
 
     return {
-        "Energia superficial (mJ/m²)": float(gamma_total),
-        "Componente dispersiva (mJ/m²)": float(gamma_d),
-        "Componente polar (mJ/m²)": float(gamma_p),
-        "Fração polar": float(gamma_p / gamma_total) if gamma_total > 0 else np.nan,
-        "OWRK R²": float(R2),
+        "Energia superficial (mJ/m²)": gamma_d + gamma_p,
+        "Componente dispersiva (mJ/m²)": gamma_d,
+        "Componente polar (mJ/m²)": gamma_p,
+        "Fração polar": gamma_p / (gamma_d + gamma_p),
     }
-
-
-# =========================================================
-# CLASSIFICAÇÃO
-# =========================================================
-def classify_wettability(theta: float, polar_fraction: float) -> str:
-    if theta > 90 and polar_fraction < 0.3:
-        return "Hidrofóbica"
-    if theta < 60 and polar_fraction > 0.5:
-        return "Hidrofílica"
-    return "Intermediária"
 
 
 # =========================================================
@@ -168,31 +141,43 @@ def classify_wettability(theta: float, polar_fraction: float) -> str:
 def process_tensiometry(
     file_like,
     theta_by_liquid: Dict[str, float],
+    Rrms_mm: float,
+    ID_IG: float,
+    I2D_IG: float,
 ) -> Dict:
 
     df_raw = read_contact_angle_log(file_like)
     df_clean = clean_contact_angle(df_raw)
 
-    stats = contact_angle_statistics(df_clean)
+    q_star = compute_q_star(df_clean)
     owkr = owkr_surface_energy(theta_by_liquid)
 
-    wettability = classify_wettability(
-        stats["Theta médio (°)"],
-        owkr["Fração polar"],
-    )
-
-    fig, ax = plt.subplots(figsize=(8, 4))
+    # -------------------------------
+    # Plot
+    # -------------------------------
+    fig, ax = plt.subplots(figsize=(8, 4), dpi=300)
     ax.plot(df_clean["time_s"], df_clean["theta_mean"], lw=1.5)
+    ax.axhline(q_star, color="red", linestyle="--", label="q*")
     ax.set_xlabel("Tempo (s)")
     ax.set_ylabel("Ângulo de contato (°)")
     ax.set_title("Evolução do ângulo de contato")
-    ax.grid(True, linestyle="--", alpha=0.4)
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+
+    # -------------------------------
+    # Saída CONSOLIDADA (PCA / ML)
+    # -------------------------------
+    summary = {
+        "Rrms (mm)": Rrms_mm,
+        "ID/IG": ID_IG,
+        "I2D/IG": I2D_IG,
+        "q* (°)": q_star,
+        **owkr,
+    }
 
     return {
         "df_raw": df_raw,
         "df_clean": df_clean,
-        **stats,
-        **owkr,
-        "Molhabilidade": wettability,
+        "summary": summary,
         "figure": fig,
     }
