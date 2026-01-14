@@ -35,7 +35,7 @@ st.set_page_config(
     layout="wide",
 )
 
-st.title("SurfaceXLab — Plataforma Integrada de Pesquisa")
+st.title("Plataforma de Caracterização e Otimização de Superfícies")
 
 
 # =========================================================
