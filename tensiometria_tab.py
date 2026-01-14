@@ -1,241 +1,231 @@
-# tensiometria_tab.py
+# raman_tab.py
 # -*- coding: utf-8 -*-
 
 import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from io import StringIO
 
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
 
-
-# =========================================================
-# CONSTANTES — LÍQUIDOS (25 °C)
-# =========================================================
-LIQUIDS = {
-    "Água": {"gamma_L": 72.8, "gamma_d": 21.8, "gamma_p": 51.0},
-    "Diiodometano": {"gamma_L": 50.8, "gamma_d": 50.8, "gamma_p": 0.0},
-    "Formamida": {"gamma_L": 58.0, "gamma_d": 39.0, "gamma_p": 19.0},
-}
+from raman_processing import process_raman_spectrum_with_groups
 
 
 # =========================================================
-# OWRK
+# ABA RAMAN
 # =========================================================
-def owkr_surface_energy(theta_by_liquid):
+def render_raman_tab(supabase=None):
 
-    X, Y = [], []
+    st.header("🧬 Análises Moleculares — Espectroscopia Raman")
 
-    for liquid, theta in theta_by_liquid.items():
-        props = LIQUIDS[liquid]
+    st.markdown(
+        """
+        Este módulo realiza o **processamento completo de espectros Raman**,
+        incluindo:
 
-        cos_theta = np.cos(np.deg2rad(theta))
-        y = props["gamma_L"] * (1 + cos_theta) / (2 * np.sqrt(props["gamma_d"]))
-        x = np.sqrt(props["gamma_p"] / props["gamma_d"]) if props["gamma_d"] > 0 else 0
-
-        X.append(x)
-        Y.append(y)
-
-    X = np.array(X)
-    Y = np.array(Y)
-
-    A = np.vstack([X, np.ones_like(X)]).T
-    slope, intercept = np.linalg.lstsq(A, Y, rcond=None)[0]
-
-    gamma_d = intercept ** 2
-    gamma_p = slope ** 2
-
-    return {
-        "Energia superficial total (mJ/m²)": gamma_d + gamma_p,
-        "Componente dispersiva (mJ/m²)": gamma_d,
-        "Componente polar (mJ/m²)": gamma_p,
-    }
-
-
-# =========================================================
-# LEITURA LOG
-# =========================================================
-def read_tensiometry_log(file):
-
-    file.seek(0)
-    raw = file.read().decode("latin1", errors="ignore")
-    lines = raw.splitlines()
-
-    header = next(
-        (i for i, l in enumerate(lines) if "Mean" in l and ("Theta" in l or "Time" in l)),
-        None
+        • Espectro bruto  
+        • Correção de baseline  
+        • Espectro processado  
+        • Identificação automática de picos  
+        • Associação com grupos moleculares  
+        • **Análise multivariada por PCA**
+        """
     )
 
-    if header is None:
-        return pd.DataFrame()
+    # =====================================================
+    # Upload múltiplo
+    # =====================================================
+    uploaded_files = st.file_uploader(
+        "Upload dos espectros Raman (.csv, .txt, .xls, .xlsx)",
+        type=["csv", "txt", "xls", "xlsx"],
+        accept_multiple_files=True,
+        key="raman_upload"
+    )
 
-    buffer = StringIO("\n".join(lines[header:]))
+    if not uploaded_files:
+        st.info("Envie um ou mais espectros Raman para iniciar.")
+        return
 
-    df = pd.read_csv(buffer, sep=";", engine="python", on_bad_lines="skip")
-    df.columns = [c.strip() for c in df.columns]
-
-    rename = {
-        "Time": "time_s",
-        "Mean": "theta_mean",
-        "Area": "area",
-        "Volume": "volume",
-        "Height": "height",
-        "Width": "width",
-    }
-
-    df = df.rename(columns={k: v for k, v in rename.items() if k in df.columns})
-
-    for c in df.columns:
-        df[c] = pd.to_numeric(df[c].astype(str).str.replace(",", "."), errors="coerce")
-
-    df = df.dropna(subset=["theta_mean"])
-    df = df[(df["theta_mean"] > 0) & (df["theta_mean"] < 180)]
-
-    return df.reset_index(drop=True)
-
-
-# =========================================================
-# ABA TENSIOMETRIA
-# =========================================================
-def render_tensiometria_tab(supabase=None):
-
-    st.header("💧 Tensiometria + Raman — PCA Integrado")
-
-    if "samples" not in st.session_state:
-        st.session_state.samples = []
-
-    tabs = st.tabs(["📐 Processamento", "📊 PCA Integrado"])
+    # Containers
+    all_peaks = []
+    fingerprint_rows = []
 
     # =====================================================
-    # SUBABA 1
+    # PROCESSAMENTO INDIVIDUAL
     # =====================================================
-    with tabs[0]:
+    for file in uploaded_files:
 
-        uploaded = st.file_uploader(
-            "Upload dos arquivos .LOG",
-            type=["log", "txt", "csv"],
-            accept_multiple_files=True
-        )
+        st.markdown(f"---\n### 📄 Amostra: `{file.name}`")
 
-        if uploaded:
-            for file in uploaded:
+        try:
+            result = process_raman_spectrum_with_groups(
+                file_like=file,
+                peak_prominence=0.02
+            )
+        except Exception as e:
+            st.error("Erro ao processar o espectro Raman.")
+            st.exception(e)
+            continue
 
-                st.markdown(f"### 📄 {file.name}")
-                df = read_tensiometry_log(file)
+        # -------------------------------------------------
+        # GRÁFICOS RAMAN (PADRÃO ARTIGO)
+        # -------------------------------------------------
+        figures = result.get("figures")
 
-                if df.empty:
-                    st.warning("LOG inválido.")
-                    continue
+        if isinstance(figures, dict):
+            for name, fig in figures.items():
 
-                liquid = st.selectbox(
-                    "Líquido",
-                    list(LIQUIDS.keys()),
-                    key=f"liq_{file.name}"
-                )
+                fig.set_size_inches(10, 5)
+                fig.set_dpi(300)
 
-                id_ig = st.number_input(
-                    "ID/IG (Raman)",
-                    value=np.nan,
-                    key=f"idig_{file.name}"
-                )
+                for ax in fig.axes:
+                    ax.grid(alpha=0.25)
+                    ax.tick_params(labelsize=11)
+                    ax.set_xlabel(ax.get_xlabel(), fontsize=12)
+                    ax.set_ylabel(ax.get_ylabel(), fontsize=12)
 
-                i2d_ig = st.number_input(
-                    "I2D/IG (Raman)",
-                    value=np.nan,
-                    key=f"i2dig_{file.name}"
-                )
+                st.markdown(f"**{name}**")
+                st.pyplot(fig, use_container_width=True)
 
-                theta = df["theta_mean"].mean()
+        # -------------------------------------------------
+        # TABELA DE PICOS (ROBUSTA)
+        # -------------------------------------------------
+        peaks_df = result.get("peaks_df")
 
-                sample = {
-                    "Amostra": file.name,
-                    "Theta médio (°)": theta,
-                    "Volume médio": df["volume"].mean() if "volume" in df else np.nan,
-                    "Área média": df["area"].mean() if "area" in df else np.nan,
-                    "Altura média": df["height"].mean() if "height" in df else np.nan,
-                    "Largura média": df["width"].mean() if "width" in df else np.nan,
-                    "ID/IG": id_ig,
-                    "I2D/IG": i2d_ig,
-                    "Líquido": liquid,
-                }
+        st.subheader("Picos Raman Identificados")
 
-                st.session_state.samples.append(sample)
-                st.success("✔ Processado")
+        if isinstance(peaks_df, pd.DataFrame) and not peaks_df.empty:
 
-        if st.session_state.samples:
-            st.dataframe(pd.DataFrame(st.session_state.samples))
+            # Mapeamento flexível de colunas
+            col_map = {
+                "peak": ["peak_cm1", "raman_shift", "peak_position"],
+                "intensity": ["intensity_norm", "intensity"],
+                "group": ["molecular_group", "assignment", "group"]
+            }
 
-    # =====================================================
-    # SUBABA 2 — PCA
-    # =====================================================
-    with tabs[1]:
+            resolved = {}
 
-        if len(st.session_state.samples) < 2:
-            st.info("Envie pelo menos duas amostras.")
-            return
+            for std, candidates in col_map.items():
+                for c in candidates:
+                    if c in peaks_df.columns:
+                        resolved[std] = c
+                        break
 
-        df = pd.DataFrame(st.session_state.samples)
-
-        # ---------------- OWRK ----------------
-        energy_rows = []
-        for name, g in df.groupby("Amostra"):
-            thetas = dict(zip(g["Líquido"], g["Theta médio (°)"]))
-            if len(thetas) >= 2:
-                owkr = owkr_surface_energy(thetas)
+            if len(resolved) < 3:
+                st.warning("Formato de picos não reconhecido.")
+                st.dataframe(peaks_df)
             else:
-                owkr = {k: np.nan for k in [
-                    "Energia superficial total (mJ/m²)",
-                    "Componente polar (mJ/m²)",
-                    "Componente dispersiva (mJ/m²)"
-                ]}
-            row = g.iloc[0].to_dict()
-            row.update(owkr)
-            energy_rows.append(row)
+                table = peaks_df[
+                    [resolved["peak"], resolved["intensity"], resolved["group"]]
+                ].copy()
 
-        df_pca = pd.DataFrame(energy_rows)
+                table.columns = [
+                    "Pico Raman (cm⁻¹)",
+                    "Intensidade normalizada",
+                    "Grupo molecular"
+                ]
 
-        features = st.multiselect(
-            "Variáveis para PCA",
-            options=[c for c in df_pca.columns if c not in ["Amostra", "Líquido"]],
-            default=[
-                "Energia superficial total (mJ/m²)",
-                "Componente polar (mJ/m²)",
-                "ID/IG",
-                "I2D/IG",
-            ]
+                st.dataframe(table, use_container_width=True)
+
+                # Guarda para PCA
+                temp = table.copy()
+                temp["Amostra"] = file.name
+                all_peaks.append(temp)
+
+                # Fingerprint simples (pico → intensidade)
+                fp = (
+                    temp
+                    .groupby("Pico Raman (cm⁻¹)")["Intensidade normalizada"]
+                    .mean()
+                )
+                fingerprint_rows.append(fp.rename(file.name))
+
+        else:
+            st.info("Nenhum pico Raman identificado.")
+
+    # =====================================================
+    # PCA RAMAN (SUBABA LÓGICA)
+    # =====================================================
+    if len(fingerprint_rows) < 2:
+        st.info("Carregue ao menos duas amostras para habilitar a PCA Raman.")
+        return
+
+    st.markdown("---")
+    st.header("📊 PCA — Espectroscopia Raman (baseada nos picos)")
+
+    df_fp = pd.concat(fingerprint_rows, axis=1).T.fillna(0.0)
+
+    st.subheader("Matriz de entrada da PCA")
+    st.dataframe(df_fp, use_container_width=True)
+
+    # =====================================================
+    # PCA
+    # =====================================================
+    X = df_fp.values
+    labels = df_fp.index.values
+
+    X_scaled = StandardScaler().fit_transform(X)
+
+    pca = PCA(n_components=2)
+    scores = pca.fit_transform(X_scaled)
+    loadings = pca.components_.T
+    explained = pca.explained_variance_ratio_ * 100
+
+    # =====================================================
+    # BIPLOT PADRONIZADO
+    # =====================================================
+    fig, ax = plt.subplots(figsize=(6, 6), dpi=300)
+
+    ax.scatter(
+        scores[:, 0],
+        scores[:, 1],
+        s=80,
+        color="#1f77b4",
+        edgecolor="black"
+    )
+
+    for i, label in enumerate(labels):
+        ax.text(
+            scores[i, 0] + 0.03,
+            scores[i, 1] + 0.03,
+            label,
+            fontsize=9
         )
 
-        X = StandardScaler().fit_transform(df_pca[features].values)
-        labels = df_pca["Amostra"].values
+    scale = np.max(np.abs(scores)) * 0.8
+    step = max(1, loadings.shape[0] // 20)
 
-        pca = PCA(n_components=2)
-        scores = pca.fit_transform(X)
-        loadings = pca.components_.T
-        var = pca.explained_variance_ratio_ * 100
+    for i in range(0, loadings.shape[0], step):
+        ax.arrow(
+            0, 0,
+            loadings[i, 0] * scale,
+            loadings[i, 1] * scale,
+            color="black",
+            alpha=0.3,
+            width=0.002,
+            length_includes_head=True
+        )
 
-        fig, ax = plt.subplots(figsize=(6, 6), dpi=300)
+    ax.axhline(0, color="gray", lw=0.6)
+    ax.axvline(0, color="gray", lw=0.6)
 
-        ax.scatter(scores[:, 0], scores[:, 1], s=80, edgecolor="black")
+    ax.set_xlabel(f"PC1 ({explained[0]:.1f}%)")
+    ax.set_ylabel(f"PC2 ({explained[1]:.1f}%)")
+    ax.set_title("PCA — Espectroscopia Raman")
+    ax.set_aspect("equal", adjustable="box")
+    ax.grid(alpha=0.3)
 
-        for i, lab in enumerate(labels):
-            ax.text(scores[i, 0]+0.03, scores[i, 1]+0.03, lab, fontsize=9)
+    st.pyplot(fig)
 
-        scale = np.max(np.abs(scores)) * 0.8
-        for i, v in enumerate(features):
-            ax.arrow(0, 0, loadings[i, 0]*scale, loadings[i, 1]*scale,
-                     color="black", width=0.003)
-            ax.text(loadings[i, 0]*scale*1.1, loadings[i, 1]*scale*1.1, v)
+    # =====================================================
+    # VARIÂNCIA EXPLICADA
+    # =====================================================
+    st.subheader("Variância explicada")
 
-        ax.set_xlabel(f"PC1 ({var[0]:.1f}%)")
-        ax.set_ylabel(f"PC2 ({var[1]:.1f}%)")
-        ax.set_title("PCA Integrado — Raman + Tensiometria")
-        ax.grid(alpha=0.3)
-
-        st.pyplot(fig)
-
-        st.dataframe(pd.DataFrame({
+    st.dataframe(
+        pd.DataFrame({
             "Componente": ["PC1", "PC2"],
-            "Variância (%)": var.round(2)
-        }))
+            "Variância explicada (%)": explained.round(2)
+        })
+    )
