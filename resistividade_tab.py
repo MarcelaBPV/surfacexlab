@@ -1,175 +1,132 @@
-# resistividade_tab.py
 # -*- coding: utf-8 -*-
 
 import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from datetime import date
 
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
 
 
 # =========================================================
-# HELPERS — BANCO
+# LEITURA ROBUSTA DO ARQUIVO ELÉTRICO
 # =========================================================
-def get_samples(supabase):
-    try:
-        res = (
-            supabase
-            .table("samples")
-            .select("id, sample_code")
-            .order("created_at", desc=True)
-            .execute()
-        )
-        return res.data if res.data else []
-    except Exception:
-        return []
+def read_electrical_file(file):
+    if file.name.lower().endswith((".xls", ".xlsx")):
+        df = pd.read_excel(file)
+    else:
+        df = pd.read_csv(file, sep=None, engine="python")
 
+    df.columns = [c.strip() for c in df.columns]
 
-def create_experiment(supabase, sample_id):
-    res = supabase.table("experiments").insert({
-        "sample_id": sample_id,
-        "experiment_type": "Electrical",
-        "experiment_date": str(date.today())
-    }).execute()
-    return res.data[0]["id"]
+    return df
 
 
 # =========================================================
-# ABA RESISTIVIDADE (PROCESSAMENTO + PCA)
+# PROCESSAMENTO DA AMOSTRA ELÉTRICA
 # =========================================================
-def render_resistividade_tab(supabase):
+def process_electrical_sample(df, sample_name):
+    """
+    Consolida uma amostra elétrica em uma única linha
+    """
+
+    summary = {
+        "Amostra": sample_name,
+    }
+
+    for col in df.columns:
+        if df[col].dtype.kind in "if":
+            summary[col] = df[col].mean()
+
+    return summary
+
+
+# =========================================================
+# ABA RESISTIVIDADE (UPLOAD + PCA)
+# =========================================================
+def render_resistividade_tab(supabase=None):
     st.header("⚡ Propriedades Elétricas — Resistividade")
 
     st.markdown(
         """
-        Este módulo permite:
-        - Registro de **medições elétricas**
-        - Armazenamento estruturado no banco
-        - **Análise multivariada (PCA)** das propriedades elétricas
+        **Subaba 1**: Upload e processamento de arquivos elétricos  
+        **Subaba 2**: PCA multivariada usando os dados processados
         """
     )
 
-    # -----------------------------------------------------
-    # Teste da tabela
-    # -----------------------------------------------------
-    try:
-        supabase.table("electrical_measurements").select("id").limit(1).execute()
-    except Exception:
-        st.info("Módulo de resistividade ainda não inicializado no banco.")
-        return
+    if "electrical_samples" not in st.session_state:
+        st.session_state.electrical_samples = []
 
     # =====================================================
     # SUBABAS
     # =====================================================
     subtabs = st.tabs([
-        "📐 Medição Elétrica",
+        "📐 Upload & Processamento",
         "📊 PCA — Elétrica"
     ])
 
     # =====================================================
-    # SUBABA 1 — MEDIÇÃO
+    # SUBABA 1 — UPLOAD
     # =====================================================
     with subtabs[0]:
 
-        samples = get_samples(supabase)
-        if not samples:
-            st.warning("Nenhuma amostra cadastrada.")
-            return
-
-        sample_map = {s["sample_code"]: s["id"] for s in samples}
-        sample_code = st.selectbox("Amostra", list(sample_map.keys()))
-        sample_id = sample_map[sample_code]
-
-        st.subheader("Parâmetros da Medição")
-
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            method = st.selectbox(
-                "Método",
-                ["Four-Point Probe", "Large-Area Electrodes"]
-            )
-        with col2:
-            current_a = st.number_input("Corrente (A)", format="%.6e")
-        with col3:
-            voltage_v = st.number_input("Tensão (V)", format="%.6e")
-
-        resistance_ohm = st.number_input("Resistência (Ω)", format="%.6e")
-        resistivity_ohm_cm = st.number_input("Resistividade (Ω·cm)", format="%.6e")
-        temperature_c = st.number_input("Temperatura (°C)", value=25.0)
-
-        if st.button("Salvar Medição Elétrica"):
-            experiment_id = create_experiment(supabase, sample_id)
-
-            supabase.table("electrical_measurements").insert({
-                "experiment_id": experiment_id,
-                "method": method,
-                "current_a": current_a,
-                "voltage_v": voltage_v,
-                "resistance_ohm": resistance_ohm,
-                "resistivity_ohm_cm": resistivity_ohm_cm,
-                "temperature_c": temperature_c
-            }).execute()
-
-            st.success("✔ Medição elétrica salva com sucesso!")
-
-        st.subheader("Histórico")
-        history = (
-            supabase
-            .table("electrical_measurements")
-            .select(
-                "created_at, method, resistance_ohm, "
-                "resistivity_ohm_cm, temperature_c"
-            )
-            .order("created_at", desc=True)
-            .execute()
+        uploaded_files = st.file_uploader(
+            "Upload dos arquivos elétricos (.csv, .xls, .txt)",
+            type=["csv", "txt", "xls", "xlsx"],
+            accept_multiple_files=True
         )
 
-        if history.data:
-            st.dataframe(pd.DataFrame(history.data))
-        else:
-            st.info("Nenhuma medição registrada.")
+        if uploaded_files:
+            for file in uploaded_files:
+                try:
+                    df_raw = read_electrical_file(file)
+
+                    if df_raw.empty:
+                        st.warning(f"{file.name} ignorado (arquivo vazio).")
+                        continue
+
+                    summary = process_electrical_sample(df_raw, file.name)
+                    st.session_state.electrical_samples.append(summary)
+
+                    st.success(f"{file.name} processado com sucesso.")
+
+                except Exception as e:
+                    st.error(f"Erro ao processar {file.name}")
+                    st.exception(e)
+
+        if st.session_state.electrical_samples:
+            df_samples = pd.DataFrame(st.session_state.electrical_samples)
+            st.subheader("Amostras elétricas consolidadas")
+            st.dataframe(df_samples)
 
     # =====================================================
     # SUBABA 2 — PCA
     # =====================================================
     with subtabs[1]:
 
-        st.subheader("PCA — Propriedades Elétricas")
-
-        res = (
-            supabase
-            .table("electrical_measurements")
-            .select(
-                "resistance_ohm, resistivity_ohm_cm, "
-                "current_a, voltage_v, temperature_c"
-            )
-            .execute()
-        )
-
-        if not res.data or len(res.data) < 3:
-            st.warning("Dados insuficientes para PCA.")
+        if not st.session_state.electrical_samples:
+            st.info("Nenhuma amostra processada ainda.")
             return
 
-        df = pd.DataFrame(res.data)
+        df_pca = pd.DataFrame(st.session_state.electrical_samples)
+
+        st.subheader("Dados de entrada da PCA")
+        st.dataframe(df_pca)
 
         feature_cols = st.multiselect(
-            "Variáveis para PCA",
-            options=df.columns,
-            default=[
-                "resistivity_ohm_cm",
-                "resistance_ohm",
-                "temperature_c"
-            ]
+            "Variáveis elétricas para PCA",
+            options=[c for c in df_pca.columns if c != "Amostra"],
+            default=[c for c in df_pca.columns if c != "Amostra"][:3]
         )
 
         if len(feature_cols) < 2:
             st.warning("Selecione ao menos duas variáveis.")
             return
 
-        X = df[feature_cols].values
+        X = df_pca[feature_cols].values
+        labels = df_pca["Amostra"].values
+
         X_scaled = StandardScaler().fit_transform(X)
 
         pca = PCA(n_components=2)
@@ -183,6 +140,9 @@ def render_resistividade_tab(supabase):
         fig, ax = plt.subplots(figsize=(6, 6), dpi=300)
 
         ax.scatter(scores[:, 0], scores[:, 1], s=80, edgecolor="black")
+
+        for i, label in enumerate(labels):
+            ax.text(scores[i, 0] + 0.03, scores[i, 1] + 0.03, label, fontsize=9)
 
         scale = np.max(np.abs(scores)) * 0.9
         for i, var in enumerate(feature_cols):
