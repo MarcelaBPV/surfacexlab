@@ -22,10 +22,10 @@ def render_resistividade_tab(supabase=None):
     st.markdown(
         """
         **Subaba 1**  
-        Upload da amostra elétrica → ajuste **V × I** → cálculo de resistividade  
+        Upload da amostra elétrica → ajuste **V × I** → cálculo físico  
 
         **Subaba 2**  
-        PCA multivariada usando **apenas os parâmetros físicos calculados**
+        PCA multivariada usando **apenas os parâmetros físicos consolidados**
         """
     )
 
@@ -49,8 +49,8 @@ def render_resistividade_tab(supabase=None):
     with subtabs[0]:
 
         uploaded_files = st.file_uploader(
-            "Upload dos arquivos elétricos (CSV / TXT)",
-            type=["csv", "txt"],
+            "Upload dos arquivos elétricos (CSV / TXT / XLS / XLSX)",
+            type=["csv", "txt", "xls", "xlsx"],
             accept_multiple_files=True
         )
 
@@ -90,17 +90,12 @@ def render_resistividade_tab(supabase=None):
                     st.pyplot(result["figure"])
 
                     # -----------------------------
-                    # Resumo físico
+                    # Summary físico (PADRÃO)
                     # -----------------------------
-                    summary = {
-                        "Amostra": file.name,
-                        "Resistência (Ω)": result["R_ohm"],
-                        "Resistividade (Ω·m)": result["rho_ohm_m"],
-                        "Condutividade (S/m)": result["sigma_S_m"],
-                        "Classe": result["classe"],
-                        "R²": result["fit"]["R2"],
-                        "Espessura (µm)": thickness_um,
-                    }
+                    summary = result["summary"].copy()
+                    summary["Amostra"] = file.name
+                    summary["Classe"] = result["classe"]
+                    summary["Espessura (µm)"] = thickness_um
 
                     st.session_state.electrical_samples[file.name] = summary
 
@@ -132,11 +127,11 @@ def render_resistividade_tab(supabase=None):
 
         df_pca = pd.DataFrame(st.session_state.electrical_samples.values())
 
-        # Garante apenas dados numéricos
-        numeric_cols = df_pca.select_dtypes(include=[np.number]).columns.tolist()
-
         st.subheader("Dados de entrada da PCA")
         st.dataframe(df_pca, use_container_width=True)
+
+        # Apenas colunas numéricas
+        numeric_cols = df_pca.select_dtypes(include=[np.number]).columns.tolist()
 
         feature_cols = st.multiselect(
             "Variáveis elétricas para PCA",
