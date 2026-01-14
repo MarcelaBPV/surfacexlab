@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
+from io import StringIO
 
 
 # =========================================================
@@ -15,51 +16,45 @@ from sklearn.decomposition import PCA
 # =========================================================
 def read_tensiometry_log(file):
     """
-    Leitura robusta de arquivos .LOG de goniômetro óptico
-    (detecta automaticamente onde começa a tabela)
+    Leitura robusta de arquivos .LOG de goniômetro óptico.
+    Detecta automaticamente o início da tabela e normaliza colunas.
     """
 
-    # -----------------------------------------------------
-    # 1️⃣ Ler todas as linhas como texto
-    # -----------------------------------------------------
     file.seek(0)
-    lines = file.read().decode("latin1", errors="ignore").splitlines()
+    raw_text = file.read().decode("latin1", errors="ignore")
+    lines = raw_text.splitlines()
 
-    # -----------------------------------------------------
-    # 2️⃣ Encontrar linha de cabeçalho da tabela
-    # -----------------------------------------------------
-    header_line = None
+    # ---------------------------------------------
+    # Detecta linha de cabeçalho
+    # ---------------------------------------------
+    header_idx = None
     for i, line in enumerate(lines):
         if "Mean" in line and ("Theta" in line or "Time" in line):
-            header_line = i
+            header_idx = i
             break
 
-    if header_line is None:
-        return pd.DataFrame()  # não achou tabela
+    if header_idx is None:
+        return pd.DataFrame()
 
-    # -----------------------------------------------------
-    # 3️⃣ Recriar conteúdo apenas da tabela
-    # -----------------------------------------------------
-    table_text = "\n".join(lines[header_line:])
-
-    from io import StringIO
+    table_text = "\n".join(lines[header_idx:])
     buffer = StringIO(table_text)
 
-    # -----------------------------------------------------
-    # 4️⃣ Ler como CSV estruturado
-    # -----------------------------------------------------
-    df = pd.read_csv(
-        buffer,
-        sep=";",
-        engine="python",
-        on_bad_lines="skip"
-    )
+    # ---------------------------------------------
+    # Tentativa robusta de leitura
+    # ---------------------------------------------
+    try:
+        df = pd.read_csv(buffer, sep=";", engine="python", on_bad_lines="skip")
+        if df.shape[1] < 2:
+            buffer.seek(0)
+            df = pd.read_csv(buffer, sep="\t", engine="python", on_bad_lines="skip")
+    except Exception:
+        return pd.DataFrame()
 
     df.columns = [c.strip() for c in df.columns]
 
-    # -----------------------------------------------------
-    # 5️⃣ Normalização de nomes
-    # -----------------------------------------------------
+    # ---------------------------------------------
+    # Normalização de nomes
+    # ---------------------------------------------
     rename_map = {
         "Time": "time_s",
         "Mean": "theta_mean",
@@ -74,9 +69,9 @@ def read_tensiometry_log(file):
 
     df = df.rename(columns={k: v for k, v in rename_map.items() if k in df.columns})
 
-    # -----------------------------------------------------
-    # 6️⃣ Conversão numérica segura
-    # -----------------------------------------------------
+    # ---------------------------------------------
+    # Conversão numérica segura
+    # ---------------------------------------------
     for col in df.columns:
         df[col] = (
             df[col]
@@ -85,9 +80,6 @@ def read_tensiometry_log(file):
         )
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
-    # -----------------------------------------------------
-    # 7️⃣ Limpeza física
-    # -----------------------------------------------------
     if "theta_mean" not in df.columns:
         return pd.DataFrame()
 
@@ -95,7 +87,6 @@ def read_tensiometry_log(file):
     df = df[(df["theta_mean"] > 0) & (df["theta_mean"] < 180)]
 
     return df.reset_index(drop=True)
-
 
 
 # =========================================================
@@ -118,20 +109,24 @@ def summarize_tensiometry(df, sample_name):
 # ABA PCA — TENSIOMETRIA
 # =========================================================
 def render_tensiometria_tab(supabase=None):
+
     st.header("💧 PCA — Tensiometria (arquivos .LOG)")
 
     st.markdown(
         """
-        Esta aba realiza:
-        1. **Leitura direta de arquivos `.LOG` de goniômetro**
-        2. **Extração de parâmetros físicos médios**
-        3. **Construção automática da matriz multivariada**
-        4. **Análise de Componentes Principais (PCA)**
+        Este módulo executa **PCA diretamente sobre ensaios de tensiometria**,
+        utilizando apenas os arquivos `.LOG` carregados nesta aba.
+
+        Fluxo:
+        1. Leitura robusta dos arquivos de goniômetro  
+        2. Extração de parâmetros físicos médios  
+        3. Construção automática da matriz multivariada  
+        4. PCA com biplot padronizado  
         """
     )
 
     # =====================================================
-    # Upload múltiplo de LOGs
+    # Upload múltiplo
     # =====================================================
     uploaded_files = st.file_uploader(
         "Upload dos arquivos .LOG de tensiometria",
@@ -146,18 +141,13 @@ def render_tensiometria_tab(supabase=None):
     summaries = []
 
     for file in uploaded_files:
-        try:
-            df_log = read_tensiometry_log(file)
+        df_log = read_tensiometry_log(file)
 
-            if df_log.empty:
-                st.warning(f"{file.name} ignorado (sem dados válidos).")
-                continue
+        if df_log.empty:
+            st.warning(f"{file.name} ignorado (sem dados válidos).")
+            continue
 
-            summaries.append(summarize_tensiometry(df_log, file.name))
-
-        except Exception as e:
-            st.error(f"Erro ao processar {file.name}")
-            st.exception(e)
+        summaries.append(summarize_tensiometry(df_log, file.name))
 
     if len(summaries) < 2:
         st.error("São necessárias pelo menos duas amostras válidas para PCA.")
@@ -166,10 +156,10 @@ def render_tensiometria_tab(supabase=None):
     df_pca = pd.DataFrame(summaries)
 
     st.subheader("Tabela consolidada (entrada da PCA)")
-    st.dataframe(df_pca)
+    st.dataframe(df_pca, use_container_width=True)
 
     # =====================================================
-    # Seleção das variáveis
+    # Seleção de variáveis
     # =====================================================
     feature_cols = st.multiselect(
         "Variáveis para PCA",
@@ -195,38 +185,54 @@ def render_tensiometria_tab(supabase=None):
     explained = pca.explained_variance_ratio_ * 100
 
     # =====================================================
-    # BIPLOT
+    # BIPLOT PADRONIZADO (IGUAL AO RAMAN)
     # =====================================================
+    st.subheader("PCA — Biplot Tensiometria")
+
     fig, ax = plt.subplots(figsize=(6, 6), dpi=300)
 
-    ax.scatter(scores[:, 0], scores[:, 1], s=80, edgecolor="black")
+    ax.scatter(
+        scores[:, 0],
+        scores[:, 1],
+        s=80,
+        color="#1f77b4",
+        edgecolor="black"
+    )
 
     for i, label in enumerate(labels):
-        ax.text(scores[i, 0] + 0.03, scores[i, 1] + 0.03, label, fontsize=9)
+        ax.text(
+            scores[i, 0] + 0.03,
+            scores[i, 1] + 0.03,
+            label,
+            fontsize=9
+        )
 
-    scale = np.max(np.abs(scores)) * 0.9
+    scale = np.max(np.abs(scores)) * 0.8
+
     for i, var in enumerate(feature_cols):
         ax.arrow(
             0, 0,
             loadings[i, 0] * scale,
             loadings[i, 1] * scale,
-            color="red",
-            head_width=0.08,
+            color="black",
+            alpha=0.7,
+            width=0.003,
             length_includes_head=True
         )
         ax.text(
             loadings[i, 0] * scale * 1.1,
             loadings[i, 1] * scale * 1.1,
             var,
-            color="red",
             fontsize=9
         )
 
     ax.axhline(0, color="gray", lw=0.6)
     ax.axvline(0, color="gray", lw=0.6)
+
     ax.set_xlabel(f"PC1 ({explained[0]:.1f}%)")
     ax.set_ylabel(f"PC2 ({explained[1]:.1f}%)")
     ax.set_title("PCA — Tensiometria")
+    ax.set_aspect("equal", adjustable="box")
     ax.grid(alpha=0.3)
 
     st.pyplot(fig)
@@ -235,7 +241,8 @@ def render_tensiometria_tab(supabase=None):
     # Variância explicada
     # =====================================================
     st.subheader("Variância explicada")
+
     st.dataframe(pd.DataFrame({
         "Componente": ["PC1", "PC2"],
-        "Variância (%)": explained.round(2)
+        "Variância explicada (%)": explained.round(2)
     }))
