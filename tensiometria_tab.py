@@ -5,14 +5,14 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+from io import StringIO
 
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
-from io import StringIO
 
 
 # =========================================================
-# LEITURA ROBUSTA DO LOG DE TENSIOMETRIA
+# LEITURA ROBUSTA DO LOG
 # =========================================================
 def read_tensiometry_log(file):
 
@@ -29,14 +29,10 @@ def read_tensiometry_log(file):
     if header_idx is None:
         return pd.DataFrame()
 
-    table_text = "\n".join(lines[header_idx:])
-    buffer = StringIO(table_text)
+    buffer = StringIO("\n".join(lines[header_idx:]))
 
     try:
-        df = pd.read_csv(buffer, sep=";", engine="python", on_bad_lines="skip")
-        if df.shape[1] < 2:
-            buffer.seek(0)
-            df = pd.read_csv(buffer, sep="\t", engine="python", on_bad_lines="skip")
+        df = pd.read_csv(buffer, sep=None, engine="python", on_bad_lines="skip")
     except Exception:
         return pd.DataFrame()
 
@@ -45,13 +41,9 @@ def read_tensiometry_log(file):
     rename_map = {
         "Time": "time_s",
         "Mean": "theta_mean",
-        "Dev.": "theta_std",
         "Theta(L)": "theta_L",
         "Theta(R)": "theta_R",
-        "Area": "area",
-        "Volume": "volume",
-        "Height": "height",
-        "Width": "width",
+        "Messages": "messages",
     }
 
     df = df.rename(columns={k: v for k, v in rename_map.items() if k in df.columns})
@@ -67,48 +59,31 @@ def read_tensiometry_log(file):
     if "theta_mean" not in df.columns:
         return pd.DataFrame()
 
-    df = df.dropna(subset=["theta_mean"])
-    df = df[(df["theta_mean"] > 0) & (df["theta_mean"] < 180)]
+    df = df[
+        (df["theta_mean"] > 0) &
+        (df["theta_mean"] < 180)
+    ]
+
+    if "messages" in df.columns:
+        df = df[~df["messages"].astype(str).str.contains("Error", na=False)]
 
     return df.reset_index(drop=True)
 
 
 # =========================================================
-# OWRK — ENERGIA DE SUPERFÍCIE
+# q* — ÂNGULO CARACTERÍSTICO
 # =========================================================
-def compute_owrk(theta_deg, gamma_l=72.8, gamma_ld=21.8, gamma_lp=51.0):
+def compute_q_star(df):
     """
-    OWRK simplificado (água como líquido de teste)
-    Retorna: gamma_total, gamma_dispersiva, gamma_polar
+    q* = ângulo médio estável
+    Calculado nos últimos 30% da curva
     """
+    n = len(df)
+    if n < 10:
+        return float(df["theta_mean"].mean())
 
-    theta = np.deg2rad(theta_deg)
-    cos_t = np.cos(theta)
-
-    term = gamma_l * (1 + cos_t) / 2
-    gamma_d = (term ** 2) / gamma_ld
-    gamma_p = max(term - gamma_d, 0)
-
-    return gamma_d + gamma_p, gamma_d, gamma_p
-
-
-# =========================================================
-# CONSOLIDAÇÃO DA AMOSTRA
-# =========================================================
-def summarize_tensiometry(df, sample_name):
-
-    theta = df["theta_mean"].mean()
-    gamma_tot, gamma_d, gamma_p = compute_owrk(theta)
-
-    return {
-        "Amostra": sample_name,
-        "Theta médio (°)": theta,
-        "Theta std (°)": df["theta_mean"].std(ddof=1),
-        "Energia superficial (mJ/m²)": gamma_tot,
-        "Componente dispersiva (mJ/m²)": gamma_d,
-        "Componente polar (mJ/m²)": gamma_p,
-        "N pontos": int(len(df)),
-    }
+    tail = df.iloc[int(0.7 * n):]
+    return float(tail["theta_mean"].mean())
 
 
 # =========================================================
@@ -121,15 +96,15 @@ def render_tensiometria_tab(supabase=None):
     st.markdown(
         """
         **Subaba 1**  
-        Upload e processamento de arquivos `.LOG` de goniometria  
+        Upload do arquivo `.LOG` + parâmetros físicos complementares  
 
         **Subaba 2**  
-        PCA multivariada usando **parâmetros físicos calculados**
+        PCA multivariada baseada em **Rrms, ID/IG, I2D/IG e q\\***
         """
     )
 
     if "tensiometry_samples" not in st.session_state:
-        st.session_state.tensiometry_samples = []
+        st.session_state.tensiometry_samples = {}
 
     subtabs = st.tabs([
         "📐 Upload & Processamento",
@@ -147,37 +122,59 @@ def render_tensiometria_tab(supabase=None):
             accept_multiple_files=True
         )
 
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            rrms = st.number_input("Rrms (mm)", value=0.0, format="%.4f")
+        with col2:
+            id_ig = st.number_input("ID/IG", value=0.0, format="%.4f")
+        with col3:
+            i2d_ig = st.number_input("I2D/IG", value=0.0, format="%.4f")
+
         if uploaded_files:
             for file in uploaded_files:
 
+                if file.name in st.session_state.tensiometry_samples:
+                    st.warning(f"{file.name} já processado.")
+                    continue
+
                 st.markdown(f"### 📄 Amostra: `{file.name}`")
 
-                df_log = read_tensiometry_log(file)
+                df = read_tensiometry_log(file)
 
-                if df_log.empty:
+                if df.empty:
                     st.warning("Arquivo ignorado (sem dados válidos).")
                     continue
 
-                summary = summarize_tensiometry(df_log, file.name)
-                st.session_state.tensiometry_samples.append(summary)
+                q_star = compute_q_star(df)
 
                 # -----------------------------
                 # Gráfico θ × tempo
                 # -----------------------------
-                fig, ax = plt.subplots(figsize=(6, 4), dpi=300)
-                ax.plot(df_log["time_s"], df_log["theta_mean"], lw=1.6)
+                fig, ax = plt.subplots(figsize=(7, 4), dpi=300)
+                ax.plot(df["time_s"], df["theta_mean"], lw=1.5)
+                ax.axhline(q_star, color="red", ls="--", label="q*")
                 ax.set_xlabel("Tempo (s)")
                 ax.set_ylabel("Ângulo de contato (°)")
                 ax.set_title("Evolução do ângulo de contato")
+                ax.legend()
                 ax.grid(alpha=0.3)
                 st.pyplot(fig)
 
+                summary = {
+                    "Amostra": file.name,
+                    "Rrms (mm)": rrms,
+                    "ID/IG": id_ig,
+                    "I2D/IG": i2d_ig,
+                    "q* (°)": q_star,
+                }
+
+                st.session_state.tensiometry_samples[file.name] = summary
                 st.success("✔ Amostra processada com sucesso")
 
         if st.session_state.tensiometry_samples:
             st.subheader("Resumo físico das amostras")
             st.dataframe(
-                pd.DataFrame(st.session_state.tensiometry_samples),
+                pd.DataFrame(st.session_state.tensiometry_samples.values()),
                 use_container_width=True
             )
 
@@ -190,25 +187,12 @@ def render_tensiometria_tab(supabase=None):
             st.info("Carregue ao menos duas amostras na subaba de processamento.")
             return
 
-        df_pca = pd.DataFrame(st.session_state.tensiometry_samples)
+        df_pca = pd.DataFrame(st.session_state.tensiometry_samples.values())
 
         st.subheader("Dados de entrada da PCA")
         st.dataframe(df_pca, use_container_width=True)
 
-        feature_cols = st.multiselect(
-            "Variáveis para PCA",
-            options=[c for c in df_pca.columns if c != "Amostra"],
-            default=[
-                "Theta médio (°)",
-                "Energia superficial (mJ/m²)",
-                "Componente dispersiva (mJ/m²)",
-                "Componente polar (mJ/m²)",
-            ]
-        )
-
-        if len(feature_cols) < 2:
-            st.warning("Selecione ao menos duas variáveis.")
-            return
+        feature_cols = ["Rrms (mm)", "ID/IG", "I2D/IG", "q* (°)"]
 
         X = df_pca[feature_cols].values
         labels = df_pca["Amostra"].values
@@ -221,19 +205,14 @@ def render_tensiometria_tab(supabase=None):
         explained = pca.explained_variance_ratio_ * 100
 
         # ---------------------------
-        # BIPLOT PADRONIZADO
+        # BIPLOT
         # ---------------------------
         fig, ax = plt.subplots(figsize=(7, 7), dpi=300)
 
         ax.scatter(scores[:, 0], scores[:, 1], s=90, edgecolor="black")
 
         for i, label in enumerate(labels):
-            ax.text(
-                scores[i, 0] + 0.03,
-                scores[i, 1] + 0.03,
-                label,
-                fontsize=9
-            )
+            ax.text(scores[i, 0] + 0.03, scores[i, 1] + 0.03, label, fontsize=9)
 
         scale = np.max(np.abs(scores)) * 0.85
         for i, var in enumerate(feature_cols):
