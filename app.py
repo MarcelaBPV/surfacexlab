@@ -13,7 +13,7 @@ from PIL import Image
 
 
 # =========================================================
-# LOGO (CARREGAMENTO SEGURO)
+# LOGO
 # =========================================================
 BASE_DIR = Path(__file__).parent
 LOGO_PATH = BASE_DIR / "assets" / "surfacexlab_logo.png"
@@ -39,7 +39,7 @@ st.title("SurfaceXLab — Plataforma Integrada de Pesquisa")
 
 
 # =========================================================
-# CONEXÃO COM SUPABASE
+# CONEXÃO SUPABASE
 # =========================================================
 @st.cache_resource
 def init_supabase() -> Client:
@@ -53,7 +53,7 @@ supabase = init_supabase()
 
 
 # =========================================================
-# IMPORTAÇÃO SEGURA DE MÓDULOS
+# IMPORTAÇÃO SEGURA
 # =========================================================
 def safe_import(module_name: str, func_name: str, optional: bool = False):
     try:
@@ -74,12 +74,9 @@ render_resistividade_tab = safe_import(
     "resistividade_tab", "render_resistividade_tab", optional=True
 )
 
-# 👉 TENSIOMETRIA (PROCESSAMENTO + PCA NO MESMO ARQUIVO)
+# 👉 TENSIOMETRIA (PROCESSAMENTO + PCA NO MESMO MÓDULO)
 render_tensiometria_tab = safe_import(
     "tensiometria_tab", "render_tensiometria_tab", optional=True
-)
-render_tensiometria_pca_tab = safe_import(
-    "tensiometria_tab", "render_tensiometria_pca_tab", optional=True
 )
 
 render_ml_tab = safe_import(
@@ -88,7 +85,7 @@ render_ml_tab = safe_import(
 
 
 # =========================================================
-# SIDEBAR — CRM CORE
+# SIDEBAR — CRM
 # =========================================================
 with st.sidebar:
 
@@ -119,7 +116,7 @@ with st.sidebar:
 
 
 # =========================================================
-# ABAS — MÓDULOS DE ANÁLISE
+# ABAS PRINCIPAIS
 # =========================================================
 tabs = st.tabs([
     "🧬 Molecular — Raman",
@@ -147,26 +144,13 @@ with tabs[1]:
 
 
 # -------------------------
-# TENSIOMETRIA (PROCESSAMENTO + PCA)
+# TENSIOMETRIA (LOG + PCA)
 # -------------------------
 with tabs[2]:
-
-    if not render_tensiometria_tab:
-        st.info("Módulo de tensiometria ainda não implementado.")
+    if render_tensiometria_tab:
+        render_tensiometria_tab(supabase)
     else:
-        subtabs = st.tabs([
-            "📐 Processamento (.LOG)",
-            "📊 PCA — Energia de Superfície"
-        ])
-
-        with subtabs[0]:
-            render_tensiometria_tab(supabase)
-
-        with subtabs[1]:
-            if render_tensiometria_pca_tab:
-                render_tensiometria_pca_tab()
-            else:
-                st.info("PCA de tensiometria não disponível.")
+        st.info("Módulo de tensiometria ainda não implementado.")
 
 
 # -------------------------
