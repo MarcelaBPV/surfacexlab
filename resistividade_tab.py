@@ -29,8 +29,11 @@ def render_resistividade_tab(supabase=None):
         """
     )
 
+    # =====================================================
+    # SESSION STATE
+    # =====================================================
     if "electrical_samples" not in st.session_state:
-        st.session_state.electrical_samples = []
+        st.session_state.electrical_samples = {}
 
     # =====================================================
     # SUBABAS
@@ -63,8 +66,14 @@ def render_resistividade_tab(supabase=None):
             ["four_point_film", "bulk"]
         )
 
-        if uploaded_files:
+        process_clicked = st.button("▶ Processar amostras")
+
+        if uploaded_files and process_clicked:
             for file in uploaded_files:
+
+                if file.name in st.session_state.electrical_samples:
+                    st.warning(f"{file.name} já foi processado.")
+                    continue
 
                 st.markdown(f"### 📄 Amostra: `{file.name}`")
 
@@ -93,7 +102,7 @@ def render_resistividade_tab(supabase=None):
                         "Espessura (µm)": thickness_um,
                     }
 
-                    st.session_state.electrical_samples.append(summary)
+                    st.session_state.electrical_samples[file.name] = summary
 
                     st.success("✔ Amostra processada com sucesso")
 
@@ -104,9 +113,13 @@ def render_resistividade_tab(supabase=None):
         if st.session_state.electrical_samples:
             st.subheader("Resumo elétrico das amostras")
             st.dataframe(
-                pd.DataFrame(st.session_state.electrical_samples),
+                pd.DataFrame(st.session_state.electrical_samples.values()),
                 use_container_width=True
             )
+
+            if st.button("🗑 Limpar amostras"):
+                st.session_state.electrical_samples = {}
+                st.experimental_rerun()
 
     # =====================================================
     # SUBABA 2 — PCA
@@ -117,20 +130,17 @@ def render_resistividade_tab(supabase=None):
             st.info("Carregue ao menos duas amostras na subaba de processamento.")
             return
 
-        df_pca = pd.DataFrame(st.session_state.electrical_samples)
+        df_pca = pd.DataFrame(st.session_state.electrical_samples.values())
+
+        # Garante apenas dados numéricos
+        numeric_cols = df_pca.select_dtypes(include=[np.number]).columns.tolist()
 
         st.subheader("Dados de entrada da PCA")
         st.dataframe(df_pca, use_container_width=True)
 
         feature_cols = st.multiselect(
             "Variáveis elétricas para PCA",
-            options=[
-                "Resistência (Ω)",
-                "Resistividade (Ω·m)",
-                "Condutividade (S/m)",
-                "R²",
-                "Espessura (µm)",
-            ],
+            options=numeric_cols,
             default=[
                 "Resistividade (Ω·m)",
                 "Condutividade (S/m)",
