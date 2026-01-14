@@ -24,11 +24,11 @@ def read_iv_file(file_like) -> pd.DataFrame:
     colunas de corrente e tensão.
     """
 
+    name = str(file_like.name).lower()
+
     # -----------------------------
     # Leitura genérica
     # -----------------------------
-    name = str(file_like.name).lower()
-
     if name.endswith((".xls", ".xlsx")):
         df = pd.read_excel(file_like)
     else:
@@ -176,7 +176,7 @@ def process_resistivity(
     # -------------------------------
     fit = linear_iv_fit(I, V)
 
-    # ⚠️ ALERTA, NÃO BLOQUEIO
+    # ⚠️ alerta (não bloqueia)
     ohmic_warning = fit["R2"] < 0.90
 
     R = fit["R_ohm"]
@@ -205,14 +205,14 @@ def process_resistivity(
     ax.legend()
 
     # -------------------------------
-    # Summary pronto para PCA / ML
+    # Summary (VETOR DE FEATURES)
     # -------------------------------
     summary = {
-        "Resistência (Ω)": R,
-        "Resistividade (Ω·m)": rho,
-        "Condutividade (S/m)": sigma,
-        "R²": fit["R2"],
-        "Ajuste_ohmico_alerta": ohmic_warning,
+        "Resistência (Ω)": float(R),
+        "Resistividade (Ω·m)": float(rho),
+        "Condutividade (S/m)": float(sigma),
+        "R²": float(fit["R2"]),
+        "Ajuste_ohmico_alerta": bool(ohmic_warning),
     }
 
     return {
