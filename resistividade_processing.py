@@ -19,40 +19,74 @@ from typing import Dict
 # LEITURA ROBUSTA DO ARQUIVO I–V
 # =========================================================
 def read_iv_file(file_like) -> pd.DataFrame:
-    df = pd.read_csv(
-        file_like,
-        sep=None,
-        engine="python",
-        comment="#",
-        skip_blank_lines=True,
-    )
+    """
+    Lê CSV / TXT / XLS / XLSX e identifica automaticamente
+    colunas de corrente e tensão.
+    """
 
-    df.columns = [c.strip().lower() for c in df.columns]
+    # -----------------------------
+    # Leitura genérica
+    # -----------------------------
+    name = str(file_like.name).lower()
 
-    rename_map = {
-        "i": "current_a",
-        "current": "current_a",
-        "current_a": "current_a",
-        "corrente": "current_a",
-        "v": "voltage_v",
-        "voltage": "voltage_v",
-        "voltage_v": "voltage_v",
-        "tensao": "voltage_v",
-    }
-
-    df = df.rename(columns={k: v for k, v in rename_map.items() if k in df.columns})
-
-    if "current_a" not in df.columns or "voltage_v" not in df.columns:
-        raise ValueError(
-            "Arquivo inválido: colunas de corrente (I) e tensão (V) não encontradas."
+    if name.endswith((".xls", ".xlsx")):
+        df = pd.read_excel(file_like)
+    else:
+        df = pd.read_csv(
+            file_like,
+            sep=None,
+            engine="python",
+            comment="#",
+            skip_blank_lines=True,
         )
 
-    df = df[["current_a", "voltage_v"]]
+    if df.empty or df.shape[1] < 2:
+        raise ValueError("Arquivo vazio ou inválido.")
+
+    # -----------------------------
+    # Normalização de nomes
+    # -----------------------------
+    df.columns = [c.strip().lower() for c in df.columns]
+
+    col_I = None
+    col_V = None
+
+    for c in df.columns:
+        if any(k in c for k in ["current", "corrente", " i", "i(", "i["]):
+            col_I = c
+        if any(k in c for k in ["voltage", "tensao", "tensão", " v", "v(", "v["]):
+            col_V = c
+
+    # fallback simples
+    if col_I is None and "i" in df.columns:
+        col_I = "i"
+    if col_V is None and "v" in df.columns:
+        col_V = "v"
+
+    if col_I is None or col_V is None:
+        raise ValueError(
+            f"Arquivo inválido: colunas de corrente e tensão não encontradas.\n"
+            f"Colunas detectadas: {list(df.columns)}"
+        )
+
+    df = df[[col_I, col_V]].copy()
+    df.columns = ["current_a", "voltage_v"]
+
+    # -----------------------------
+    # Conversão numérica robusta
+    # -----------------------------
+    for col in df.columns:
+        df[col] = (
+            df[col]
+            .astype(str)
+            .str.replace(",", ".", regex=False)
+        )
+
     df = df.apply(pd.to_numeric, errors="coerce")
     df = df.dropna().reset_index(drop=True)
 
     if len(df) < 3:
-        raise ValueError("Número insuficiente de pontos para ajuste linear.")
+        raise ValueError("Número insuficiente de pontos válidos para ajuste linear.")
 
     return df
 
@@ -61,6 +95,9 @@ def read_iv_file(file_like) -> pd.DataFrame:
 # AJUSTE LINEAR I–V
 # =========================================================
 def linear_iv_fit(I: np.ndarray, V: np.ndarray) -> Dict:
+    """
+    Ajuste linear V = R·I + b
+    """
 
     A = np.vstack([I, np.ones_like(I)]).T
     slope, intercept = np.linalg.lstsq(A, V, rcond=None)[0]
@@ -93,14 +130,13 @@ def compute_resistivity(
         raise ValueError("Espessura do filme deve ser maior que zero.")
 
     if geometry == "four_point_film":
-        k = np.pi / np.log(2)
+        k = np.pi / np.log(2)  # Smits
         return k * R_ohm * thickness_m
 
-    elif geometry == "bulk":
+    if geometry == "bulk":
         return R_ohm
 
-    else:
-        raise ValueError("Geometria inválida.")
+    raise ValueError("Geometria inválida.")
 
 
 # =========================================================
@@ -140,10 +176,8 @@ def process_resistivity(
     # -------------------------------
     fit = linear_iv_fit(I, V)
 
-    if fit["R2"] < 0.90:
-        raise ValueError(
-            f"Ajuste não ôhmico (R² = {fit['R2']:.3f}). Verifique os dados."
-        )
+    # ⚠️ ALERTA, NÃO BLOQUEIO
+    ohmic_warning = fit["R2"] < 0.90
 
     R = fit["R_ohm"]
     rho = compute_resistivity(R, thickness_m, geometry)
@@ -153,7 +187,7 @@ def process_resistivity(
     # -------------------------------
     # Plot I × V
     # -------------------------------
-    fig, ax = plt.subplots(figsize=(6, 4), dpi=300)
+    fig, ax = plt.subplots(figsize=(7, 4), dpi=300)
 
     ax.scatter(I, V, color="black", s=30, label="Dados experimentais")
     ax.plot(
@@ -178,6 +212,7 @@ def process_resistivity(
         "Resistividade (Ω·m)": rho,
         "Condutividade (S/m)": sigma,
         "R²": fit["R2"],
+        "Ajuste_ohmico_alerta": ohmic_warning,
     }
 
     return {
