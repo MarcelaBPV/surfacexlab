@@ -13,7 +13,7 @@ from PIL import Image
 
 
 # =========================================================
-# LOGO
+# LOGO — CARREGAMENTO SEGURO
 # =========================================================
 BASE_DIR = Path(__file__).parent
 LOGO_PATH = BASE_DIR / "assets" / "surfacexlab_logo.png"
@@ -39,7 +39,7 @@ st.title("SurfaceXLab — Plataforma Integrada de Pesquisa")
 
 
 # =========================================================
-# CONEXÃO SUPABASE
+# CONEXÃO COM SUPABASE
 # =========================================================
 @st.cache_resource
 def init_supabase() -> Client:
@@ -53,9 +53,13 @@ supabase = init_supabase()
 
 
 # =========================================================
-# IMPORTAÇÃO SEGURA
+# IMPORTAÇÃO SEGURA DE MÓDULOS
 # =========================================================
 def safe_import(module_name: str, func_name: str, optional: bool = False):
+    """
+    Importa funções de módulos de forma segura.
+    Se optional=True, não quebra o app caso o módulo não exista.
+    """
     try:
         module = __import__(module_name, fromlist=[func_name])
         if not hasattr(module, func_name):
@@ -68,13 +72,17 @@ def safe_import(module_name: str, func_name: str, optional: bool = False):
         st.stop()
 
 
-render_raman_tab = safe_import("raman_tab", "render_raman_tab")
+# =========================================================
+# MÓDULOS PRINCIPAIS
+# =========================================================
+render_raman_tab = safe_import(
+    "raman_tab", "render_raman_tab"
+)
 
 render_resistividade_tab = safe_import(
     "resistividade_tab", "render_resistividade_tab", optional=True
 )
 
-# 👉 TENSIOMETRIA (PROCESSAMENTO + PCA NO MESMO MÓDULO)
 render_tensiometria_tab = safe_import(
     "tensiometria_tab", "render_tensiometria_tab", optional=True
 )
@@ -85,7 +93,7 @@ render_ml_tab = safe_import(
 
 
 # =========================================================
-# SIDEBAR — CRM
+# SIDEBAR — CRM / CADASTRO DE AMOSTRAS
 # =========================================================
 with st.sidebar:
 
@@ -93,7 +101,7 @@ with st.sidebar:
         st.image(logo_image, use_column_width=True)
         st.divider()
 
-    st.header("📦 Amostra")
+    st.header("📦 Cadastro de Amostra")
 
     sample_code = st.text_input("Código da Amostra *")
     material_type = st.text_input("Tipo de Material")
@@ -112,11 +120,12 @@ with st.sidebar:
                 "surface_treatment": surface_treatment,
                 "description": description,
             }).execute()
+
             st.success("✔ Amostra cadastrada com sucesso!")
 
 
 # =========================================================
-# ABAS PRINCIPAIS
+# ABAS PRINCIPAIS — MÓDULOS ANALÍTICOS
 # =========================================================
 tabs = st.tabs([
     "🧬 Molecular — Raman",
@@ -126,16 +135,16 @@ tabs = st.tabs([
 ])
 
 
-# -------------------------
+# ---------------------------------------------------------
 # RAMAN
-# -------------------------
+# ---------------------------------------------------------
 with tabs[0]:
     render_raman_tab(supabase)
 
 
-# -------------------------
+# ---------------------------------------------------------
 # RESISTIVIDADE
-# -------------------------
+# ---------------------------------------------------------
 with tabs[1]:
     if render_resistividade_tab:
         render_resistividade_tab(supabase)
@@ -143,9 +152,9 @@ with tabs[1]:
         st.info("Módulo de resistividade ainda não implementado.")
 
 
-# -------------------------
-# TENSIOMETRIA (LOG + PCA)
-# -------------------------
+# ---------------------------------------------------------
+# TENSIOMETRIA
+# ---------------------------------------------------------
 with tabs[2]:
     if render_tensiometria_tab:
         render_tensiometria_tab(supabase)
@@ -153,9 +162,9 @@ with tabs[2]:
         st.info("Módulo de tensiometria ainda não implementado.")
 
 
-# -------------------------
+# ---------------------------------------------------------
 # OTIMIZAÇÃO / IA
-# -------------------------
+# ---------------------------------------------------------
 with tabs[3]:
     if render_ml_tab:
         render_ml_tab(supabase)
