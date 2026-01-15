@@ -8,6 +8,12 @@ import matplotlib.pyplot as plt
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
 
+st.write("RAMAN:", "raman_fingerprint" in st.session_state)
+st.write("TENSIO:", "tensiometry_samples" in st.session_state)
+st.write("ELETR:", "electrical_samples" in st.session_state)
+st.write("RF:", st.session_state.rf_model is not None)
+
+
 from ml_engine import (
     train_random_forest_classifier,
     train_random_forest_regressor,
