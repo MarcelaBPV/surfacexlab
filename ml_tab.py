@@ -7,181 +7,205 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from sklearn.preprocessing import StandardScaler
-from sklearn.decomposition import PCA
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
 
 
 # =========================================================
-# CLASSIFICAÇÃO QUALITATIVA DE CONTRIBUIÇÃO
+# CRIA TARGET AUTOMÁTICO (EXEMPLO: MOLHABILIDADE)
 # =========================================================
-def qualitative_contribution(value):
-    if value >= 0.7:
-        return "Alta"
-    if value >= 0.4:
-        return "Média"
-    return "Baixa"
+def create_target(df):
+    """
+    Classe funcional baseada em q*
+    """
+    if "q* (°)" not in df.columns:
+        raise ValueError("Variável q* (°) não encontrada para classificação.")
+
+    y = df["q* (°)"].apply(
+        lambda x: "Hidrofóbica" if x >= 90 else "Hidrofílica"
+    )
+
+    return y
 
 
 # =========================================================
-# ABA ML / OTIMIZAÇÃO
+# ABA ML
 # =========================================================
 def render_ml_tab(supabase=None):
 
-    st.header("🤖 Otimizador — PCA Global & Contribuição Qualitativa")
+    st.header("🤖 Machine Learning — Classificação Funcional de Superfícies")
 
     st.markdown(
         """
-        Este módulo integra **Raman + Tensiometria + Resistividade**
-        em uma **análise multivariada global**, permitindo identificar:
+        Este módulo utiliza **Random Forest** para aprender relações entre:
 
-        • Variáveis dominantes por amostra  
-        • Correlações cruzadas entre propriedades  
-        • Contribuições físicas e químicas relevantes  
+        • Propriedades Raman  
+        • Tensiometria  
+        • Propriedades elétricas  
+
+        e realizar **classificação funcional automática** das superfícies.
         """
     )
 
     # =====================================================
-    # COLETA DOS DADOS (SESSION STATE)
+    # COLETA GLOBAL DOS DADOS
     # =====================================================
     data_sources = []
 
-    if "raman_fingerprint" in st.session_state:
-        data_sources.append(st.session_state.raman_fingerprint)
-
     if "tensiometry_samples" in st.session_state:
-        data_sources.append(pd.DataFrame(st.session_state.tensiometry_samples))
+        data_sources.append(
+            pd.DataFrame(st.session_state.tensiometry_samples.values())
+        )
 
     if "electrical_samples" in st.session_state:
-        data_sources.append(pd.DataFrame(st.session_state.electrical_samples))
+        data_sources.append(
+            pd.DataFrame(st.session_state.electrical_samples.values())
+        )
 
     if not data_sources:
-        st.info("Nenhum dado disponível ainda. Execute ao menos um módulo.")
+        st.info("Execute os módulos físicos antes de usar o ML.")
         return
 
     # =====================================================
-    # MERGE GLOBAL
+    # MERGE
     # =====================================================
-    df_global = None
+    df_global = data_sources[0]
 
-    for df in data_sources:
-        if "Amostra" not in df.columns:
-            continue
-
-        if df_global is None:
-            df_global = df.copy()
-        else:
-            df_global = pd.merge(
-                df_global,
-                df,
-                on="Amostra",
-                how="outer"
-            )
-
-    if df_global is None or len(df_global) < 2:
-        st.warning("Dados insuficientes para PCA global.")
-        return
+    for df in data_sources[1:]:
+        df_global = pd.merge(
+            df_global,
+            df,
+            on="Amostra",
+            how="inner"
+        )
 
     df_global = df_global.set_index("Amostra")
     df_global = df_global.apply(pd.to_numeric, errors="coerce")
-    df_global = df_global.fillna(0.0)
+    df_global = df_global.fillna(0)
 
-    st.subheader("Matriz global integrada")
+    st.subheader("Dataset consolidado para ML")
     st.dataframe(df_global, use_container_width=True)
 
     # =====================================================
-    # PCA GLOBAL
+    # TARGET
     # =====================================================
-    X = df_global.values
-    labels = df_global.index.values
-    features = df_global.columns.values
+    try:
+        y = create_target(df_global)
+    except Exception as e:
+        st.error(str(e))
+        return
 
-    X_scaled = StandardScaler().fit_transform(X)
+    X = df_global.drop(columns=["q* (°)"])
+    feature_names = X.columns
 
-    pca = PCA(n_components=2)
-    scores = pca.fit_transform(X_scaled)
-    loadings = pca.components_.T
-    explained = pca.explained_variance_ratio_ * 100
+    st.subheader("Classe alvo (target)")
+    st.dataframe(y.rename("Classe funcional"))
 
     # =====================================================
-    # BIPLOT GLOBAL
+    # NORMALIZAÇÃO
     # =====================================================
-    st.subheader("📊 PCA Global — Raman + Tensiometria + Elétrica")
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
 
-    fig, ax = plt.subplots(figsize=(7, 7), dpi=300)
+    # =====================================================
+    # TREINO / TESTE
+    # =====================================================
+    X_train, X_test, y_train, y_test = train_test_split(
+        X_scaled,
+        y,
+        test_size=0.3,
+        random_state=42,
+        stratify=y
+    )
 
-    ax.scatter(scores[:, 0], scores[:, 1], s=90, edgecolor="black")
+    # =====================================================
+    # RANDOM FOREST
+    # =====================================================
+    model = RandomForestClassifier(
+        n_estimators=300,
+        max_depth=None,
+        random_state=42
+    )
 
-    for i, label in enumerate(labels):
-        ax.text(
-            scores[i, 0] + 0.03,
-            scores[i, 1] + 0.03,
-            label,
-            fontsize=9
-        )
+    model.fit(X_train, y_train)
 
-    scale = np.max(np.abs(scores)) * 0.85
-    for i, var in enumerate(features):
-        ax.arrow(
-            0, 0,
-            loadings[i, 0] * scale,
-            loadings[i, 1] * scale,
-            color="black",
-            alpha=0.6,
-            head_width=0.06,
-            length_includes_head=True
-        )
-        ax.text(
-            loadings[i, 0] * scale * 1.1,
-            loadings[i, 1] * scale * 1.1,
-            var,
-            fontsize=8
-        )
+    y_pred = model.predict(X_test)
 
-    ax.axhline(0, color="gray", lw=0.6)
-    ax.axvline(0, color="gray", lw=0.6)
-    ax.set_xlabel(f"PC1 ({explained[0]:.1f}%)")
-    ax.set_ylabel(f"PC2 ({explained[1]:.1f}%)")
-    ax.set_title("PCA Global — SurfaceXLab")
-    ax.set_aspect("equal", adjustable="box")
-    ax.grid(alpha=0.3)
+    acc = accuracy_score(y_test, y_pred)
+
+    # =====================================================
+    # RESULTADOS
+    # =====================================================
+    st.subheader("📊 Desempenho do modelo")
+
+    st.metric("Acurácia", f"{acc*100:.2f} %")
+
+    st.markdown("### Relatório de classificação")
+    report = classification_report(y_test, y_pred, output_dict=True)
+    st.dataframe(pd.DataFrame(report).T)
+
+    # =====================================================
+    # MATRIZ DE CONFUSÃO
+    # =====================================================
+    st.markdown("### Matriz de confusão")
+
+    cm = confusion_matrix(y_test, y_pred)
+
+    fig, ax = plt.subplots(figsize=(4, 4), dpi=300)
+    im = ax.imshow(cm)
+
+    ax.set_xticks(range(len(model.classes_)))
+    ax.set_yticks(range(len(model.classes_)))
+
+    ax.set_xticklabels(model.classes_)
+    ax.set_yticklabels(model.classes_)
+
+    ax.set_xlabel("Predito")
+    ax.set_ylabel("Real")
+    ax.set_title("Matriz de Confusão")
+
+    for i in range(cm.shape[0]):
+        for j in range(cm.shape[1]):
+            ax.text(j, i, cm[i, j], ha="center", va="center")
 
     st.pyplot(fig)
 
     # =====================================================
-    # CONTRIBUIÇÃO QUALITATIVA
+    # FEATURE IMPORTANCE
     # =====================================================
-    st.subheader("📋 Tabela de contribuição qualitativa")
+    st.subheader("📈 Importância das variáveis")
 
-    contrib = np.abs(loadings)
-    contrib_norm = contrib / contrib.max(axis=0)
+    importances = model.feature_importances_
 
-    table = pd.DataFrame(
-        contrib_norm,
-        index=features,
-        columns=["PC1", "PC2"]
+    imp_df = pd.DataFrame({
+        "Variável": feature_names,
+        "Importância": importances
+    }).sort_values("Importância", ascending=False)
+
+    st.dataframe(imp_df, use_container_width=True)
+
+    # =====================================================
+    # GRÁFICO IMPORTÂNCIA
+    # =====================================================
+    fig2, ax2 = plt.subplots(figsize=(6, 4), dpi=300)
+
+    ax2.barh(
+        imp_df["Variável"],
+        imp_df["Importância"]
     )
 
-    table["Contribuição PC1"] = table["PC1"].apply(qualitative_contribution)
-    table["Contribuição PC2"] = table["PC2"].apply(qualitative_contribution)
+    ax2.set_xlabel("Importância relativa")
+    ax2.set_title("Importância das variáveis — Random Forest")
+    ax2.invert_yaxis()
 
-    st.dataframe(
-        table[["Contribuição PC1", "Contribuição PC2"]],
-        use_container_width=True
-    )
+    st.pyplot(fig2)
 
     # =====================================================
     # INTERPRETAÇÃO AUTOMÁTICA
     # =====================================================
-    st.subheader("🧠 Interpretação automática")
+    top_var = imp_df.iloc[0]["Variável"]
 
-    dominant_pc1 = table["PC1"].idxmax()
-    dominant_pc2 = table["PC2"].idxmax()
-
-    st.markdown(
-        f"""
-        • **PC1** é dominada principalmente por **{dominant_pc1}**, indicando que
-        esta variável governa a separação principal das amostras.
-
-        • **PC2** é dominada principalmente por **{dominant_pc2}**, refletindo
-        um segundo mecanismo físico/químico independente.
-        """
+    st.success(
+        f"Variável mais relevante para a classificação: **{top_var}**"
     )
