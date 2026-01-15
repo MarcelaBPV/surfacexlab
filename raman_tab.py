@@ -53,6 +53,7 @@ def render_raman_tab(supabase=None):
         )
 
         if uploaded_files:
+
             for file in uploaded_files:
 
                 if file.name in st.session_state.raman_peaks:
@@ -106,6 +107,9 @@ def render_raman_tab(supabase=None):
 
                 peaks_df = peaks_df.copy()
 
+                # ----------------------------
+                # Mapeamento flexível
+                # ----------------------------
                 col_map = {}
 
                 for c in peaks_df.columns:
@@ -119,18 +123,25 @@ def render_raman_tab(supabase=None):
 
                 peaks_df = peaks_df.rename(columns=col_map)
 
-                required = [
+                # ----------------------------
+                # Validação mínima para PCA
+                # ----------------------------
+                required_basic = [
                     "Pico Raman (cm⁻¹)",
-                    "Intensidade (norm.)",
-                    "Grupo molecular"
+                    "Intensidade (norm.)"
                 ]
 
-                if not all(c in peaks_df.columns for c in required):
-                    st.warning("Formato de picos não reconhecido.")
+                if not all(c in peaks_df.columns for c in required_basic):
+                    st.error("Picos Raman detectados, mas colunas essenciais não encontradas.")
                     st.dataframe(peaks_df, use_container_width=True)
                     continue
 
-                display_df = peaks_df[required].copy()
+                # Grupo molecular é opcional
+                display_cols = required_basic.copy()
+                if "Grupo molecular" in peaks_df.columns:
+                    display_cols.append("Grupo molecular")
+
+                display_df = peaks_df[display_cols].copy()
 
                 st.dataframe(display_df, use_container_width=True)
 
@@ -146,10 +157,12 @@ def render_raman_tab(supabase=None):
 
                 st.session_state.raman_peaks[file.name] = fingerprint
 
+                st.write("Fingerprint salvo:", fingerprint.shape)
+
                 st.success("✔ Amostra Raman processada com sucesso")
 
         # =====================================================
-        # PREVIEW GLOBAL
+        # PREVIEW GLOBAL + EXPORTAÇÃO ML
         # =====================================================
         if st.session_state.raman_peaks:
 
@@ -163,7 +176,7 @@ def render_raman_tab(supabase=None):
 
             st.dataframe(preview, use_container_width=True)
 
-            # 👉 EXPORTA PARA ML GLOBAL
+            # EXPORTA PARA ML TAB
             df_ml = preview.T.reset_index()
             df_ml = df_ml.rename(columns={"index": "Amostra"})
 
@@ -210,7 +223,12 @@ def render_raman_tab(supabase=None):
         ax.scatter(scores[:, 0], scores[:, 1], s=90, edgecolor="black")
 
         for i, label in enumerate(labels):
-            ax.text(scores[i, 0] + 0.03, scores[i, 1] + 0.03, label, fontsize=9)
+            ax.text(
+                scores[i, 0] + 0.03,
+                scores[i, 1] + 0.03,
+                label,
+                fontsize=9
+            )
 
         scale = np.max(np.abs(scores)) * 0.8
         step = max(1, loadings.shape[0] // 25)
