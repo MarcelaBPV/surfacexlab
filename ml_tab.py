@@ -8,16 +8,22 @@ import matplotlib.pyplot as plt
 
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
-from sklearn.ensemble import RandomForestClassifier
+
+from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import classification_report, accuracy_score
+
+from sklearn.metrics import (
+    accuracy_score,
+    classification_report,
+    r2_score,
+    mean_absolute_error
+)
 
 
 # =========================================================
 # UTIL — CONTRIBUIÇÃO QUALITATIVA
 # =========================================================
 def qualitative_contribution(value):
-
     if value >= 0.7:
         return "Alta"
     if value >= 0.4:
@@ -38,9 +44,9 @@ def render_ml_tab(supabase=None):
 
         • Integração **Raman + Tensiometria + Elétrica**  
         • **PCA Global** (redução dimensional)  
-        • Treinamento **Random Forest supervisionado**  
+        • Treinamento supervisionado (**Random Forest**)  
         • Predição automática de novas amostras  
-        • Painel de recomendação SurfaceXLab  
+        • Painel de recomendação inteligente  
         """
     )
 
@@ -57,7 +63,6 @@ def render_ml_tab(supabase=None):
 
     # Raman
     if "raman_peaks" in st.session_state:
-
         df_raman = (
             pd.DataFrame(st.session_state.raman_peaks)
             .T
@@ -65,12 +70,12 @@ def render_ml_tab(supabase=None):
             .reset_index()
             .rename(columns={"index": "Amostra"})
         )
-
         data_sources.append(df_raman)
 
     # Tensiometria
-    if "tensiometry_features" in st.session_state:
-        data_sources.append(st.session_state.tensiometry_features)
+    if "tensiometry_samples" in st.session_state:
+        df_tensio = pd.DataFrame(st.session_state.tensiometry_samples.values())
+        data_sources.append(df_tensio)
 
     # Elétrica
     if "electrical_samples" in st.session_state:
@@ -115,7 +120,6 @@ def render_ml_tab(supabase=None):
     with subtabs[0]:
 
         st.subheader("📊 Matriz global integrada")
-
         st.dataframe(df_global, use_container_width=True)
 
         X = df_global.values
@@ -133,10 +137,9 @@ def render_ml_tab(supabase=None):
 
         # Salva para ML
         st.session_state.pca_scores = scores
-        st.session_state.pca_labels = labels
-        st.session_state.pca_features = features
         st.session_state.scaler_global = scaler
         st.session_state.pca_model = pca
+        st.session_state.df_global_ml = df_global
 
         # ---------------------------
         # BIPLOT
@@ -146,12 +149,7 @@ def render_ml_tab(supabase=None):
         ax.scatter(scores[:, 0], scores[:, 1], s=90, edgecolor="black")
 
         for i, label in enumerate(labels):
-            ax.text(
-                scores[i, 0] + 0.03,
-                scores[i, 1] + 0.03,
-                label,
-                fontsize=9
-            )
+            ax.text(scores[i, 0] + 0.03, scores[i, 1] + 0.03, label, fontsize=9)
 
         scale = np.max(np.abs(scores)) * 0.85
 
@@ -178,7 +176,6 @@ def render_ml_tab(supabase=None):
         st.pyplot(fig)
 
         st.subheader("Variância explicada")
-
         st.dataframe(pd.DataFrame({
             "Componente": ["PC1", "PC2"],
             "Variância (%)": explained.round(2)
@@ -204,7 +201,7 @@ def render_ml_tab(supabase=None):
         st.dataframe(contrib_table, use_container_width=True)
 
     # =====================================================
-    # SUBABA 2 — TREINAMENTO RANDOM FOREST
+    # SUBABA 2 — TREINAMENTO
     # =====================================================
     with subtabs[1]:
 
@@ -214,13 +211,19 @@ def render_ml_tab(supabase=None):
 
         st.subheader("🧠 Treinamento supervisionado")
 
-        # Simulação inicial: usuário escolhe classe alvo
-        target = st.selectbox(
-            "Escolha a variável alvo (target)",
-            options=list(df_global.columns)
+        df_ml = st.session_state.df_global_ml
+
+        task_type = st.selectbox(
+            "Tipo de problema",
+            ["Regressão (predizer valor físico)", "Classificação (predizer classe)"]
         )
 
-        y = df_global[target].values
+        target = st.selectbox(
+            "Variável alvo (target)",
+            options=df_ml.columns.tolist()
+        )
+
+        y = df_ml[target].values
         X_ml = st.session_state.pca_scores
 
         X_train, X_test, y_train, y_test = train_test_split(
@@ -229,52 +232,62 @@ def render_ml_tab(supabase=None):
             random_state=42
         )
 
-        model = RandomForestClassifier(
-            n_estimators=300,
-            random_state=42,
-            class_weight="balanced",
-            n_jobs=-1
-        )
-
         if st.button("▶ Treinar Random Forest"):
 
-            model.fit(X_train, y_train)
-            y_pred = model.predict(X_test)
+            if task_type.startswith("Regressão"):
 
-            acc = accuracy_score(y_test, y_pred)
+                model = RandomForestRegressor(
+                    n_estimators=400,
+                    random_state=42,
+                    n_jobs=-1
+                )
+
+                model.fit(X_train, y_train)
+                y_pred = model.predict(X_test)
+
+                r2 = r2_score(y_test, y_pred)
+                mae = mean_absolute_error(y_test, y_pred)
+
+                st.success(f"Modelo treinado — R² = {r2:.3f} | MAE = {mae:.3e}")
+
+            else:
+
+                model = RandomForestClassifier(
+                    n_estimators=300,
+                    random_state=42,
+                    class_weight="balanced",
+                    n_jobs=-1
+                )
+
+                model.fit(X_train, y_train)
+                y_pred = model.predict(X_test)
+
+                acc = accuracy_score(y_test, y_pred)
+
+                st.success(f"Modelo treinado — Accuracy = {acc:.3f}")
+                st.json(classification_report(y_test, y_pred, output_dict=True))
 
             st.session_state.rf_model = model
+            st.session_state.rf_task = task_type
             st.session_state.rf_target = target
 
-            st.success(f"Modelo treinado com sucesso — Accuracy: {acc:.3f}")
-
-            st.text("Relatório de classificação:")
-            st.json(classification_report(y_test, y_pred, output_dict=True))
-
     # =====================================================
-    # SUBABA 3 — PREDIÇÃO NOVA AMOSTRA
+    # SUBABA 3 — PREDIÇÃO
     # =====================================================
     with subtabs[2]:
 
         if "rf_model" not in st.session_state:
-            st.info("Treine um modelo antes de usar a predição.")
+            st.info("Treine um modelo antes de realizar predições.")
             return
 
         st.subheader("🔮 Predição automática — SurfaceXLab")
 
-        st.markdown(
-            """
-            Utilize os dados já carregados nos módulos físicos
-            para realizar **predição automática** via PCA Global + Random Forest.
-            """
-        )
-
         sample_name = st.selectbox(
-            "Escolha uma amostra existente",
+            "Selecione uma amostra existente",
             options=df_global.index.tolist()
         )
 
-        if st.button("▶ Predizer amostra"):
+        if st.button("▶ Predizer"):
 
             idx = list(df_global.index).index(sample_name)
 
@@ -283,26 +296,44 @@ def render_ml_tab(supabase=None):
             model = st.session_state.rf_model
 
             prediction = model.predict(pc_vector)[0]
-            proba = model.predict_proba(pc_vector).max()
 
-            st.success("Predição concluída")
+            if st.session_state.rf_task.startswith("Classificação"):
 
-            st.markdown(
-                f"""
-                ### ✅ Resultado SurfaceXLab
+                proba = model.predict_proba(pc_vector).max()
 
-                **Amostra:** {sample_name}  
-                **Classe prevista:** `{prediction}`  
-                **Confiança do modelo:** `{proba:.2%}`  
-                """
-            )
+                st.success("Predição concluída")
+
+                st.markdown(
+                    f"""
+                    ### ✅ Resultado SurfaceXLab
+
+                    **Amostra:** {sample_name}  
+                    **Classe prevista:** `{prediction}`  
+                    **Confiança:** `{proba:.2%}`  
+                    """
+                )
+
+            else:
+
+                st.success("Predição concluída")
+
+                st.markdown(
+                    f"""
+                    ### ✅ Resultado SurfaceXLab
+
+                    **Amostra:** {sample_name}  
+                    **{st.session_state.rf_target}:**
+
+                    **{prediction:.5e}**
+                    """
+                )
 
             st.markdown(
                 """
                 ### 📌 Recomendação automática
 
-                A plataforma sugere otimizar parâmetros de processamento
-                associados aos componentes dominantes da PCA
-                para deslocar a amostra em direção ao cluster alvo.
+                Utilize as variáveis dominantes da PCA Global
+                para ajustar parâmetros de processamento
+                e deslocar a amostra em direção à região ótima do espaço multivariado.
                 """
             )
