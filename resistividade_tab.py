@@ -35,9 +35,6 @@ def render_resistividade_tab(supabase=None):
     if "electrical_samples" not in st.session_state:
         st.session_state.electrical_samples = {}
 
-    # =====================================================
-    # SUBABAS
-    # =====================================================
     subtabs = st.tabs([
         "📐 Upload & Processamento",
         "📊 PCA — Elétrica"
@@ -69,13 +66,14 @@ def render_resistividade_tab(supabase=None):
         process_clicked = st.button("▶ Processar amostras")
 
         if uploaded_files and process_clicked:
+
             for file in uploaded_files:
 
                 if file.name in st.session_state.electrical_samples:
                     st.warning(f"{file.name} já foi processado.")
                     continue
 
-                st.markdown(f"### 📄 Amostra: `{file.name}`")
+                st.markdown(f"---\n### 📄 Amostra: `{file.name}`")
 
                 try:
                     result = process_resistivity(
@@ -90,14 +88,25 @@ def render_resistividade_tab(supabase=None):
                     st.pyplot(result["figure"])
 
                     # -----------------------------
-                    # Summary físico (PADRÃO)
+                    # Summary físico consolidado
                     # -----------------------------
                     summary = result["summary"].copy()
+
                     summary["Amostra"] = file.name
                     summary["Classe"] = result["classe"]
                     summary["Espessura (µm)"] = thickness_um
 
                     st.session_state.electrical_samples[file.name] = summary
+
+                    # -----------------------------
+                    # Preview individual
+                    # -----------------------------
+                    st.markdown("**Variáveis elétricas calculadas:**")
+
+                    st.dataframe(
+                        pd.DataFrame([summary]).set_index("Amostra"),
+                        use_container_width=True
+                    )
 
                     st.success("✔ Amostra processada com sucesso")
 
@@ -105,15 +114,27 @@ def render_resistividade_tab(supabase=None):
                     st.error("Erro ao processar a amostra")
                     st.exception(e)
 
+        # =====================================================
+        # TABELA GLOBAL + EXPORTAÇÃO ML
+        # =====================================================
         if st.session_state.electrical_samples:
-            st.subheader("Resumo elétrico das amostras")
-            st.dataframe(
-                pd.DataFrame(st.session_state.electrical_samples.values()),
-                use_container_width=True
-            )
 
-            if st.button("🗑 Limpar amostras"):
+            st.markdown("---")
+            st.subheader("📋 Resumo elétrico consolidado")
+
+            df_all = pd.DataFrame(st.session_state.electrical_samples.values())
+
+            st.dataframe(df_all, use_container_width=True)
+
+            # 👉 EXPORTA PARA ML GLOBAL
+            df_ml = df_all.copy()
+            df_ml = df_ml.apply(pd.to_numeric, errors="ignore")
+
+            st.session_state.electrical_features = df_ml
+
+            if st.button("🗑 Limpar amostras elétricas"):
                 st.session_state.electrical_samples = {}
+                st.session_state.electrical_features = None
                 st.experimental_rerun()
 
     # =====================================================
@@ -130,7 +151,6 @@ def render_resistividade_tab(supabase=None):
         st.subheader("Dados de entrada da PCA")
         st.dataframe(df_pca, use_container_width=True)
 
-        # Apenas colunas numéricas
         numeric_cols = df_pca.select_dtypes(include=[np.number]).columns.tolist()
 
         feature_cols = st.multiselect(
@@ -158,21 +178,17 @@ def render_resistividade_tab(supabase=None):
         explained = pca.explained_variance_ratio_ * 100
 
         # ---------------------------
-        # BIPLOT PADRONIZADO
+        # BIPLOT
         # ---------------------------
         fig, ax = plt.subplots(figsize=(7, 7), dpi=300)
 
         ax.scatter(scores[:, 0], scores[:, 1], s=90, edgecolor="black")
 
         for i, label in enumerate(labels):
-            ax.text(
-                scores[i, 0] + 0.03,
-                scores[i, 1] + 0.03,
-                label,
-                fontsize=9
-            )
+            ax.text(scores[i, 0] + 0.03, scores[i, 1] + 0.03, label, fontsize=9)
 
         scale = np.max(np.abs(scores)) * 0.85
+
         for i, var in enumerate(feature_cols):
             ax.arrow(
                 0, 0,
@@ -183,6 +199,7 @@ def render_resistividade_tab(supabase=None):
                 head_width=0.08,
                 length_includes_head=True
             )
+
             ax.text(
                 loadings[i, 0] * scale * 1.1,
                 loadings[i, 1] * scale * 1.1,
@@ -192,6 +209,7 @@ def render_resistividade_tab(supabase=None):
 
         ax.axhline(0, color="gray", lw=0.6)
         ax.axvline(0, color="gray", lw=0.6)
+
         ax.set_xlabel(f"PC1 ({explained[0]:.1f}%)")
         ax.set_ylabel(f"PC2 ({explained[1]:.1f}%)")
         ax.set_title("PCA — Propriedades Elétricas")
@@ -201,6 +219,7 @@ def render_resistividade_tab(supabase=None):
         st.pyplot(fig)
 
         st.subheader("Variância explicada")
+
         st.dataframe(pd.DataFrame({
             "Componente": ["PC1", "PC2"],
             "Variância (%)": explained.round(2)
