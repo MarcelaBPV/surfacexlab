@@ -10,90 +10,13 @@ from io import StringIO
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
 
-
-# =========================================================
-# LEITURA ROBUSTA DO LOG
-# =========================================================
-def read_tensiometry_log(file):
-
-    file.seek(0)
-    raw = file.read().decode("latin1", errors="ignore")
-    lines = raw.splitlines()
-
-    header_idx = None
-    for i, line in enumerate(lines):
-        line_low = line.lower()
-        if (
-            "time" in line_low
-            and "mean" in line_low
-            and ("theta" in line_low)
-        ):
-            header_idx = i
-            break
-
-    if header_idx is None:
-        raise ValueError(
-            "Cabeçalho não identificado no arquivo de tensiometria."
-        )
-
-    table_text = "\n".join(lines[header_idx:])
-    buffer = StringIO(table_text)
-
-    # tenta separadores comuns
-    try:
-        df = pd.read_csv(buffer, sep=r"[;\t\s]+", engine="python")
-    except Exception:
-        raise ValueError("Falha ao ler tabela do arquivo .LOG")
-
-    df.columns = [c.strip() for c in df.columns]
-
-    rename_map = {
-        "Time": "time_s",
-        "Mean": "theta_mean",
-        "Dev.": "theta_std",
-        "Theta(L)": "theta_L",
-        "Theta(R)": "theta_R",
-        "Height": "height",
-        "Width": "width",
-        "Area": "area",
-        "Volume": "volume",
-        "Messages": "messages",
-    }
-
-    df = df.rename(columns={k: v for k, v in rename_map.items() if k in df.columns})
-
-    # conversão numérica robusta
-    for col in df.columns:
-        df[col] = (
-            df[col]
-            .astype(str)
-            .str.replace(",", ".", regex=False)
-        )
-        df[col] = pd.to_numeric(df[col], errors="coerce")
-
-    if "theta_mean" not in df.columns:
-        raise ValueError("Coluna Mean (theta_mean) não encontrada.")
-
-    df = df.dropna(subset=["theta_mean"])
-    df = df[(df["theta_mean"] > 0) & (df["theta_mean"] < 180)]
-
-    return df.reset_index(drop=True)
-
-
-# =========================================================
-# q* — ÂNGULO CARACTERÍSTICO
-# =========================================================
-def compute_q_star(df):
-    """
-    q* = ângulo médio estável
-    Calculado nos últimos 30% da curva
-    """
-    n = len(df)
-    if n < 10:
-        return float(df["theta_mean"].mean())
-
-    tail = df.iloc[int(0.7 * n):]
-    return float(tail["theta_mean"].mean())
+# importa o processamento físico correto
+from tensiometria_processing import (
+    read_contact_angle_log,
+    clean_contact_angle,
+    compute_rrms,
+    compute_q_star,
+)
 
 
 # =========================================================
@@ -106,13 +29,18 @@ def render_tensiometria_tab(supabase=None):
     st.markdown(
         """
         **Subaba 1**  
-        Upload do arquivo `.LOG` + parâmetros físicos complementares  
+        Upload do arquivo `.LOG` + cálculo automático de **Rrms\\*** e **q\\***  
+        Inserção manual de **ID/IG** e **I2D/IG**
 
         **Subaba 2**  
-        PCA multivariada baseada em **Rrms, ID/IG, I2D/IG e q\\***
+        PCA multivariada baseada em  
+        **Rrms\\* (°), ID/IG, I2D/IG e q\\* (°)**
         """
     )
 
+    # =====================================================
+    # SESSION STATE
+    # =====================================================
     if "tensiometry_samples" not in st.session_state:
         st.session_state.tensiometry_samples = {}
 
@@ -132,61 +60,93 @@ def render_tensiometria_tab(supabase=None):
             accept_multiple_files=True
         )
 
-        col1, col2, col3 = st.columns(3)
+        st.markdown("### 🔬 Parâmetros complementares (Raman / Topografia)")
+
+        col1, col2 = st.columns(2)
         with col1:
-            rrms = st.number_input("Rrms (mm)", value=0.0, format="%.4f")
-        with col2:
             id_ig = st.number_input("ID/IG", value=0.0, format="%.4f")
-        with col3:
+        with col2:
             i2d_ig = st.number_input("I2D/IG", value=0.0, format="%.4f")
 
         if uploaded_files:
             for file in uploaded_files:
 
                 if file.name in st.session_state.tensiometry_samples:
-                    st.warning(f"{file.name} já processado.")
+                    st.warning(f"{file.name} já foi processado.")
                     continue
 
-                st.markdown(f"### 📄 Amostra: `{file.name}`")
+                st.markdown(f"---\n### 📄 Amostra: `{file.name}`")
 
-                df = read_tensiometry_log(file)
+                try:
+                    # -----------------------------
+                    # Leitura e limpeza
+                    # -----------------------------
+                    df_raw = read_contact_angle_log(file)
+                    df = clean_contact_angle(df_raw)
 
-                if df.empty:
-                    st.warning("Arquivo ignorado (sem dados válidos).")
-                    continue
+                    if df.empty:
+                        st.warning("Arquivo ignorado (sem dados válidos).")
+                        continue
 
-                q_star = compute_q_star(df)
+                    # -----------------------------
+                    # Cálculos físicos
+                    # -----------------------------
+                    rrms = compute_rrms(df)
+                    q_star = compute_q_star(df)
 
-                # -----------------------------
-                # Gráfico θ × tempo
-                # -----------------------------
-                fig, ax = plt.subplots(figsize=(7, 4), dpi=300)
-                ax.plot(df["time_s"], df["theta_mean"], lw=1.5)
-                ax.axhline(q_star, color="red", ls="--", label="q*")
-                ax.set_xlabel("Tempo (s)")
-                ax.set_ylabel("Ângulo de contato (°)")
-                ax.set_title("Evolução do ângulo de contato")
-                ax.legend()
-                ax.grid(alpha=0.3)
-                st.pyplot(fig)
+                    # -----------------------------
+                    # Gráfico θ × tempo
+                    # -----------------------------
+                    fig, ax = plt.subplots(figsize=(7, 4), dpi=300)
+                    ax.plot(df["time_s"], df["theta_mean"], lw=1.5)
+                    ax.axhline(q_star, color="red", ls="--", label="q*")
+                    ax.set_xlabel("Tempo (s)")
+                    ax.set_ylabel("Ângulo de contato (°)")
+                    ax.set_title("Evolução do ângulo de contato")
+                    ax.legend()
+                    ax.grid(alpha=0.3)
+                    st.pyplot(fig)
 
-                summary = {
-                    "Amostra": file.name,
-                    "Rrms (mm)": rrms,
-                    "ID/IG": id_ig,
-                    "I2D/IG": i2d_ig,
-                    "q* (°)": q_star,
-                }
+                    # -----------------------------
+                    # Summary CONSOLIDADO
+                    # -----------------------------
+                    summary = {
+                        "Amostra": file.name,
+                        "Rrms* (°)": rrms,
+                        "ID/IG": id_ig,
+                        "I2D/IG": i2d_ig,
+                        "q* (°)": q_star,
+                    }
 
-                st.session_state.tensiometry_samples[file.name] = summary
-                st.success("✔ Amostra processada com sucesso")
+                    st.session_state.tensiometry_samples[file.name] = summary
+
+                    # -----------------------------
+                    # Mostra variáveis calculadas
+                    # -----------------------------
+                    st.markdown("**Variáveis calculadas para a amostra:**")
+                    st.dataframe(
+                        pd.DataFrame([summary]).set_index("Amostra"),
+                        use_container_width=True
+                    )
+
+                    st.success("✔ Amostra processada com sucesso")
+
+                except Exception as e:
+                    st.error("Erro ao processar a amostra")
+                    st.exception(e)
 
         if st.session_state.tensiometry_samples:
-            st.subheader("Resumo físico das amostras")
+            st.markdown("---")
+            st.subheader("📋 Resumo físico consolidado (todas as amostras)")
+
             st.dataframe(
                 pd.DataFrame(st.session_state.tensiometry_samples.values()),
                 use_container_width=True
             )
+
+            if st.button("🗑 Limpar amostras de tensiometria"):
+                st.session_state.tensiometry_samples = {}
+                st.experimental_rerun()
 
     # =====================================================
     # SUBABA 2 — PCA
@@ -202,7 +162,7 @@ def render_tensiometria_tab(supabase=None):
         st.subheader("Dados de entrada da PCA")
         st.dataframe(df_pca, use_container_width=True)
 
-        feature_cols = ["Rrms (mm)", "ID/IG", "I2D/IG", "q* (°)"]
+        feature_cols = ["Rrms* (°)", "ID/IG", "I2D/IG", "q* (°)"]
 
         X = df_pca[feature_cols].values
         labels = df_pca["Amostra"].values
