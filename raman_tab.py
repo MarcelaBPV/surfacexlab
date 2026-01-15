@@ -72,7 +72,7 @@ def render_raman_tab(supabase=None):
                     continue
 
                 # =================================================
-                # GRÁFICOS (PADRÃO ARTIGO)
+                # GRÁFICOS
                 # =================================================
                 figures = result.get("figures", {})
 
@@ -94,7 +94,7 @@ def render_raman_tab(supabase=None):
                         st.pyplot(figures["processed"], use_container_width=True)
 
                 # =================================================
-                # PICOS RAMAN (ROBUSTO)
+                # PICOS RAMAN
                 # =================================================
                 peaks_df = result.get("peaks_df")
 
@@ -106,9 +106,6 @@ def render_raman_tab(supabase=None):
 
                 peaks_df = peaks_df.copy()
 
-                # ----------------------------
-                # Mapeamento flexível
-                # ----------------------------
                 col_map = {}
 
                 for c in peaks_df.columns:
@@ -134,37 +131,51 @@ def render_raman_tab(supabase=None):
                     continue
 
                 display_df = peaks_df[required].copy()
+
                 st.dataframe(display_df, use_container_width=True)
 
-                # ----------------------------
-                # Guarda para PCA
-                # ----------------------------
+                # =================================================
+                # FINGERPRINT PARA PCA + ML
+                # =================================================
                 fingerprint = (
                     display_df
                     .groupby("Pico Raman (cm⁻¹)")["Intensidade (norm.)"]
                     .mean()
+                    .astype(float)
                 )
 
                 st.session_state.raman_peaks[file.name] = fingerprint
 
                 st.success("✔ Amostra Raman processada com sucesso")
 
+        # =====================================================
+        # PREVIEW GLOBAL
+        # =====================================================
         if st.session_state.raman_peaks:
+
             st.markdown("---")
             st.subheader("📋 Amostras Raman processadas")
 
-            preview = pd.DataFrame(
-                st.session_state.raman_peaks
-            ).fillna(0.0)
+            preview = (
+                pd.DataFrame(st.session_state.raman_peaks)
+                .fillna(0.0)
+            )
 
             st.dataframe(preview, use_container_width=True)
 
+            # 👉 EXPORTA PARA ML GLOBAL
+            df_ml = preview.T.reset_index()
+            df_ml = df_ml.rename(columns={"index": "Amostra"})
+
+            st.session_state.raman_fingerprint = df_ml
+
             if st.button("🗑 Limpar amostras Raman"):
                 st.session_state.raman_peaks = {}
+                st.session_state.raman_fingerprint = None
                 st.experimental_rerun()
 
     # =====================================================
-    # SUBABA 2 — PCA
+    # SUBABA 2 — PCA RAMAN
     # =====================================================
     with subtabs[1]:
 
@@ -192,19 +203,14 @@ def render_raman_tab(supabase=None):
         explained = pca.explained_variance_ratio_ * 100
 
         # ---------------------------
-        # BIPLOT PADRONIZADO
+        # BIPLOT
         # ---------------------------
         fig, ax = plt.subplots(figsize=(7, 7), dpi=300)
 
         ax.scatter(scores[:, 0], scores[:, 1], s=90, edgecolor="black")
 
         for i, label in enumerate(labels):
-            ax.text(
-                scores[i, 0] + 0.03,
-                scores[i, 1] + 0.03,
-                label,
-                fontsize=9
-            )
+            ax.text(scores[i, 0] + 0.03, scores[i, 1] + 0.03, label, fontsize=9)
 
         scale = np.max(np.abs(scores)) * 0.8
         step = max(1, loadings.shape[0] // 25)
@@ -232,6 +238,7 @@ def render_raman_tab(supabase=None):
         st.pyplot(fig)
 
         st.subheader("Variância explicada")
+
         st.dataframe(pd.DataFrame({
             "Componente": ["PC1", "PC2"],
             "Variância explicada (%)": explained.round(2)
