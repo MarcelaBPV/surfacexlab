@@ -22,32 +22,47 @@ def read_tensiometry_log(file):
 
     header_idx = None
     for i, line in enumerate(lines):
-        if "Mean" in line and ("Theta" in line or "Time" in line):
+        line_low = line.lower()
+        if (
+            "time" in line_low
+            and "mean" in line_low
+            and ("theta" in line_low)
+        ):
             header_idx = i
             break
 
     if header_idx is None:
-        return pd.DataFrame()
+        raise ValueError(
+            "Cabeçalho não identificado no arquivo de tensiometria."
+        )
 
-    buffer = StringIO("\n".join(lines[header_idx:]))
+    table_text = "\n".join(lines[header_idx:])
+    buffer = StringIO(table_text)
 
+    # tenta separadores comuns
     try:
-        df = pd.read_csv(buffer, sep=None, engine="python", on_bad_lines="skip")
+        df = pd.read_csv(buffer, sep=r"[;\t\s]+", engine="python")
     except Exception:
-        return pd.DataFrame()
+        raise ValueError("Falha ao ler tabela do arquivo .LOG")
 
     df.columns = [c.strip() for c in df.columns]
 
     rename_map = {
         "Time": "time_s",
         "Mean": "theta_mean",
+        "Dev.": "theta_std",
         "Theta(L)": "theta_L",
         "Theta(R)": "theta_R",
+        "Height": "height",
+        "Width": "width",
+        "Area": "area",
+        "Volume": "volume",
         "Messages": "messages",
     }
 
     df = df.rename(columns={k: v for k, v in rename_map.items() if k in df.columns})
 
+    # conversão numérica robusta
     for col in df.columns:
         df[col] = (
             df[col]
@@ -57,15 +72,10 @@ def read_tensiometry_log(file):
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
     if "theta_mean" not in df.columns:
-        return pd.DataFrame()
+        raise ValueError("Coluna Mean (theta_mean) não encontrada.")
 
-    df = df[
-        (df["theta_mean"] > 0) &
-        (df["theta_mean"] < 180)
-    ]
-
-    if "messages" in df.columns:
-        df = df[~df["messages"].astype(str).str.contains("Error", na=False)]
+    df = df.dropna(subset=["theta_mean"])
+    df = df[(df["theta_mean"] > 0) & (df["theta_mean"] < 180)]
 
     return df.reset_index(drop=True)
 
