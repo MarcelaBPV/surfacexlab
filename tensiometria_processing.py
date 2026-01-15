@@ -3,7 +3,7 @@
 
 """
 SurfaceXLab — Tensiometria Óptica
-Processamento físico + OWRK + integração Raman/Topografia
+Processamento físico + OWRK + integração Raman / Topografia
 """
 
 import numpy as np
@@ -33,16 +33,17 @@ def read_contact_angle_log(file_like) -> pd.DataFrame:
 
     header_idx = None
     for i, line in enumerate(lines):
-        if "Mean" in line and ("Theta" in line or "Time" in line):
+        l = line.lower()
+        if "time" in l and "mean" in l and "theta" in l:
             header_idx = i
             break
 
     if header_idx is None:
-        return pd.DataFrame()
+        raise ValueError("Cabeçalho do LOG não identificado.")
 
     buffer = StringIO("\n".join(lines[header_idx:]))
 
-    df = pd.read_csv(buffer, sep=None, engine="python", on_bad_lines="skip")
+    df = pd.read_csv(buffer, sep=r"[;\t\s]+", engine="python")
     df.columns = [c.strip() for c in df.columns]
 
     rename_map = {
@@ -51,6 +52,7 @@ def read_contact_angle_log(file_like) -> pd.DataFrame:
         "Dev.": "theta_std",
         "Theta(L)": "theta_L",
         "Theta(R)": "theta_R",
+        "Height": "height",
         "Messages": "messages",
     }
 
@@ -85,13 +87,31 @@ def clean_contact_angle(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # =========================================================
+# Rrms — RUGOSIDADE EFETIVA DA LINHA DE CONTATO
+# =========================================================
+def compute_rrms(df: pd.DataFrame) -> float:
+    """
+    Prioridade:
+    1️⃣ Altura da gota (Height) → Rrms geométrico
+    2️⃣ Fallback: flutuação angular
+    Retorna em milímetros (mm)
+    """
+
+    if "height" in df.columns and df["height"].notna().sum() > 5:
+        x = df["height"].dropna().values
+    else:
+        x = df["theta_mean"].dropna().values
+
+    mean_x = np.mean(x)
+    rrms = np.sqrt(np.mean((x - mean_x) ** 2))
+
+    return float(rrms)
+
+
+# =========================================================
 # q* — ÂNGULO CARACTERÍSTICO
 # =========================================================
 def compute_q_star(df: pd.DataFrame) -> float:
-    """
-    Ângulo médio estável (q*)
-    Últimos 30% da curva
-    """
     n = len(df)
     if n < 10:
         return float(df["theta_mean"].mean())
@@ -101,7 +121,7 @@ def compute_q_star(df: pd.DataFrame) -> float:
 
 
 # =========================================================
-# OWRK
+# OWRK — ENERGIA DE SUPERFÍCIE
 # =========================================================
 def owkr_surface_energy(theta_by_liquid: Dict[str, float]) -> Dict:
     if len(theta_by_liquid) < 2:
@@ -141,7 +161,6 @@ def owkr_surface_energy(theta_by_liquid: Dict[str, float]) -> Dict:
 def process_tensiometry(
     file_like,
     theta_by_liquid: Dict[str, float],
-    Rrms_mm: float,
     ID_IG: float,
     I2D_IG: float,
 ) -> Dict:
@@ -149,6 +168,7 @@ def process_tensiometry(
     df_raw = read_contact_angle_log(file_like)
     df_clean = clean_contact_angle(df_raw)
 
+    rrms = compute_rrms(df_clean)
     q_star = compute_q_star(df_clean)
     owkr = owkr_surface_energy(theta_by_liquid)
 
@@ -165,10 +185,10 @@ def process_tensiometry(
     ax.grid(True, alpha=0.3)
 
     # -------------------------------
-    # Saída CONSOLIDADA (PCA / ML)
+    # SAÍDA FINAL (PCA / ML)
     # -------------------------------
     summary = {
-        "Rrms (mm)": Rrms_mm,
+        "Rrms (mm)": rrms,
         "ID/IG": ID_IG,
         "I2D/IG": I2D_IG,
         "q* (°)": q_star,
