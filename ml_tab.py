@@ -1,4 +1,3 @@
-# ml_tab.py
 # -*- coding: utf-8 -*-
 
 import streamlit as st
@@ -7,205 +6,254 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import train_test_split
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
+from sklearn.decomposition import PCA
+
+from ml_engine import (
+    train_random_forest_classifier,
+    train_random_forest_regressor,
+)
+
+# =========================================================
+# FUNÇÃO AUXILIAR — CONTRIBUIÇÃO QUALITATIVA
+# =========================================================
+def qualitative_contribution(value):
+    if value >= 0.7:
+        return "Alta"
+    if value >= 0.4:
+        return "Média"
+    return "Baixa"
 
 
 # =========================================================
-# CRIA TARGET AUTOMÁTICO (EXEMPLO: MOLHABILIDADE)
-# =========================================================
-def create_target(df):
-    """
-    Classe funcional baseada em q*
-    """
-    if "q* (°)" not in df.columns:
-        raise ValueError("Variável q* (°) não encontrada para classificação.")
-
-    y = df["q* (°)"].apply(
-        lambda x: "Hidrofóbica" if x >= 90 else "Hidrofílica"
-    )
-
-    return y
-
-
-# =========================================================
-# ABA ML
+# ABA ML — PCA GLOBAL + RANDOM FOREST
 # =========================================================
 def render_ml_tab(supabase=None):
 
-    st.header("🤖 Machine Learning — Classificação Funcional de Superfícies")
+    st.header("🤖 Machine Learning — PCA Global & Predição")
 
     st.markdown(
         """
-        Este módulo utiliza **Random Forest** para aprender relações entre:
+        Este módulo integra **Raman + Tensiometria + Resistividade**
+        em um **pipeline inteligente**, composto por:
 
-        • Propriedades Raman  
-        • Tensiometria  
-        • Propriedades elétricas  
-
-        e realizar **classificação funcional automática** das superfícies.
+        • PCA Global (estrutura multivariada)  
+        • Random Forest supervisionado  
+        • Predição de novas amostras  
+        • Recomendação automática SurfaceXLab  
         """
     )
 
     # =====================================================
-    # COLETA GLOBAL DOS DADOS
+    # SESSION STATE
+    # =====================================================
+    for key in [
+        "global_df",
+        "pca_model",
+        "scaler",
+        "rf_model",
+        "pca_scores",
+        "pca_loadings",
+        "feature_names",
+    ]:
+        if key not in st.session_state:
+            st.session_state[key] = None
+
+    subtabs = st.tabs([
+        "1 PCA Global",
+        "2 Treinamento ML",
+        "3 Predizer nova amostra",
+    ])
+
+    # =====================================================
+    # COLETA DOS DADOS DAS ABAS
     # =====================================================
     data_sources = []
 
+    if "raman_fingerprint" in st.session_state:
+        data_sources.append(st.session_state.raman_fingerprint)
+
     if "tensiometry_samples" in st.session_state:
-        data_sources.append(
-            pd.DataFrame(st.session_state.tensiometry_samples.values())
-        )
+        data_sources.append(pd.DataFrame(st.session_state.tensiometry_samples.values()))
 
     if "electrical_samples" in st.session_state:
-        data_sources.append(
-            pd.DataFrame(st.session_state.electrical_samples.values())
-        )
+        data_sources.append(pd.DataFrame(st.session_state.electrical_samples.values()))
 
     if not data_sources:
-        st.info("Execute os módulos físicos antes de usar o ML.")
+        st.info("Nenhum dado disponível. Execute ao menos um módulo experimental.")
         return
 
     # =====================================================
-    # MERGE
+    # MERGE GLOBAL
     # =====================================================
-    df_global = data_sources[0]
+    df_global = None
 
-    for df in data_sources[1:]:
-        df_global = pd.merge(
-            df_global,
-            df,
-            on="Amostra",
-            how="inner"
-        )
+    for df in data_sources:
+        if "Amostra" not in df.columns:
+            continue
+
+        if df_global is None:
+            df_global = df.copy()
+        else:
+            df_global = pd.merge(df_global, df, on="Amostra", how="outer")
+
+    if df_global is None or len(df_global) < 2:
+        st.warning("Dados insuficientes para PCA Global.")
+        return
 
     df_global = df_global.set_index("Amostra")
-    df_global = df_global.apply(pd.to_numeric, errors="coerce")
-    df_global = df_global.fillna(0)
+    df_global = df_global.apply(pd.to_numeric, errors="coerce").fillna(0.0)
 
-    st.subheader("Dataset consolidado para ML")
-    st.dataframe(df_global, use_container_width=True)
+    st.session_state.global_df = df_global
 
     # =====================================================
-    # TARGET
+    # SUBABA 1 — PCA GLOBAL
     # =====================================================
-    try:
-        y = create_target(df_global)
-    except Exception as e:
-        st.error(str(e))
-        return
+    with subtabs[0]:
 
-    X = df_global.drop(columns=["q* (°)"])
-    feature_names = X.columns
+        st.subheader("Matriz global integrada")
+        st.dataframe(df_global, use_container_width=True)
 
-    st.subheader("Classe alvo (target)")
-    st.dataframe(y.rename("Classe funcional"))
+        X = df_global.values
+        labels = df_global.index.values
+        features = df_global.columns.values
 
-    # =====================================================
-    # NORMALIZAÇÃO
-    # =====================================================
-    scaler = StandardScaler()
-    X_scaled = scaler.fit_transform(X)
+        scaler = StandardScaler()
+        Xs = scaler.fit_transform(X)
 
-    # =====================================================
-    # TREINO / TESTE
-    # =====================================================
-    X_train, X_test, y_train, y_test = train_test_split(
-        X_scaled,
-        y,
-        test_size=0.3,
-        random_state=42,
-        stratify=y
-    )
+        pca = PCA(n_components=2)
+        scores = pca.fit_transform(Xs)
+        loadings = pca.components_.T
+        explained = pca.explained_variance_ratio_ * 100
 
-    # =====================================================
-    # RANDOM FOREST
-    # =====================================================
-    model = RandomForestClassifier(
-        n_estimators=300,
-        max_depth=None,
-        random_state=42
-    )
+        st.session_state.scaler = scaler
+        st.session_state.pca_model = pca
+        st.session_state.pca_scores = scores
+        st.session_state.pca_loadings = loadings
+        st.session_state.feature_names = features
 
-    model.fit(X_train, y_train)
+        # ---------------------------
+        # BIPLOT
+        # ---------------------------
+        fig, ax = plt.subplots(figsize=(7, 7), dpi=300)
 
-    y_pred = model.predict(X_test)
+        ax.scatter(scores[:, 0], scores[:, 1], s=90, edgecolor="black")
 
-    acc = accuracy_score(y_test, y_pred)
+        for i, label in enumerate(labels):
+            ax.text(scores[i, 0] + 0.03, scores[i, 1] + 0.03, label, fontsize=9)
 
-    # =====================================================
-    # RESULTADOS
-    # =====================================================
-    st.subheader("📊 Desempenho do modelo")
+        scale = np.max(np.abs(scores)) * 0.85
+        for i, var in enumerate(features):
+            ax.arrow(
+                0, 0,
+                loadings[i, 0] * scale,
+                loadings[i, 1] * scale,
+                color="black",
+                alpha=0.6,
+                head_width=0.06,
+                length_includes_head=True
+            )
+            ax.text(
+                loadings[i, 0] * scale * 1.1,
+                loadings[i, 1] * scale * 1.1,
+                var,
+                fontsize=8
+            )
 
-    st.metric("Acurácia", f"{acc*100:.2f} %")
+        ax.set_xlabel(f"PC1 ({explained[0]:.1f}%)")
+        ax.set_ylabel(f"PC2 ({explained[1]:.1f}%)")
+        ax.set_title("PCA Global — SurfaceXLab")
+        ax.grid(alpha=0.3)
+        ax.set_aspect("equal", adjustable="box")
 
-    st.markdown("### Relatório de classificação")
-    report = classification_report(y_test, y_pred, output_dict=True)
-    st.dataframe(pd.DataFrame(report).T)
+        st.pyplot(fig)
 
-    # =====================================================
-    # MATRIZ DE CONFUSÃO
-    # =====================================================
-    st.markdown("### Matriz de confusão")
-
-    cm = confusion_matrix(y_test, y_pred)
-
-    fig, ax = plt.subplots(figsize=(4, 4), dpi=300)
-    im = ax.imshow(cm)
-
-    ax.set_xticks(range(len(model.classes_)))
-    ax.set_yticks(range(len(model.classes_)))
-
-    ax.set_xticklabels(model.classes_)
-    ax.set_yticklabels(model.classes_)
-
-    ax.set_xlabel("Predito")
-    ax.set_ylabel("Real")
-    ax.set_title("Matriz de Confusão")
-
-    for i in range(cm.shape[0]):
-        for j in range(cm.shape[1]):
-            ax.text(j, i, cm[i, j], ha="center", va="center")
-
-    st.pyplot(fig)
+        st.subheader("Variância explicada")
+        st.dataframe(pd.DataFrame({
+            "Componente": ["PC1", "PC2"],
+            "Variância (%)": explained.round(2)
+        }))
 
     # =====================================================
-    # FEATURE IMPORTANCE
+    # SUBABA 2 — TREINAMENTO ML
     # =====================================================
-    st.subheader("📈 Importância das variáveis")
+    with subtabs[1]:
 
-    importances = model.feature_importances_
+        st.subheader("Treinamento supervisionado")
 
-    imp_df = pd.DataFrame({
-        "Variável": feature_names,
-        "Importância": importances
-    }).sort_values("Importância", ascending=False)
+        task = st.selectbox(
+            "Tipo de problema",
+            ["Classificação", "Regressão"]
+        )
 
-    st.dataframe(imp_df, use_container_width=True)
+        target_col = st.selectbox(
+            "Variável alvo",
+            options=df_global.columns
+        )
+
+        X_ml = pd.DataFrame(
+            st.session_state.pca_scores,
+            columns=["PC1", "PC2"],
+            index=df_global.index
+        )
+
+        y_ml = df_global[target_col]
+
+        if st.button("▶ Treinar modelo Random Forest"):
+
+            if task == "Classificação":
+                result = train_random_forest_classifier(X_ml, y_ml)
+                st.metric("Accuracy", f"{result['accuracy']*100:.2f}%")
+
+            else:
+                result = train_random_forest_regressor(X_ml, y_ml)
+                st.metric("R²", f"{result['r2']:.3f}")
+                st.metric("MAE", f"{result['mae']:.3f}")
+
+            st.session_state.rf_model = result["model"]
+
+            st.subheader("Importância dos componentes")
+            st.dataframe(result["feature_importance"])
+
+            # ---------------------------
+            # Recomendações
+            # ---------------------------
+            dominant_pc = result["feature_importance"].idxmax()
+
+            st.subheader("Recomendação automática SurfaceXLab")
+            st.markdown(
+                f"""
+                🔎 O modelo indica que **{dominant_pc}** é o principal
+                componente responsável pela resposta do sistema.
+
+                ➡ Recomenda-se priorizar ajustes experimentais que
+                influenciem as variáveis fortemente correlacionadas a este
+                componente principal.
+                """
+            )
 
     # =====================================================
-    # GRÁFICO IMPORTÂNCIA
+    # SUBABA 3 — PREDIÇÃO DE NOVA AMOSTRA
     # =====================================================
-    fig2, ax2 = plt.subplots(figsize=(6, 4), dpi=300)
+    with subtabs[2]:
 
-    ax2.barh(
-        imp_df["Variável"],
-        imp_df["Importância"]
-    )
+        if st.session_state.rf_model is None:
+            st.info("Treine um modelo antes de realizar predições.")
+            return
 
-    ax2.set_xlabel("Importância relativa")
-    ax2.set_title("Importância das variáveis — Random Forest")
-    ax2.invert_yaxis()
+        st.subheader("Predição de nova amostra")
 
-    st.pyplot(fig2)
+        new_sample = {}
 
-    # =====================================================
-    # INTERPRETAÇÃO AUTOMÁTICA
-    # =====================================================
-    top_var = imp_df.iloc[0]["Variável"]
+        for col in df_global.columns:
+            new_sample[col] = st.number_input(col, value=0.0)
 
-    st.success(
-        f"Variável mais relevante para a classificação: **{top_var}**"
-    )
+        if st.button("Predizer"):
+
+            new_df = pd.DataFrame([new_sample])
+
+            X_new = st.session_state.scaler.transform(new_df)
+            PCs_new = st.session_state.pca_model.transform(X_new)
+
+            prediction = st.session_state.rf_model.predict(PCs_new)
+
+            st.success(f"Resultado previsto: **{prediction[0]}**")
