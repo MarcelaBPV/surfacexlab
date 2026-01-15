@@ -5,12 +5,10 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from io import StringIO
 
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
 
-# importa o processamento físico correto
 from tensiometria_processing import (
     read_contact_angle_log,
     clean_contact_angle,
@@ -34,7 +32,7 @@ def render_tensiometria_tab(supabase=None):
 
         **Subaba 2**  
         PCA multivariada baseada em  
-        **Rrms\\* (°), ID/IG, I2D/IG e q\\* (°)**
+        **Rrms\\*, ID/IG, I2D/IG e q\\***
         """
     )
 
@@ -69,6 +67,7 @@ def render_tensiometria_tab(supabase=None):
             i2d_ig = st.number_input("I2D/IG", value=0.0, format="%.4f")
 
         if uploaded_files:
+
             for file in uploaded_files:
 
                 if file.name in st.session_state.tensiometry_samples:
@@ -98,32 +97,36 @@ def render_tensiometria_tab(supabase=None):
                     # Gráfico θ × tempo
                     # -----------------------------
                     fig, ax = plt.subplots(figsize=(7, 4), dpi=300)
+
                     ax.plot(df["time_s"], df["theta_mean"], lw=1.5)
                     ax.axhline(q_star, color="red", ls="--", label="q*")
+
                     ax.set_xlabel("Tempo (s)")
                     ax.set_ylabel("Ângulo de contato (°)")
                     ax.set_title("Evolução do ângulo de contato")
                     ax.legend()
                     ax.grid(alpha=0.3)
+
                     st.pyplot(fig)
 
                     # -----------------------------
-                    # Summary CONSOLIDADO
+                    # Summary consolidado
                     # -----------------------------
                     summary = {
                         "Amostra": file.name,
-                        "Rrms* (°)": rrms,
+                        "Rrms*": rrms,
                         "ID/IG": id_ig,
                         "I2D/IG": i2d_ig,
-                        "q* (°)": q_star,
+                        "q*": q_star,
                     }
 
                     st.session_state.tensiometry_samples[file.name] = summary
 
                     # -----------------------------
-                    # Mostra variáveis calculadas
+                    # Preview individual
                     # -----------------------------
                     st.markdown("**Variáveis calculadas para a amostra:**")
+
                     st.dataframe(
                         pd.DataFrame([summary]).set_index("Amostra"),
                         use_container_width=True
@@ -135,26 +138,36 @@ def render_tensiometria_tab(supabase=None):
                     st.error("Erro ao processar a amostra")
                     st.exception(e)
 
+        # =====================================================
+        # EXPORTAÇÃO PARA ML
+        # =====================================================
         if st.session_state.tensiometry_samples:
-            st.markdown("---")
-            st.subheader("📋 Resumo físico consolidado (todas as amostras)")
 
-            st.dataframe(
-                pd.DataFrame(st.session_state.tensiometry_samples.values()),
-                use_container_width=True
-            )
+            st.markdown("---")
+            st.subheader("📋 Resumo físico consolidado")
+
+            df_all = pd.DataFrame(st.session_state.tensiometry_samples.values())
+
+            st.dataframe(df_all, use_container_width=True)
+
+            # 👉 EXPORTA MATRIZ LIMPA PARA ML TAB
+            df_ml = df_all.copy()
+            df_ml = df_ml.apply(pd.to_numeric, errors="ignore")
+
+            st.session_state.tensiometry_features = df_ml
 
             if st.button("🗑 Limpar amostras de tensiometria"):
                 st.session_state.tensiometry_samples = {}
+                st.session_state.tensiometry_features = None
                 st.experimental_rerun()
 
     # =====================================================
-    # SUBABA 2 — PCA
+    # SUBABA 2 — PCA LOCAL
     # =====================================================
     with subtabs[1]:
 
         if len(st.session_state.tensiometry_samples) < 2:
-            st.info("Carregue ao menos duas amostras na subaba de processamento.")
+            st.info("Carregue ao menos duas amostras.")
             return
 
         df_pca = pd.DataFrame(st.session_state.tensiometry_samples.values())
@@ -162,7 +175,7 @@ def render_tensiometria_tab(supabase=None):
         st.subheader("Dados de entrada da PCA")
         st.dataframe(df_pca, use_container_width=True)
 
-        feature_cols = ["Rrms* (°)", "ID/IG", "I2D/IG", "q* (°)"]
+        feature_cols = ["Rrms*", "ID/IG", "I2D/IG", "q*"]
 
         X = df_pca[feature_cols].values
         labels = df_pca["Amostra"].values
@@ -185,6 +198,7 @@ def render_tensiometria_tab(supabase=None):
             ax.text(scores[i, 0] + 0.03, scores[i, 1] + 0.03, label, fontsize=9)
 
         scale = np.max(np.abs(scores)) * 0.85
+
         for i, var in enumerate(feature_cols):
             ax.arrow(
                 0, 0,
@@ -194,6 +208,7 @@ def render_tensiometria_tab(supabase=None):
                 head_width=0.08,
                 length_includes_head=True
             )
+
             ax.text(
                 loadings[i, 0] * scale * 1.1,
                 loadings[i, 1] * scale * 1.1,
@@ -203,6 +218,7 @@ def render_tensiometria_tab(supabase=None):
 
         ax.axhline(0, color="gray", lw=0.6)
         ax.axvline(0, color="gray", lw=0.6)
+
         ax.set_xlabel(f"PC1 ({explained[0]:.1f}%)")
         ax.set_ylabel(f"PC2 ({explained[1]:.1f}%)")
         ax.set_title("PCA — Tensiometria")
@@ -212,6 +228,7 @@ def render_tensiometria_tab(supabase=None):
         st.pyplot(fig)
 
         st.subheader("Variância explicada")
+
         st.dataframe(pd.DataFrame({
             "Componente": ["PC1", "PC2"],
             "Variância (%)": explained.round(2)
