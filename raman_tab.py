@@ -22,11 +22,11 @@ def render_raman_tab(supabase=None):
     st.markdown(
         """
         **Subaba 1**  
-        Upload e processamento completo do espectro Raman  
-        (bruto, baseline, processado, picos e grupos moleculares)
+        Processamento completo do espectro Raman com identificação automática
+        dos grupos moleculares (NR + CaP) via ajuste Lorentziano.
 
         **Subaba 2**  
-        PCA multivariada baseada **exclusivamente nos picos Raman**
+        PCA multivariada baseada exclusivamente nos picos Raman validados.
         """
     )
 
@@ -64,110 +64,131 @@ def render_raman_tab(supabase=None):
 
                 try:
                     result = process_raman_spectrum_with_groups(
-                        file_like=file,
-                        peak_prominence=0.02
+                        file_like=file
                     )
                 except Exception as e:
                     st.error("Erro ao processar o espectro Raman.")
                     st.exception(e)
                     continue
 
-                # =================================================
-                # GRÁFICOS
-                # =================================================
                 figures = result.get("figures", {})
+                spectrum_df = result.get("spectrum_df")
+                peaks_df = result.get("peaks_df")
 
-                col1, col2, col3 = st.columns(3)
+                # =================================================
+                # GRÁFICOS BASE
+                # =================================================
+                col1, col2 = st.columns(2)
 
                 with col1:
-                    st.markdown("**Bruto**")
+                    st.markdown("**Espectro Bruto**")
                     if "raw" in figures:
                         st.pyplot(figures["raw"], use_container_width=True)
 
                 with col2:
-                    st.markdown("**Bruto + baseline**")
+                    st.markdown("**Baseline corrigido**")
                     if "baseline" in figures:
                         st.pyplot(figures["baseline"], use_container_width=True)
 
-                with col3:
-                    st.markdown("**Processado**")
-                    if "processed" in figures:
-                        st.pyplot(figures["processed"], use_container_width=True)
-
                 # =================================================
-                # PICOS RAMAN
+                # GRÁFICO FINAL — SOMENTE PICOS QUÍMICOS
                 # =================================================
-                peaks_df = result.get("peaks_df")
-
-                st.subheader("Picos Raman identificados")
+                st.subheader("Espectro processado — Picos químicos identificados")
 
                 if peaks_df is None or peaks_df.empty:
-                    st.info("Nenhum pico Raman identificado.")
+                    st.warning("Nenhum pico molecular válido identificado.")
                     continue
 
-                peaks_df = peaks_df.copy()
+                # -------------------------------
+                # Filtra apenas picos classificados
+                # -------------------------------
+                peaks_valid = peaks_df[
+                    peaks_df["chemical_group"] != "Unassigned"
+                ].copy()
 
-                # ----------------------------
-                # Mapeamento flexível
-                # ----------------------------
-                col_map = {}
+                if peaks_valid.empty:
+                    st.warning("Nenhum pico com grupo molecular atribuído.")
+                    continue
 
-                for c in peaks_df.columns:
-                    cl = c.lower()
-                    if "peak" in cl or "shift" in cl:
-                        col_map[c] = "Pico Raman (cm⁻¹)"
-                    elif "intensity" in cl or "height" in cl:
-                        col_map[c] = "Intensidade (norm.)"
-                    elif "group" in cl or "assignment" in cl:
-                        col_map[c] = "Grupo molecular"
+                # -------------------------------
+                # Plot científico final
+                # -------------------------------
+                fig, ax = plt.subplots(figsize=(10, 4), dpi=300)
 
-                peaks_df = peaks_df.rename(columns=col_map)
+                ax.plot(
+                    spectrum_df["shift"],
+                    spectrum_df["intensity_norm"],
+                    lw=1.4,
+                    label="Processado"
+                )
 
-                # ----------------------------
-                # Validação mínima para PCA
-                # ----------------------------
-                required_basic = [
+                ax.scatter(
+                    peaks_valid["center_fit"],
+                    peaks_valid["intensity_norm"],
+                    s=50,
+                    zorder=5,
+                    label="Picos Lorentzianos"
+                )
+
+                for _, row in peaks_valid.iterrows():
+                    ax.axvline(
+                        row["center_fit"],
+                        ls="--",
+                        lw=0.9,
+                        alpha=0.6
+                    )
+
+                ax.set_xlabel("Raman shift (cm⁻¹)")
+                ax.set_ylabel("Intensidade normalizada")
+                ax.legend(frameon=False)
+                ax.set_title("Picos Raman associados aos grupos moleculares")
+
+                st.pyplot(fig, use_container_width=True)
+
+                # =================================================
+                # TABELA CIENTÍFICA — PICOS + GRUPOS
+                # =================================================
+                st.subheader("Tabela de picos Raman e atribuições moleculares")
+
+                table_df = peaks_valid[[
+                    "center_fit",
+                    "amplitude",
+                    "fwhm",
+                    "chemical_group"
+                ]].copy()
+
+                table_df.columns = [
                     "Pico Raman (cm⁻¹)",
-                    "Intensidade (norm.)"
+                    "Intensidade (norm.)",
+                    "FWHM (cm⁻¹)",
+                    "Grupo molecular"
                 ]
 
-                if not all(c in peaks_df.columns for c in required_basic):
-                    st.error("Picos Raman detectados, mas colunas essenciais não encontradas.")
-                    st.dataframe(peaks_df, use_container_width=True)
-                    continue
+                table_df = table_df.sort_values("Pico Raman (cm⁻¹)")
 
-                # Grupo molecular é opcional
-                display_cols = required_basic.copy()
-                if "Grupo molecular" in peaks_df.columns:
-                    display_cols.append("Grupo molecular")
-
-                display_df = peaks_df[display_cols].copy()
-
-                st.dataframe(display_df, use_container_width=True)
+                st.dataframe(table_df, use_container_width=True)
 
                 # =================================================
-                # FINGERPRINT PARA PCA + ML
+                # FINGERPRINT PARA PCA (SÓ GRUPOS QUÍMICOS)
                 # =================================================
                 fingerprint = (
-                    display_df
-                    .groupby("Pico Raman (cm⁻¹)")["Intensidade (norm.)"]
+                    table_df
+                    .groupby("Grupo molecular")["Intensidade (norm.)"]
                     .mean()
                     .astype(float)
                 )
 
                 st.session_state.raman_peaks[file.name] = fingerprint
 
-                st.write("Fingerprint salvo:", fingerprint.shape)
-
-                st.success("✔ Amostra Raman processada com sucesso")
+                st.success("✔ Processamento Raman concluído")
 
         # =====================================================
-        # PREVIEW GLOBAL + EXPORTAÇÃO ML
+        # PREVIEW GERAL
         # =====================================================
         if st.session_state.raman_peaks:
 
             st.markdown("---")
-            st.subheader("📋 Amostras Raman processadas")
+            st.subheader("📋 Fingerprints Raman armazenados")
 
             preview = (
                 pd.DataFrame(st.session_state.raman_peaks)
@@ -176,19 +197,18 @@ def render_raman_tab(supabase=None):
 
             st.dataframe(preview, use_container_width=True)
 
-            # EXPORTA PARA ML TAB
             df_ml = preview.T.reset_index()
             df_ml = df_ml.rename(columns={"index": "Amostra"})
 
             st.session_state.raman_fingerprint = df_ml
 
-            if st.button("🗑 Limpar amostras Raman"):
+            if st.button("🗑 Limpar dados Raman"):
                 st.session_state.raman_peaks = {}
                 st.session_state.raman_fingerprint = None
                 st.experimental_rerun()
 
     # =====================================================
-    # SUBABA 2 — PCA RAMAN
+    # SUBABA 2 — PCA
     # =====================================================
     with subtabs[1]:
 
@@ -202,7 +222,7 @@ def render_raman_tab(supabase=None):
             .fillna(0.0)
         )
 
-        st.subheader("Matriz fingerprint (entrada da PCA)")
+        st.subheader("Matriz fingerprint Raman (entrada PCA)")
         st.dataframe(df_fp, use_container_width=True)
 
         X = df_fp.values
@@ -215,9 +235,9 @@ def render_raman_tab(supabase=None):
         loadings = pca.components_.T
         explained = pca.explained_variance_ratio_ * 100
 
-        # ---------------------------
-        # BIPLOT
-        # ---------------------------
+        # =================================================
+        # BIPLOT PCA
+        # =================================================
         fig, ax = plt.subplots(figsize=(7, 7), dpi=300)
 
         ax.scatter(scores[:, 0], scores[:, 1], s=90, edgecolor="black")
@@ -231,25 +251,23 @@ def render_raman_tab(supabase=None):
             )
 
         scale = np.max(np.abs(scores)) * 0.8
-        step = max(1, loadings.shape[0] // 25)
 
-        for i in range(0, loadings.shape[0], step):
+        for i in range(loadings.shape[0]):
             ax.arrow(
                 0, 0,
                 loadings[i, 0] * scale,
                 loadings[i, 1] * scale,
-                color="black",
                 alpha=0.3,
                 width=0.002,
                 length_includes_head=True
             )
 
-        ax.axhline(0, color="gray", lw=0.6)
-        ax.axvline(0, color="gray", lw=0.6)
+        ax.axhline(0, lw=0.6)
+        ax.axvline(0, lw=0.6)
 
         ax.set_xlabel(f"PC1 ({explained[0]:.1f}%)")
         ax.set_ylabel(f"PC2 ({explained[1]:.1f}%)")
-        ax.set_title("PCA — Espectroscopia Raman")
+        ax.set_title("PCA — Fingerprint Raman")
         ax.set_aspect("equal", adjustable="box")
         ax.grid(alpha=0.3)
 
