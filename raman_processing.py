@@ -12,7 +12,7 @@ from scipy.sparse.linalg import spsolve
 
 
 # =========================================================
-# DATABASE — ATRIBUIÇÃO QUÍMICA NR + CaP
+# DATABASE — ATRIBUIÇÃO QUÍMICA MULTI-MATERIAL
 # =========================================================
 
 RAMAN_DATABASE = {
@@ -33,7 +33,7 @@ RAMAN_DATABASE = {
 (1640, 1680): "Amide I (Proteins)",
 
 # =====================================================
-# PAPEL / CELULOSE / POLÍMEROS NATURAIS
+# PAPEL / CELULOSE
 # =====================================================
 
 (380, 400): "Cellulose skeletal deformation",
@@ -66,7 +66,7 @@ RAMAN_DATABASE = {
 (1000, 1040): "PO4 ν3 asymmetric stretch (CaP)",
 
 # =====================================================
-# NANOTUBOS DE CARBONO / GRAFENO / CARBONO
+# NANOTUBOS DE CARBONO / GRAFENO
 # =====================================================
 
 (1320, 1360): "D band (Carbon defects / CNT)",
@@ -78,10 +78,13 @@ RAMAN_DATABASE = {
 }
 
 
+# =========================================================
+# CLASSIFICAÇÃO QUÍMICA
+# =========================================================
 
 def classify_raman_group(center):
 
-    for (low, high), label in RAMAN_NR_DATABASE.items():
+    for (low, high), label in RAMAN_DATABASE.items():
         if low <= center <= high:
             return label
 
@@ -201,13 +204,10 @@ def process_raman_pipeline(
     asls_lambda=1e6,
     asls_p=0.01,
 
-    peak_prominence=0.02,   # <<< AJUSTADO PARA DADOS REAIS
+    peak_prominence=0.02,
 ):
 
-    # =============================
     # 1 — Leitura
-    # =============================
-
     x_raw, y_raw = read_spectrum(sample_input)
 
     x_s = x_raw.copy()
@@ -218,10 +218,7 @@ def process_raman_pipeline(
     else:
         x_b, y_b = x_s, np.zeros_like(y_s)
 
-    # =============================
-    # 2 — Harmonização espectral
-    # =============================
-
+    # 2 — Harmonização
     x = np.linspace(
         max(x_s.min(), x_b.min()),
         min(x_s.max(), x_b.max()),
@@ -231,10 +228,7 @@ def process_raman_pipeline(
     y_s = np.interp(x, x_s, y_s)
     y_b = np.interp(x, x_b, y_b)
 
-    # =============================
     # 3 — Subtração substrato
-    # =============================
-
     A = np.vstack([y_b, np.ones_like(y_b)]).T
     alpha, beta = np.linalg.lstsq(A, y_s, rcond=None)[0]
 
@@ -242,33 +236,21 @@ def process_raman_pipeline(
 
     y_sub = y_s - alpha * y_b - beta
 
-    # =============================
-    # 4 — Baseline ASLS
-    # =============================
-
+    # 4 — Baseline
     baseline = asls_baseline(y_sub, lam=asls_lambda, p=asls_p)
     y_corr = y_sub - baseline
 
-    # =============================
     # 5 — Suavização
-    # =============================
-
     if sg_window % 2 == 0:
         sg_window += 1
 
     y_smooth = savgol_filter(y_corr, sg_window, sg_poly)
 
-    # =============================
     # 6 — Normalização
-    # =============================
-
     norm = np.max(np.abs(y_smooth))
     y_norm = y_smooth / norm if norm > 0 else y_smooth
 
-    # =============================
-    # 7 — Detecção física de picos
-    # =============================
-
+    # 7 — Detecção de picos
     peak_idx, _ = find_peaks(
         y_norm,
         prominence=peak_prominence,
@@ -287,7 +269,6 @@ def process_raman_pipeline(
         if not fit:
             continue
 
-        # Filtros físicos
         if fit["amplitude"] < 0.04:
             continue
 
@@ -305,10 +286,7 @@ def process_raman_pipeline(
 
     peaks_df = pd.DataFrame(peaks)
 
-    # =============================
     # Fingerprint químico
-    # =============================
-
     if not peaks_df.empty:
 
         fingerprint_df = peaks_df.pivot_table(
@@ -320,25 +298,18 @@ def process_raman_pipeline(
     else:
         fingerprint_df = pd.DataFrame()
 
-    # =============================
     # DataFrame espectral
-    # =============================
-
     spectrum_df = pd.DataFrame({
         "shift": x,
         "intensity_norm": y_norm,
         "baseline_norm": baseline / norm if norm > 0 else baseline
     })
 
-    # =============================
     # Figuras base
-    # =============================
-
     figs = {}
 
     fig_raw, ax = plt.subplots(figsize=(10, 4), dpi=300)
     ax.plot(x_raw, y_raw, lw=1.2)
-    ax.set_title("Raw Raman Spectrum")
     figs["raw"] = fig_raw
 
     fig_base, ax = plt.subplots(figsize=(10, 4), dpi=300)
