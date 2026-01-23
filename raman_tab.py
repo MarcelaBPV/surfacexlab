@@ -8,12 +8,13 @@ import matplotlib.pyplot as plt
 
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
+from sklearn.metrics import r2_score
 
 from raman_processing import process_raman_spectrum_with_groups
 
 
 # =========================================================
-# FUNÇÃO — PLOT PAPER STYLE (ELSEVIER)
+# FUNÇÃO — PLOT PAPER STYLE + R² + RESIDUAL
 # =========================================================
 
 def plot_raman_paper_style(x, y_exp, peaks_df):
@@ -21,6 +22,9 @@ def plot_raman_paper_style(x, y_exp, peaks_df):
     def lorentz_plot(x, amp, cen, fwhm):
         gamma = 0.5 * fwhm
         return amp * ((gamma)**2 / ((x - cen)**2 + gamma**2))
+
+    # Ordenação física dos picos
+    peaks_df = peaks_df.sort_values("center_fit")
 
     peak_curves = []
     peak_sum = np.zeros_like(x)
@@ -37,18 +41,40 @@ def plot_raman_paper_style(x, y_exp, peaks_df):
         peak_curves.append(curve)
         peak_sum += curve
 
-    # Normaliza PeakSum para mesma escala experimental
+    # Normalização PeakSum na escala experimental
     if peak_sum.max() > 0:
         peak_sum = peak_sum / peak_sum.max() * y_exp.max()
 
     # ===============================
-    # FIGURA PAPER STYLE
+    # MÉTRICA DE QUALIDADE
     # ===============================
 
-    fig, ax = plt.subplots(figsize=(6.5, 4.2), dpi=300)
+    r2 = r2_score(y_exp, peak_sum)
+
+    # ===============================
+    # RESIDUAL
+    # ===============================
+
+    residual = y_exp - peak_sum
+
+    # ===============================
+    # FIGURA PAPER — DOIS PAINÉIS
+    # ===============================
+
+    fig, (ax1, ax2) = plt.subplots(
+        2, 1,
+        figsize=(6.8, 6),
+        dpi=300,
+        gridspec_kw={"height_ratios": [3, 1]},
+        sharex=True
+    )
+
+    # =====================================================
+    # PAINEL SUPERIOR — FIT
+    # =====================================================
 
     # Experimental
-    ax.plot(
+    ax1.plot(
         x,
         y_exp,
         "ks",
@@ -59,18 +85,18 @@ def plot_raman_paper_style(x, y_exp, peaks_df):
     # Picos individuais
     colors = ["#1f77b4", "#9467bd", "#2ca02c", "#ff7f0e", "#8c564b"]
 
-    for i, curve in enumerate(peak_curves):
+    for i, (curve, (_, row)) in enumerate(zip(peak_curves, peaks_df.iterrows())):
 
-        ax.plot(
+        ax1.plot(
             x,
             curve,
             linewidth=1.2,
             color=colors[i % len(colors)],
-            label=f"Peak{i+1}"
+            label=row["chemical_group"]
         )
 
     # PeakSum
-    ax.plot(
+    ax1.plot(
         x,
         peak_sum,
         color="crimson",
@@ -78,26 +104,52 @@ def plot_raman_paper_style(x, y_exp, peaks_df):
         label="PeakSum"
     )
 
-    # ===============================
-    # ESTILO ELSEVIER
-    # ===============================
+    # Texto R²
+    ax1.text(
+        0.02, 0.95,
+        f"$R^2$ = {r2:.5f}",
+        transform=ax1.transAxes,
+        fontsize=10,
+        verticalalignment="top"
+    )
 
-    ax.set_xlabel("Raman Shift (cm$^{-1}$)", fontsize=11)
-    ax.set_ylabel("Intensity (a.u.)", fontsize=11)
+    ax1.set_ylabel("Intensity (a.u.)", fontsize=11)
+    ax1.tick_params(direction="in", length=5, width=1)
 
-    ax.tick_params(direction="in", length=5, width=1)
-
-    # Moldura completa
-    for spine in ax.spines.values():
+    for spine in ax1.spines.values():
         spine.set_visible(True)
-        spine.set_linewidth(1.0)
+        spine.set_linewidth(1)
 
-    ax.legend(frameon=False, fontsize=9)
+    ax1.legend(frameon=False, fontsize=8)
 
-    ax.margins(x=0)
+    # =====================================================
+    # PAINEL INFERIOR — RESIDUAL
+    # =====================================================
+
+    ax2.plot(
+        x,
+        residual,
+        color="black",
+        linewidth=1
+    )
+
+    ax2.axhline(0, linestyle="--", linewidth=0.8)
+
+    ax2.set_xlabel("Raman Shift (cm$^{-1}$)", fontsize=11)
+    ax2.set_ylabel("Residual", fontsize=10)
+
+    ax2.tick_params(direction="in", length=4, width=1)
+
+    for spine in ax2.spines.values():
+        spine.set_visible(True)
+        spine.set_linewidth(1)
+
+    ax1.margins(x=0)
+    ax2.margins(x=0)
+
     plt.tight_layout(pad=0.4)
 
-    return fig
+    return fig, r2
 
 
 # =========================================================
@@ -110,11 +162,11 @@ def render_raman_tab(supabase=None):
 
     st.markdown("""
     **Subaba 1**  
-    Processamento completo do espectro Raman com ajuste Lorentziano multipeak
-    e identificação automática dos grupos moleculares (NR + CaP).
+    Processamento completo do espectro Raman com ajuste Lorentziano multipeak,
+    validação estatística (R²) e espectro residual.
 
     **Subaba 2**  
-    PCA multivariada baseada exclusivamente nos fingerprints Raman validados.
+    PCA multivariada baseada exclusivamente nos fingerprints Raman.
     """)
 
     # =====================================================
@@ -195,18 +247,20 @@ def render_raman_tab(supabase=None):
                     continue
 
                 # =================================================
-                # PLOT PAPER STYLE — OVERLAY
+                # PLOT PAPER + R² + RESIDUAL
                 # =================================================
 
-                st.subheader("Decomposição Lorentziana — Estilo Publicação")
+                st.subheader("Decomposição Lorentziana — Validação Estatística")
 
-                fig_paper = plot_raman_paper_style(
+                fig_paper, r2_value = plot_raman_paper_style(
                     spectrum_df["shift"].values,
                     spectrum_df["intensity_norm"].values,
                     peaks_valid
                 )
 
                 st.pyplot(fig_paper, use_container_width=True)
+
+                st.success(f"Coeficiente de determinação do ajuste: R² = {r2_value:.5f}")
 
                 # =================================================
                 # TABELA CIENTÍFICA
@@ -263,15 +317,9 @@ def render_raman_tab(supabase=None):
 
             st.dataframe(preview, use_container_width=True)
 
-            df_ml = preview.T.reset_index()
-            df_ml = df_ml.rename(columns={"index": "Amostra"})
-
-            st.session_state.raman_fingerprint = df_ml
-
             if st.button("🗑 Limpar dados Raman", key="clear_raman"):
 
                 st.session_state.raman_peaks = {}
-                st.session_state.raman_fingerprint = None
                 st.experimental_rerun()
 
     # =====================================================
@@ -303,10 +351,6 @@ def render_raman_tab(supabase=None):
         loadings = pca.components_.T
         explained = pca.explained_variance_ratio_ * 100
 
-        # =================================================
-        # PCA BIPLOT — PAPER STYLE
-        # =================================================
-
         fig, ax = plt.subplots(figsize=(6, 6), dpi=300)
 
         ax.scatter(scores[:, 0], scores[:, 1], s=70, edgecolors="black")
@@ -317,7 +361,6 @@ def render_raman_tab(supabase=None):
         scale = np.max(np.abs(scores)) * 0.85
 
         for i in range(loadings.shape[0]):
-
             ax.arrow(
                 0, 0,
                 loadings[i, 0] * scale,
@@ -334,7 +377,7 @@ def render_raman_tab(supabase=None):
 
         for spine in ax.spines.values():
             spine.set_visible(True)
-            spine.set_linewidth(1.0)
+            spine.set_linewidth(1)
 
         ax.set_aspect("equal", adjustable="box")
 
