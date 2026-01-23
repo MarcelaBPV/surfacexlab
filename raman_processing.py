@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from typing import Tuple, Optional, Dict, Any
+from typing import Tuple
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -73,11 +73,10 @@ def read_spectrum(file_like) -> Tuple[np.ndarray, np.ndarray]:
 
 def asls_baseline(y, lam=1e6, p=0.01, niter=10):
 
+    y = np.asarray(y, dtype=float)
     N = len(y)
 
-    D = sparse.diags([1, -2, 1], [0, 1, 2],
-                     shape=(N - 2, N))
-
+    D = sparse.diags([1, -2, 1], [0, 1, 2], shape=(N - 2, N))
     w = np.ones(N)
 
     for _ in range(niter):
@@ -86,7 +85,6 @@ def asls_baseline(y, lam=1e6, p=0.01, niter=10):
         Z = W + lam * D.T @ D
 
         z = spsolve(Z, w * y)
-
         w = p * (y > z) + (1 - p) * (y < z)
 
     return z
@@ -114,7 +112,7 @@ def fit_lorentz(x, y, center, window=20):
     p0 = [
         np.max(ys) - np.min(ys),
         center,
-        max((xs.max() - xs.min()) / 6, 2),
+        max((xs.max() - xs.min()) / 6, 2.0),
         np.min(ys)
     ]
 
@@ -152,7 +150,7 @@ def process_raman_pipeline(
     asls_lambda=1e6,
     asls_p=0.01,
 
-    peak_prominence=0.04,
+    peak_prominence=0.02,   # <<< AJUSTADO PARA DADOS REAIS
 ):
 
     # =============================
@@ -189,7 +187,7 @@ def process_raman_pipeline(
     A = np.vstack([y_b, np.ones_like(y_b)]).T
     alpha, beta = np.linalg.lstsq(A, y_s, rcond=None)[0]
 
-    alpha = max(alpha, 0)
+    alpha = max(alpha, 0.0)
 
     y_sub = y_s - alpha * y_b - beta
 
@@ -238,8 +236,8 @@ def process_raman_pipeline(
         if not fit:
             continue
 
-        # filtros físicos
-        if fit["amplitude"] < 0.05:
+        # Filtros físicos
+        if fit["amplitude"] < 0.04:
             continue
 
         if not (3 < fit["width"] < 80):
@@ -248,8 +246,8 @@ def process_raman_pipeline(
         group = classify_raman_group(fit["center_fit"])
 
         peaks.append({
-            "peak_cm1": cen,
-            "intensity_norm": y_norm[idx],
+            "peak_cm1": float(cen),
+            "intensity_norm": float(y_norm[idx]),
             "chemical_group": group,
             **fit
         })
@@ -282,7 +280,7 @@ def process_raman_pipeline(
     })
 
     # =============================
-    # Figuras
+    # Figuras base
     # =============================
 
     figs = {}
@@ -308,7 +306,7 @@ def process_raman_pipeline(
 
 
 # =========================================================
-# WRAPPER PARA STREAMLIT
+# WRAPPER STREAMLIT
 # =========================================================
 
 def process_raman_spectrum_with_groups(file_like):
