@@ -10,11 +10,13 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
 from sklearn.metrics import r2_score
 
+from scipy.ndimage import gaussian_filter1d
+
 from raman_processing import process_raman_spectrum_with_groups
 
 
 # =========================================================
-# FUNÇÃO — PLOT PAPER STYLE + R² + RESIDUAL
+# FUNÇÃO — PLOT PAPER STYLE + R² + RESIDUAL + PEAK MARKERS
 # =========================================================
 
 def plot_raman_paper_style(x, y_exp, peaks_df):
@@ -23,11 +25,16 @@ def plot_raman_paper_style(x, y_exp, peaks_df):
         gamma = 0.5 * fwhm
         return amp * ((gamma)**2 / ((x - cen)**2 + gamma**2))
 
-    # Ordenação física dos picos
+    # Ordena fisicamente os picos
     peaks_df = peaks_df.sort_values("center_fit")
 
     peak_curves = []
     peak_sum = np.zeros_like(x)
+    peak_centers = []
+
+    # ==========================
+    # Calcula curvas Lorentzianas
+    # ==========================
 
     for _, row in peaks_df.iterrows():
 
@@ -40,30 +47,42 @@ def plot_raman_paper_style(x, y_exp, peaks_df):
 
         peak_curves.append(curve)
         peak_sum += curve
+        peak_centers.append(row["center_fit"])
 
-    # Normalização PeakSum na escala experimental
+    # ==========================
+    # Normaliza PeakSum
+    # ==========================
+
     if peak_sum.max() > 0:
         peak_sum = peak_sum / peak_sum.max() * y_exp.max()
 
-    # ===============================
-    # MÉTRICA DE QUALIDADE
-    # ===============================
+    # ==========================
+    # Suavização VISUAL (plot only)
+    # ==========================
 
-    r2 = r2_score(y_exp, peak_sum)
+    y_exp_s = gaussian_filter1d(y_exp, sigma=1.1)
+    peak_sum_s = gaussian_filter1d(peak_sum, sigma=1.1)
 
-    # ===============================
-    # RESIDUAL
-    # ===============================
+    peak_curves_s = [
+        gaussian_filter1d(curve, sigma=1.1)
+        for curve in peak_curves
+    ]
 
-    residual = y_exp - peak_sum
+    residual = y_exp_s - peak_sum_s
 
-    # ===============================
-    # FIGURA PAPER — DOIS PAINÉIS
-    # ===============================
+    # ==========================
+    # Métrica R²
+    # ==========================
+
+    r2 = r2_score(y_exp_s, peak_sum_s)
+
+    # ==========================
+    # FIGURA PAPER — 2 PAINÉIS
+    # ==========================
 
     fig, (ax1, ax2) = plt.subplots(
         2, 1,
-        figsize=(6.8, 6),
+        figsize=(6.8, 5.4),
         dpi=300,
         gridspec_kw={"height_ratios": [3, 1]},
         sharex=True
@@ -76,49 +95,75 @@ def plot_raman_paper_style(x, y_exp, peaks_df):
     # Experimental
     ax1.plot(
         x,
-        y_exp,
-        "ks",
-        markersize=3,
+        y_exp_s,
+        color="black",
+        linewidth=1.0,
         label="Experimental"
     )
 
     # Picos individuais
     colors = ["#1f77b4", "#9467bd", "#2ca02c", "#ff7f0e", "#8c564b"]
 
-    for i, (curve, (_, row)) in enumerate(zip(peak_curves, peaks_df.iterrows())):
+    for i, (curve, (_, row)) in enumerate(zip(peak_curves_s, peaks_df.iterrows())):
 
         ax1.plot(
             x,
             curve,
-            linewidth=1.2,
+            linewidth=0.9,
             color=colors[i % len(colors)],
+            alpha=0.85,
             label=row["chemical_group"]
         )
 
     # PeakSum
     ax1.plot(
         x,
-        peak_sum,
+        peak_sum_s,
         color="crimson",
-        linewidth=2.0,
+        linewidth=1.6,
         label="PeakSum"
     )
 
+    # ==========================
+    # Marcação dos centros dos picos
+    # ==========================
+
+    for cen in peak_centers:
+
+        idx = np.argmin(np.abs(x - cen))
+
+        ax1.scatter(
+            x[idx],
+            peak_sum_s[idx],
+            s=36,
+            facecolors="white",
+            edgecolors="black",
+            linewidths=0.8,
+            zorder=5
+        )
+
+        ax1.axvline(
+            cen,
+            linestyle="--",
+            linewidth=0.7,
+            alpha=0.5
+        )
+
     # Texto R²
     ax1.text(
-        0.02, 0.95,
-        f"$R^2$ = {r2:.5f}",
+        0.02, 0.93,
+        f"$R^2$ = {r2:.4f}",
         transform=ax1.transAxes,
-        fontsize=10,
-        verticalalignment="top"
+        fontsize=10
     )
 
     ax1.set_ylabel("Intensity (a.u.)", fontsize=11)
-    ax1.tick_params(direction="in", length=5, width=1)
+
+    ax1.tick_params(direction="in", length=4, width=0.9)
 
     for spine in ax1.spines.values():
         spine.set_visible(True)
-        spine.set_linewidth(1)
+        spine.set_linewidth(0.9)
 
     ax1.legend(frameon=False, fontsize=8)
 
@@ -130,19 +175,19 @@ def plot_raman_paper_style(x, y_exp, peaks_df):
         x,
         residual,
         color="black",
-        linewidth=1
+        linewidth=0.9
     )
 
-    ax2.axhline(0, linestyle="--", linewidth=0.8)
+    ax2.axhline(0, linestyle="--", linewidth=0.7)
 
     ax2.set_xlabel("Raman Shift (cm$^{-1}$)", fontsize=11)
     ax2.set_ylabel("Residual", fontsize=10)
 
-    ax2.tick_params(direction="in", length=4, width=1)
+    ax2.tick_params(direction="in", length=4, width=0.9)
 
     for spine in ax2.spines.values():
         spine.set_visible(True)
-        spine.set_linewidth(1)
+        spine.set_linewidth(0.9)
 
     ax1.margins(x=0)
     ax2.margins(x=0)
@@ -163,7 +208,7 @@ def render_raman_tab(supabase=None):
     st.markdown("""
     **Subaba 1**  
     Processamento completo do espectro Raman com ajuste Lorentziano multipeak,
-    validação estatística (R²) e espectro residual.
+    validação estatística (R²) e análise do espectro residual.
 
     **Subaba 2**  
     PCA multivariada baseada exclusivamente nos fingerprints Raman.
@@ -260,7 +305,7 @@ def render_raman_tab(supabase=None):
 
                 st.pyplot(fig_paper, use_container_width=True)
 
-                st.success(f"Coeficiente de determinação do ajuste: R² = {r2_value:.5f}")
+                st.success(f"Coeficiente de determinação do ajuste: R² = {r2_value:.4f}")
 
                 # =================================================
                 # TABELA CIENTÍFICA
@@ -318,7 +363,6 @@ def render_raman_tab(supabase=None):
             st.dataframe(preview, use_container_width=True)
 
             if st.button("🗑 Limpar dados Raman", key="clear_raman"):
-
                 st.session_state.raman_peaks = {}
                 st.experimental_rerun()
 
@@ -353,7 +397,7 @@ def render_raman_tab(supabase=None):
 
         fig, ax = plt.subplots(figsize=(6, 6), dpi=300)
 
-        ax.scatter(scores[:, 0], scores[:, 1], s=70, edgecolors="black")
+        ax.scatter(scores[:, 0], scores[:, 1], s=60, edgecolors="black")
 
         for i, label in enumerate(labels):
             ax.text(scores[i, 0], scores[i, 1], label, fontsize=9)
@@ -365,7 +409,7 @@ def render_raman_tab(supabase=None):
                 0, 0,
                 loadings[i, 0] * scale,
                 loadings[i, 1] * scale,
-                linewidth=1,
+                linewidth=0.9,
                 length_includes_head=True
             )
 
@@ -377,7 +421,7 @@ def render_raman_tab(supabase=None):
 
         for spine in ax.spines.values():
             spine.set_visible(True)
-            spine.set_linewidth(1)
+            spine.set_linewidth(0.9)
 
         ax.set_aspect("equal", adjustable="box")
 
