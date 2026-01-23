@@ -1,4 +1,4 @@
-# ml_tab.py
+# pca_upload_surface_style.py
 # -*- coding: utf-8 -*-
 
 import streamlit as st
@@ -8,16 +8,6 @@ import matplotlib.pyplot as plt
 
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
-
-from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
-from sklearn.model_selection import train_test_split
-
-from sklearn.metrics import (
-    accuracy_score,
-    classification_report,
-    r2_score,
-    mean_absolute_error
-)
 
 
 # =========================================================
@@ -32,308 +22,240 @@ def qualitative_contribution(value):
 
 
 # =========================================================
-# ABA ML — SurfaceXLab
+# PCA COM UPLOAD — ESTILO ARTIGO
 # =========================================================
-def render_ml_tab(supabase=None):
+def render_pca_upload():
 
-    st.header("🤖 Inteligência Artificial — SurfaceXLab")
+    st.header("📊 PCA — Análise Multivariada de Superfícies")
 
-    st.markdown(
-        """
-        Este módulo executa:
+    st.markdown("""
+    **Formatos suportados**
 
-        • Integração **Raman + Tensiometria + Elétrica**  
-        • **PCA Global** (redução dimensional)  
-        • Treinamento supervisionado (**Random Forest**)  
-        • Predição automática de novas amostras  
-        • Painel de recomendação inteligente  
-        """
+    • Excel (.xlsx)  
+    • CSV (.csv)  
+    • TXT (.txt — delimitador automático)  
+
+    **Formato esperado**
+
+    ✔ Primeira coluna → Identificação da amostra  
+    ✔ Demais colunas → Variáveis numéricas experimentais  
+    """)
+
+    uploaded_file = st.file_uploader(
+        "Upload do arquivo de dados",
+        type=["xlsx", "csv", "txt"]
     )
 
-    subtabs = st.tabs([
-        "📊 PCA Global",
-        "🧠 Treinar Modelo",
-        "🔮 Predizer Nova Amostra"
-    ])
-
-    # =====================================================
-    # COLETA DOS DADOS
-    # =====================================================
-    data_sources = []
-
-    # Raman
-    if "raman_peaks" in st.session_state:
-        df_raman = (
-            pd.DataFrame(st.session_state.raman_peaks)
-            .T
-            .fillna(0.0)
-            .reset_index()
-            .rename(columns={"index": "Amostra"})
-        )
-        data_sources.append(df_raman)
-
-    # Tensiometria
-    if "tensiometry_samples" in st.session_state:
-        df_tensio = pd.DataFrame(st.session_state.tensiometry_samples.values())
-        data_sources.append(df_tensio)
-
-    # Elétrica
-    if "electrical_samples" in st.session_state:
-        df_eletric = pd.DataFrame(st.session_state.electrical_samples.values())
-        data_sources.append(df_eletric)
-
-    if not data_sources:
-        st.info("Nenhum dado disponível ainda. Execute os módulos primeiro.")
+    if uploaded_file is None:
+        st.info("Aguardando upload...")
         return
 
     # =====================================================
-    # MERGE GLOBAL
+    # LEITURA AUTOMÁTICA
     # =====================================================
-    df_global = None
+    try:
 
-    for df in data_sources:
+        if uploaded_file.name.endswith(".xlsx"):
+            df = pd.read_excel(uploaded_file)
 
-        if "Amostra" not in df.columns:
-            continue
+        elif uploaded_file.name.endswith(".csv"):
+            df = pd.read_csv(uploaded_file)
 
-        if df_global is None:
-            df_global = df.copy()
         else:
-            df_global = pd.merge(
-                df_global,
-                df,
-                on="Amostra",
-                how="outer"
-            )
+            df = pd.read_csv(uploaded_file, sep=None, engine="python")
 
-    if df_global is None or len(df_global) < 2:
-        st.warning("Dados insuficientes para análise global.")
+    except Exception as e:
+        st.error(f"Erro ao importar arquivo: {e}")
         return
 
-    df_global = df_global.set_index("Amostra")
-    df_global = df_global.apply(pd.to_numeric, errors="coerce")
-    df_global = df_global.fillna(0.0)
+    st.subheader("Pré-visualização dos dados")
+    st.dataframe(df, use_container_width=True)
 
     # =====================================================
-    # SUBABA 1 — PCA GLOBAL
+    # SELEÇÃO DA COLUNA AMOSTRA
     # =====================================================
-    with subtabs[0]:
+    sample_col = st.selectbox(
+        "Coluna identificadora das amostras:",
+        options=df.columns.tolist()
+    )
 
-        st.subheader("📊 Matriz global integrada")
-        st.dataframe(df_global, use_container_width=True)
+    df = df.set_index(sample_col)
 
-        X = df_global.values
-        labels = df_global.index.values
-        features = df_global.columns.values
+    # Conversão numérica
+    df = df.apply(pd.to_numeric, errors="coerce")
+    df = df.fillna(0)
 
-        scaler = StandardScaler()
-        X_scaled = scaler.fit_transform(X)
+    if df.shape[0] < 2:
+        st.warning("Necessário no mínimo 2 amostras.")
+        return
 
-        pca = PCA(n_components=2)
-        scores = pca.fit_transform(X_scaled)
+    if df.shape[1] < 2:
+        st.warning("Necessário no mínimo 2 variáveis.")
+        return
 
-        loadings = pca.components_.T
-        explained = pca.explained_variance_ratio_ * 100
+    st.success("Dados prontos para PCA")
 
-        # Salva para ML
-        st.session_state.pca_scores = scores
-        st.session_state.scaler_global = scaler
-        st.session_state.pca_model = pca
-        st.session_state.df_global_ml = df_global
+    # =====================================================
+    # CONFIGURAÇÃO PCA
+    # =====================================================
+    st.subheader("Configuração PCA")
 
-        # ---------------------------
-        # BIPLOT
-        # ---------------------------
-        fig, ax = plt.subplots(figsize=(7, 7), dpi=300)
+    n_components = st.slider(
+        "Número de Componentes Principais",
+        min_value=2,
+        max_value=min(10, df.shape[1]),
+        value=2
+    )
 
-        ax.scatter(scores[:, 0], scores[:, 1], s=90, edgecolor="black")
+    X = df.values
+    labels = df.index.values
+    features = df.columns.values
 
-        for i, label in enumerate(labels):
-            ax.text(scores[i, 0] + 0.03, scores[i, 1] + 0.03, label, fontsize=9)
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
 
-        scale = np.max(np.abs(scores)) * 0.85
+    pca = PCA(n_components=n_components)
+    scores = pca.fit_transform(X_scaled)
 
-        for i, var in enumerate(features):
-            ax.arrow(
-                0, 0,
-                loadings[i, 0] * scale,
-                loadings[i, 1] * scale,
-                alpha=0.6,
-                color="black",
-                head_width=0.05,
-                length_includes_head=True
-            )
+    loadings = pca.components_.T
+    explained = pca.explained_variance_ratio_ * 100
 
-        ax.axhline(0, color="gray", lw=0.6)
-        ax.axvline(0, color="gray", lw=0.6)
+    # =====================================================
+    # BIPLOT — ESTILO ARTIGO CIENTÍFICO
+    # =====================================================
+    st.subheader("PCA — Biplot (Scores + Loadings)")
 
-        ax.set_xlabel(f"PC1 ({explained[0]:.1f}%)")
-        ax.set_ylabel(f"PC2 ({explained[1]:.1f}%)")
-        ax.set_title("PCA Global — SurfaceXLab")
-        ax.set_aspect("equal", adjustable="box")
-        ax.grid(alpha=0.3)
+    fig, ax = plt.subplots(figsize=(6, 6), dpi=300)
 
-        st.pyplot(fig)
+    # Scatter das amostras
+    ax.scatter(
+        scores[:, 0],
+        scores[:, 1],
+        s=70,
+        edgecolors="black",
+        linewidths=0.6,
+        zorder=3
+    )
 
-        st.subheader("Variância explicada")
-        st.dataframe(pd.DataFrame({
-            "Componente": ["PC1", "PC2"],
-            "Variância (%)": explained.round(2)
-        }))
-
-        # ---------------------------
-        # Contribuição qualitativa
-        # ---------------------------
-        st.subheader("📋 Contribuição qualitativa das variáveis")
-
-        contrib = np.abs(loadings)
-        contrib_norm = contrib / contrib.max(axis=0)
-
-        contrib_table = pd.DataFrame(
-            contrib_norm,
-            index=features,
-            columns=["PC1", "PC2"]
+    # Labels das amostras
+    for i, label in enumerate(labels):
+        ax.text(
+            scores[i, 0],
+            scores[i, 1],
+            label,
+            fontsize=9,
+            ha="left",
+            va="bottom"
         )
 
-        contrib_table["PC1"] = contrib_table["PC1"].apply(qualitative_contribution)
-        contrib_table["PC2"] = contrib_table["PC2"].apply(qualitative_contribution)
+    # Escala vetores
+    scale = np.max(np.abs(scores)) * 0.9
 
-        st.dataframe(contrib_table, use_container_width=True)
+    # Vetores das variáveis
+    for i, var in enumerate(features):
 
-    # =====================================================
-    # SUBABA 2 — TREINAMENTO
-    # =====================================================
-    with subtabs[1]:
-
-        if "pca_scores" not in st.session_state:
-            st.warning("Execute primeiro a PCA Global.")
-            return
-
-        st.subheader("🧠 Treinamento supervisionado")
-
-        df_ml = st.session_state.df_global_ml
-
-        task_type = st.selectbox(
-            "Tipo de problema",
-            ["Regressão (predizer valor físico)", "Classificação (predizer classe)"]
+        ax.arrow(
+            0, 0,
+            loadings[i, 0] * scale,
+            loadings[i, 1] * scale,
+            head_width=0.04,
+            head_length=0.06,
+            linewidth=1.1,
+            length_includes_head=True,
+            zorder=2
         )
 
-        target = st.selectbox(
-            "Variável alvo (target)",
-            options=df_ml.columns.tolist()
+        ax.text(
+            loadings[i, 0] * scale * 1.05,
+            loadings[i, 1] * scale * 1.05,
+            var,
+            fontsize=9,
+            ha="center",
+            va="center"
         )
 
-        y = df_ml[target].values
-        X_ml = st.session_state.pca_scores
+    # Eixos centrais
+    ax.axhline(0, linewidth=0.8)
+    ax.axvline(0, linewidth=0.8)
 
-        X_train, X_test, y_train, y_test = train_test_split(
-            X_ml, y,
-            test_size=0.25,
-            random_state=42
-        )
+    # Labels científicos
+    ax.set_xlabel(f"PC1 ({explained[0]:.1f}%)", fontsize=11)
+    ax.set_ylabel(f"PC2 ({explained[1]:.1f}%)", fontsize=11)
 
-        if st.button("▶ Treinar Random Forest"):
+    # Remove margens e padding
+    ax.margins(0)
+    plt.tight_layout(pad=0)
 
-            if task_type.startswith("Regressão"):
+    # Estilo journal
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
 
-                model = RandomForestRegressor(
-                    n_estimators=400,
-                    random_state=42,
-                    n_jobs=-1
-                )
+    ax.tick_params(
+        direction="in",
+        length=5,
+        width=1
+    )
 
-                model.fit(X_train, y_train)
-                y_pred = model.predict(X_test)
+    ax.set_aspect("equal", adjustable="box")
 
-                r2 = r2_score(y_test, y_pred)
-                mae = mean_absolute_error(y_test, y_pred)
+    ax.grid(alpha=0.15, linestyle="--")
 
-                st.success(f"Modelo treinado — R² = {r2:.3f} | MAE = {mae:.3e}")
-
-            else:
-
-                model = RandomForestClassifier(
-                    n_estimators=300,
-                    random_state=42,
-                    class_weight="balanced",
-                    n_jobs=-1
-                )
-
-                model.fit(X_train, y_train)
-                y_pred = model.predict(X_test)
-
-                acc = accuracy_score(y_test, y_pred)
-
-                st.success(f"Modelo treinado — Accuracy = {acc:.3f}")
-                st.json(classification_report(y_test, y_pred, output_dict=True))
-
-            st.session_state.rf_model = model
-            st.session_state.rf_task = task_type
-            st.session_state.rf_target = target
+    st.pyplot(fig)
 
     # =====================================================
-    # SUBABA 3 — PREDIÇÃO
+    # VARIÂNCIA EXPLICADA
     # =====================================================
-    with subtabs[2]:
+    st.subheader("Variância explicada")
 
-        if "rf_model" not in st.session_state:
-            st.info("Treine um modelo antes de realizar predições.")
-            return
+    var_table = pd.DataFrame({
+        "Componente": [f"PC{i+1}" for i in range(len(explained))],
+        "Variância (%)": explained.round(2)
+    })
 
-        st.subheader("🔮 Predição automática — SurfaceXLab")
+    st.dataframe(var_table, use_container_width=True)
 
-        sample_name = st.selectbox(
-            "Selecione uma amostra existente",
-            options=df_global.index.tolist()
-        )
+    # =====================================================
+    # CONTRIBUIÇÃO QUALITATIVA
+    # =====================================================
+    st.subheader("Contribuição qualitativa das variáveis")
 
-        if st.button("▶ Predizer"):
+    contrib = np.abs(loadings)
+    contrib_norm = contrib / contrib.max(axis=0)
 
-            idx = list(df_global.index).index(sample_name)
+    contrib_df = pd.DataFrame(
+        contrib_norm,
+        index=features,
+        columns=[f"PC{i+1}" for i in range(n_components)]
+    )
 
-            pc_vector = st.session_state.pca_scores[idx].reshape(1, -1)
+    for col in contrib_df.columns:
+        contrib_df[col] = contrib_df[col].apply(qualitative_contribution)
 
-            model = st.session_state.rf_model
+    st.dataframe(contrib_df, use_container_width=True)
 
-            prediction = model.predict(pc_vector)[0]
+    # =====================================================
+    # EXPORTAÇÃO
+    # =====================================================
+    st.subheader("Exportação dos resultados")
 
-            if st.session_state.rf_task.startswith("Classificação"):
+    scores_df = pd.DataFrame(
+        scores,
+        index=labels,
+        columns=[f"PC{i+1}" for i in range(n_components)]
+    )
 
-                proba = model.predict_proba(pc_vector).max()
+    csv_scores = scores_df.to_csv().encode("utf-8")
 
-                st.success("Predição concluída")
+    st.download_button(
+        "⬇ Download Scores PCA (.csv)",
+        csv_scores,
+        file_name="pca_scores_surface.csv",
+        mime="text/csv"
+    )
 
-                st.markdown(
-                    f"""
-                    ### ✅ Resultado SurfaceXLab
 
-                    **Amostra:** {sample_name}  
-                    **Classe prevista:** `{prediction}`  
-                    **Confiança:** `{proba:.2%}`  
-                    """
-                )
-
-            else:
-
-                st.success("Predição concluída")
-
-                st.markdown(
-                    f"""
-                    ### ✅ Resultado SurfaceXLab
-
-                    **Amostra:** {sample_name}  
-                    **{st.session_state.rf_target}:**
-
-                    **{prediction:.5e}**
-                    """
-                )
-
-            st.markdown(
-                """
-                ### 📌 Recomendação automática
-
-                Utilize as variáveis dominantes da PCA Global
-                para ajustar parâmetros de processamento
-                e deslocar a amostra em direção à região ótima do espaço multivariado.
-                """
-            )
+# =========================================================
+# EXECUÇÃO DIRETA
+# =========================================================
+if __name__ == "__main__":
+    render_pca_upload()
