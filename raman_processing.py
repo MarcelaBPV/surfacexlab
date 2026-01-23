@@ -15,17 +15,68 @@ from scipy.sparse.linalg import spsolve
 # DATABASE — ATRIBUIÇÃO QUÍMICA NR + CaP
 # =========================================================
 
-RAMAN_NR_DATABASE = {
+RAMAN_DATABASE = {
 
-    (2820, 3030): "C–H stretch (NR cis-polyisoprene)",
-    (1655, 1685): "C=C stretching (NR backbone)",
-    (1440, 1470): "CH deformation (NR)",
-    (1280, 1320): "Amide III / proteins",
+# =====================================================
+# BIOFLUIDOS — SANGUE / PROTEÍNAS / BIOMOLÉCULAS
+# =====================================================
 
-    (935, 955): "PO4 ν1 (Amorphous CaP)",
-    (975, 995): "P=O stretching (DCPD / CaP)",
-    (995, 1010): "Phenylalanine breathing / phosphate overlap",
+(650, 680): "C–S stretching (Proteins)",
+(720, 730): "Adenine / Nucleic acids",
+(750, 760): "Tryptophan (Proteins)",
+(820, 850): "Tyrosine (Proteins)",
+(930, 950): "C–C stretching (Proteins backbone)",
+(1000, 1006): "Phenylalanine breathing (Proteins)",
+(1240, 1300): "Amide III (Proteins)",
+(1440, 1470): "CH2 bending (Lipids / Proteins)",
+(1540, 1580): "Amide II (Proteins)",
+(1640, 1680): "Amide I (Proteins)",
+
+# =====================================================
+# PAPEL / CELULOSE / POLÍMEROS NATURAIS
+# =====================================================
+
+(380, 400): "Cellulose skeletal deformation",
+(435, 460): "Cellulose ring deformation",
+(895, 905): "β-glycosidic link (Cellulose)",
+(1090, 1120): "C–O–C stretching (Cellulose)",
+(1330, 1380): "CH bending (Cellulose)",
+(1450, 1480): "CH2 bending (Cellulose)",
+
+# =====================================================
+# LÁTEX NATURAL (NR cis-1,4-polyisoprene)
+# =====================================================
+
+(840, 860): "C=C out-of-plane (NR)",
+(1000, 1010): "CH deformation (NR)",
+(1290, 1320): "CH wagging (NR)",
+(1440, 1470): "CH2 deformation (NR)",
+(1655, 1685): "C=C stretching (NR)",
+(2820, 2850): "CH2 symmetric stretch (NR)",
+(2920, 2960): "CH2 asymmetric stretch (NR)",
+
+# =====================================================
+# FOSFATO DE CÁLCIO / BIOMINERALIZAÇÃO
+# =====================================================
+
+(430, 460): "PO4 bending ν2 (CaP)",
+(580, 620): "PO4 bending ν4 (CaP)",
+(935, 960): "PO4 ν1 symmetric stretch (CaP)",
+(970, 995): "P=O stretching (DCPD / CaP)",
+(1000, 1040): "PO4 ν3 asymmetric stretch (CaP)",
+
+# =====================================================
+# NANOTUBOS DE CARBONO / GRAFENO / CARBONO
+# =====================================================
+
+(1320, 1360): "D band (Carbon defects / CNT)",
+(1570, 1605): "G band (sp2 Carbon / CNT / Graphene)",
+(1610, 1630): "D' band (Carbon disorder)",
+(2650, 2720): "2D band (Graphene / CNT)",
+(2900, 3000): "D+G combination band (Carbon)",
+
 }
+
 
 
 def classify_raman_group(center):
