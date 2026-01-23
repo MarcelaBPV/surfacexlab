@@ -13,22 +13,99 @@ from raman_processing import process_raman_spectrum_with_groups
 
 
 # =========================================================
+# FUNÇÃO — PLOT PAPER STYLE (ELSEVIER)
+# =========================================================
+def plot_raman_paper_style(x, y_exp, peaks_df):
+
+    def lorentz(x, A, x0, gamma):
+        return A * (gamma**2 / ((x - x0)**2 + gamma**2))
+
+    peak_curves = []
+    peak_sum = np.zeros_like(x)
+
+    for _, row in peaks_df.iterrows():
+
+        curve = lorentz(
+            x,
+            row["amplitude"],
+            row["center_fit"],
+            row["fwhm"] / 2
+        )
+
+        peak_curves.append(curve)
+        peak_sum += curve
+
+    # =================================================
+    # FIGURA PADRÃO ELSEVIER
+    # =================================================
+    fig, ax = plt.subplots(figsize=(6.2, 4.5), dpi=300)
+
+    # Experimental
+    ax.plot(
+        x,
+        y_exp,
+        "ks",
+        markersize=3,
+        label="Experimental"
+    )
+
+    # Picos individuais
+    colors = ["#1f77b4", "#9467bd", "#2ca02c", "#ff7f0e", "#8c564b"]
+
+    for i, curve in enumerate(peak_curves):
+
+        ax.plot(
+            x,
+            curve,
+            linewidth=1.4,
+            color=colors[i % len(colors)],
+            label=f"Peak{i+1}"
+        )
+
+    # PeakSum
+    ax.plot(
+        x,
+        peak_sum,
+        color="crimson",
+        linewidth=2.2,
+        label="PeakSum"
+    )
+
+    # =============================
+    # ESTILO PAPER
+    # =============================
+
+    ax.set_xlabel("Raman Shift (cm$^{-1}$)", fontsize=11)
+    ax.set_ylabel("Intensity (a.u.)", fontsize=11)
+
+    ax.tick_params(direction="in", length=5, width=1)
+
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+
+    ax.legend(frameon=False, fontsize=9)
+
+    ax.margins(x=0)
+    plt.tight_layout(pad=0.3)
+
+    return fig
+
+
+# =========================================================
 # ABA RAMAN
 # =========================================================
 def render_raman_tab(supabase=None):
 
     st.header("🧬 Análises Moleculares — Espectroscopia Raman")
 
-    st.markdown(
-        """
-        **Subaba 1**  
-        Processamento completo do espectro Raman com identificação automática
-        dos grupos moleculares (NR + CaP) via ajuste Lorentziano.
+    st.markdown("""
+    **Subaba 1**  
+    Processamento completo do espectro Raman com ajuste Lorentziano multipeak
+    e identificação automática dos grupos moleculares (NR + CaP).
 
-        **Subaba 2**  
-        PCA multivariada baseada exclusivamente nos picos Raman validados.
-        """
-    )
+    **Subaba 2**  
+    PCA multivariada baseada exclusivamente nos fingerprints Raman validados.
+    """)
 
     # =====================================================
     # SESSION STATE
@@ -63,9 +140,7 @@ def render_raman_tab(supabase=None):
                 st.markdown(f"---\n## 📄 Amostra: `{file.name}`")
 
                 try:
-                    result = process_raman_spectrum_with_groups(
-                        file_like=file
-                    )
+                    result = process_raman_spectrum_with_groups(file_like=file)
                 except Exception as e:
                     st.error("Erro ao processar o espectro Raman.")
                     st.exception(e)
@@ -81,7 +156,7 @@ def render_raman_tab(supabase=None):
                 col1, col2 = st.columns(2)
 
                 with col1:
-                    st.markdown("**Espectro Bruto**")
+                    st.markdown("**Espectro bruto**")
                     if "raw" in figures:
                         st.pyplot(figures["raw"], use_container_width=True)
 
@@ -91,62 +166,35 @@ def render_raman_tab(supabase=None):
                         st.pyplot(figures["baseline"], use_container_width=True)
 
                 # =================================================
-                # GRÁFICO FINAL — SOMENTE PICOS QUÍMICOS
+                # FILTRO — APENAS PICOS QUÍMICOS
                 # =================================================
-                st.subheader("Espectro processado — Picos químicos identificados")
-
                 if peaks_df is None or peaks_df.empty:
-                    st.warning("Nenhum pico molecular válido identificado.")
+                    st.warning("Nenhum pico molecular identificado.")
                     continue
 
-                # -------------------------------
-                # Filtra apenas picos classificados
-                # -------------------------------
                 peaks_valid = peaks_df[
                     peaks_df["chemical_group"] != "Unassigned"
                 ].copy()
 
                 if peaks_valid.empty:
-                    st.warning("Nenhum pico com grupo molecular atribuído.")
+                    st.warning("Nenhum pico com atribuição química válida.")
                     continue
 
-                # -------------------------------
-                # Plot científico final
-                # -------------------------------
-                fig, ax = plt.subplots(figsize=(10, 4), dpi=300)
+                # =================================================
+                # PLOT PAPER STYLE — OVERLAY COMPLETO
+                # =================================================
+                st.subheader("Decomposição Lorentziana — Estilo Publicação")
 
-                ax.plot(
-                    spectrum_df["shift"],
-                    spectrum_df["intensity_norm"],
-                    lw=1.4,
-                    label="Processado"
+                fig_paper = plot_raman_paper_style(
+                    spectrum_df["shift"].values,
+                    spectrum_df["intensity_norm"].values,
+                    peaks_valid
                 )
 
-                ax.scatter(
-                    peaks_valid["center_fit"],
-                    peaks_valid["intensity_norm"],
-                    s=50,
-                    zorder=5,
-                    label="Picos Lorentzianos"
-                )
-
-                for _, row in peaks_valid.iterrows():
-                    ax.axvline(
-                        row["center_fit"],
-                        ls="--",
-                        lw=0.9,
-                        alpha=0.6
-                    )
-
-                ax.set_xlabel("Raman shift (cm⁻¹)")
-                ax.set_ylabel("Intensidade normalizada")
-                ax.legend(frameon=False)
-                ax.set_title("Picos Raman associados aos grupos moleculares")
-
-                st.pyplot(fig, use_container_width=True)
+                st.pyplot(fig_paper, use_container_width=True)
 
                 # =================================================
-                # TABELA CIENTÍFICA — PICOS + GRUPOS
+                # TABELA CIENTÍFICA
                 # =================================================
                 st.subheader("Tabela de picos Raman e atribuições moleculares")
 
@@ -169,7 +217,7 @@ def render_raman_tab(supabase=None):
                 st.dataframe(table_df, use_container_width=True)
 
                 # =================================================
-                # FINGERPRINT PARA PCA (SÓ GRUPOS QUÍMICOS)
+                # FINGERPRINT PARA PCA
                 # =================================================
                 fingerprint = (
                     table_df
@@ -202,7 +250,8 @@ def render_raman_tab(supabase=None):
 
             st.session_state.raman_fingerprint = df_ml
 
-            if st.button("🗑 Limpar dados Raman"):
+            if st.button("🗑 Limpar dados Raman", key="clear_raman"):
+
                 st.session_state.raman_peaks = {}
                 st.session_state.raman_fingerprint = None
                 st.experimental_rerun()
@@ -236,40 +285,40 @@ def render_raman_tab(supabase=None):
         explained = pca.explained_variance_ratio_ * 100
 
         # =================================================
-        # BIPLOT PCA
+        # PCA BIPLOT — PAPER STYLE
         # =================================================
-        fig, ax = plt.subplots(figsize=(7, 7), dpi=300)
+        fig, ax = plt.subplots(figsize=(6, 6), dpi=300)
 
-        ax.scatter(scores[:, 0], scores[:, 1], s=90, edgecolor="black")
+        ax.scatter(scores[:, 0], scores[:, 1], s=70, edgecolors="black")
 
         for i, label in enumerate(labels):
-            ax.text(
-                scores[i, 0] + 0.03,
-                scores[i, 1] + 0.03,
-                label,
-                fontsize=9
-            )
+            ax.text(scores[i, 0], scores[i, 1], label, fontsize=9)
 
-        scale = np.max(np.abs(scores)) * 0.8
+        scale = np.max(np.abs(scores)) * 0.85
 
         for i in range(loadings.shape[0]):
+
             ax.arrow(
                 0, 0,
                 loadings[i, 0] * scale,
                 loadings[i, 1] * scale,
-                alpha=0.3,
-                width=0.002,
+                linewidth=1,
                 length_includes_head=True
             )
 
-        ax.axhline(0, lw=0.6)
-        ax.axvline(0, lw=0.6)
+        ax.axhline(0, lw=0.8)
+        ax.axvline(0, lw=0.8)
 
         ax.set_xlabel(f"PC1 ({explained[0]:.1f}%)")
         ax.set_ylabel(f"PC2 ({explained[1]:.1f}%)")
-        ax.set_title("PCA — Fingerprint Raman")
+
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+
         ax.set_aspect("equal", adjustable="box")
-        ax.grid(alpha=0.3)
+        ax.grid(alpha=0.2, linestyle="--")
+
+        plt.tight_layout(pad=0.3)
 
         st.pyplot(fig)
 
