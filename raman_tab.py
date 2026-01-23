@@ -37,13 +37,13 @@ def plot_raman_paper_style(x, y_exp, peaks_df):
         peak_curves.append(curve)
         peak_sum += curve
 
-    # Normaliza PeakSum para mesma escala do experimental
+    # Normaliza PeakSum para mesma escala experimental
     if peak_sum.max() > 0:
         peak_sum = peak_sum / peak_sum.max() * y_exp.max()
 
-    # =================================================
-    # FIGURA — PADRÃO ELSEVIER / PAPER
-    # =================================================
+    # ===============================
+    # FIGURA PAPER STYLE
+    # ===============================
 
     fig, ax = plt.subplots(figsize=(6.5, 4.2), dpi=300)
 
@@ -78,9 +78,9 @@ def plot_raman_paper_style(x, y_exp, peaks_df):
         label="PeakSum"
     )
 
-    # =============================
-    # ESTILO PAPER
-    # =============================
+    # ===============================
+    # ESTILO ELSEVIER
+    # ===============================
 
     ax.set_xlabel("Raman Shift (cm$^{-1}$)", fontsize=11)
     ax.set_ylabel("Intensity (a.u.)", fontsize=11)
@@ -345,4 +345,6 @@ def render_raman_tab(supabase=None):
         st.subheader("Variância explicada")
 
         st.dataframe(pd.DataFrame({
-            "Com
+            "Componente": ["PC1", "PC2"],
+            "Variância explicada (%)": explained.round(2)
+        }))
