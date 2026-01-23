@@ -15,30 +15,37 @@ from raman_processing import process_raman_spectrum_with_groups
 # =========================================================
 # FUNÇÃO — PLOT PAPER STYLE (ELSEVIER)
 # =========================================================
+
 def plot_raman_paper_style(x, y_exp, peaks_df):
 
-    def lorentz(x, A, x0, gamma):
-        return A * (gamma**2 / ((x - x0)**2 + gamma**2))
+    def lorentz_plot(x, amp, cen, fwhm):
+        gamma = 0.5 * fwhm
+        return amp * ((gamma)**2 / ((x - cen)**2 + gamma**2))
 
     peak_curves = []
     peak_sum = np.zeros_like(x)
 
     for _, row in peaks_df.iterrows():
 
-        curve = lorentz(
+        curve = lorentz_plot(
             x,
             row["amplitude"],
             row["center_fit"],
-            row["fwhm"] / 2
+            row["fwhm"]
         )
 
         peak_curves.append(curve)
         peak_sum += curve
 
+    # Normaliza PeakSum para mesma escala do experimental
+    if peak_sum.max() > 0:
+        peak_sum = peak_sum / peak_sum.max() * y_exp.max()
+
     # =================================================
-    # FIGURA PADRÃO ELSEVIER
+    # FIGURA — PADRÃO ELSEVIER / PAPER
     # =================================================
-    fig, ax = plt.subplots(figsize=(6.2, 4.5), dpi=300)
+
+    fig, ax = plt.subplots(figsize=(6.5, 4.2), dpi=300)
 
     # Experimental
     ax.plot(
@@ -57,7 +64,7 @@ def plot_raman_paper_style(x, y_exp, peaks_df):
         ax.plot(
             x,
             curve,
-            linewidth=1.4,
+            linewidth=1.2,
             color=colors[i % len(colors)],
             label=f"Peak{i+1}"
         )
@@ -67,7 +74,7 @@ def plot_raman_paper_style(x, y_exp, peaks_df):
         x,
         peak_sum,
         color="crimson",
-        linewidth=2.2,
+        linewidth=2.0,
         label="PeakSum"
     )
 
@@ -80,13 +87,15 @@ def plot_raman_paper_style(x, y_exp, peaks_df):
 
     ax.tick_params(direction="in", length=5, width=1)
 
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
+    # Moldura completa
+    for spine in ax.spines.values():
+        spine.set_visible(True)
+        spine.set_linewidth(1.0)
 
     ax.legend(frameon=False, fontsize=9)
 
     ax.margins(x=0)
-    plt.tight_layout(pad=0.3)
+    plt.tight_layout(pad=0.4)
 
     return fig
 
@@ -94,6 +103,7 @@ def plot_raman_paper_style(x, y_exp, peaks_df):
 # =========================================================
 # ABA RAMAN
 # =========================================================
+
 def render_raman_tab(supabase=None):
 
     st.header("🧬 Análises Moleculares — Espectroscopia Raman")
@@ -110,6 +120,7 @@ def render_raman_tab(supabase=None):
     # =====================================================
     # SESSION STATE
     # =====================================================
+
     if "raman_peaks" not in st.session_state:
         st.session_state.raman_peaks = {}
 
@@ -121,6 +132,7 @@ def render_raman_tab(supabase=None):
     # =====================================================
     # SUBABA 1 — PROCESSAMENTO
     # =====================================================
+
     with subtabs[0]:
 
         uploaded_files = st.file_uploader(
@@ -153,6 +165,7 @@ def render_raman_tab(supabase=None):
                 # =================================================
                 # GRÁFICOS BASE
                 # =================================================
+
                 col1, col2 = st.columns(2)
 
                 with col1:
@@ -166,8 +179,9 @@ def render_raman_tab(supabase=None):
                         st.pyplot(figures["baseline"], use_container_width=True)
 
                 # =================================================
-                # FILTRO — APENAS PICOS QUÍMICOS
+                # FILTRO — PICOS QUÍMICOS
                 # =================================================
+
                 if peaks_df is None or peaks_df.empty:
                     st.warning("Nenhum pico molecular identificado.")
                     continue
@@ -181,8 +195,9 @@ def render_raman_tab(supabase=None):
                     continue
 
                 # =================================================
-                # PLOT PAPER STYLE — OVERLAY COMPLETO
+                # PLOT PAPER STYLE — OVERLAY
                 # =================================================
+
                 st.subheader("Decomposição Lorentziana — Estilo Publicação")
 
                 fig_paper = plot_raman_paper_style(
@@ -196,6 +211,7 @@ def render_raman_tab(supabase=None):
                 # =================================================
                 # TABELA CIENTÍFICA
                 # =================================================
+
                 st.subheader("Tabela de picos Raman e atribuições moleculares")
 
                 table_df = peaks_valid[[
@@ -219,6 +235,7 @@ def render_raman_tab(supabase=None):
                 # =================================================
                 # FINGERPRINT PARA PCA
                 # =================================================
+
                 fingerprint = (
                     table_df
                     .groupby("Grupo molecular")["Intensidade (norm.)"]
@@ -233,6 +250,7 @@ def render_raman_tab(supabase=None):
         # =====================================================
         # PREVIEW GERAL
         # =====================================================
+
         if st.session_state.raman_peaks:
 
             st.markdown("---")
@@ -259,6 +277,7 @@ def render_raman_tab(supabase=None):
     # =====================================================
     # SUBABA 2 — PCA
     # =====================================================
+
     with subtabs[1]:
 
         if len(st.session_state.raman_peaks) < 2:
@@ -287,6 +306,7 @@ def render_raman_tab(supabase=None):
         # =================================================
         # PCA BIPLOT — PAPER STYLE
         # =================================================
+
         fig, ax = plt.subplots(figsize=(6, 6), dpi=300)
 
         ax.scatter(scores[:, 0], scores[:, 1], s=70, edgecolors="black")
@@ -312,19 +332,17 @@ def render_raman_tab(supabase=None):
         ax.set_xlabel(f"PC1 ({explained[0]:.1f}%)")
         ax.set_ylabel(f"PC2 ({explained[1]:.1f}%)")
 
-        ax.spines["top"].set_visible(False)
-        ax.spines["right"].set_visible(False)
+        for spine in ax.spines.values():
+            spine.set_visible(True)
+            spine.set_linewidth(1.0)
 
         ax.set_aspect("equal", adjustable="box")
-        ax.grid(alpha=0.2, linestyle="--")
 
-        plt.tight_layout(pad=0.3)
+        plt.tight_layout(pad=0.4)
 
         st.pyplot(fig)
 
         st.subheader("Variância explicada")
 
         st.dataframe(pd.DataFrame({
-            "Componente": ["PC1", "PC2"],
-            "Variância explicada (%)": explained.round(2)
-        }))
+            "Com
