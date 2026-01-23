@@ -32,41 +32,80 @@ def load_file(uploaded_file):
 
 
 # =====================================================
-# ABA OTIMIZAÇÃO — PCA + ML
+# SALVAR PCA NO SUPABASE
 # =====================================================
-def render_ml_tab():
+def save_pca_supabase(supabase, labels, scores, explained):
 
-    st.header("⚙ Otimização Inteligente — SurfaceXLab")
+    exp = supabase.table("experiments").insert({
+        "experiment_name": "PCA Otimização",
+        "module": "PCA"
+    }).execute()
 
-    st.markdown("""
-    Este módulo permite:
+    exp_id = exp.data[0]["id"]
 
-    • Exploração multivariada (PCA)  
-    • Integração de dados experimentais  
-    • Modelagem preditiva (Machine Learning)  
-    • Otimização orientada por dados  
-    """)
+    rows = []
+
+    for i, sample in enumerate(labels):
+        rows.append({
+            "experiment_id": exp_id,
+            "sample_name": sample,
+            "pc1": float(scores[i, 0]),
+            "pc2": float(scores[i, 1]),
+            "explained_pc1": float(explained[0]),
+            "explained_pc2": float(explained[1])
+        })
+
+    supabase.table("pca_results").insert(rows).execute()
+
+    return exp_id
+
+
+# =====================================================
+# SALVAR MODELO ML (VOCÊ JÁ POSSUI ml_models)
+# =====================================================
+def save_model_supabase(
+    supabase,
+    experiment_id,
+    model_type,
+    target,
+    metric
+):
+
+    supabase.table("ml_models").insert({
+        "experiment_id": experiment_id,
+        "model_type": model_type,
+        "target_variable": target,
+        "metric_value": float(metric)
+    }).execute()
+
+
+# =====================================================
+# INTERFACE STREAMLIT
+# =====================================================
+def render_ml_tab(supabase=None):
+
+    st.header("🤖 Otimizador Inteligente — PCA + Machine Learning")
 
     subtabs = st.tabs([
         "📊 PCA Exploratório",
-        "🤖 Machine Learning"
+        "🧠 Machine Learning"
     ])
 
     # =====================================================
-    # SUBABA 1 — PCA
+    # SUBABA PCA
     # =====================================================
     with subtabs[0]:
 
         st.subheader("📊 PCA Exploratório")
 
-        data_source = st.radio(
+        source = st.radio(
             "Fonte dos dados",
-            ["Upload de arquivo", "Dados da plataforma"],
+            ["Upload de Arquivo", "Dados Integrados da Plataforma"],
             horizontal=True
         )
 
-        # ---------- UPLOAD ----------
-        if data_source == "Upload de arquivo":
+        # ---------------- UPLOAD ----------------
+        if source == "Upload de Arquivo":
 
             uploaded_file = st.file_uploader(
                 "Upload XLS, CSV ou TXT",
@@ -74,47 +113,36 @@ def render_ml_tab():
             )
 
             if uploaded_file is None:
-                st.info("Faça upload do arquivo para continuar.")
+                st.info("Faça upload do arquivo.")
                 return
 
             df = load_file(uploaded_file)
 
-        # ---------- SISTEMA ----------
+        # ---------------- SISTEMA ----------------
         else:
 
             if "df_global_ml" not in st.session_state:
-                st.warning("Nenhum dado integrado disponível. Execute módulos de análise primeiro.")
+                st.warning("Nenhum dado integrado disponível.")
                 return
 
             df = st.session_state.df_global_ml.reset_index()
 
-        # Preview
-        st.subheader("Pré-visualização dos dados")
         st.dataframe(df, use_container_width=True)
 
-        # Seleção da coluna amostra
         sample_col = st.selectbox(
             "Coluna identificadora da amostra",
             df.columns.tolist()
         )
 
         df = df.set_index(sample_col)
+        df = df.apply(pd.to_numeric, errors="coerce").fillna(0)
 
-        # Conversão numérica
-        df = df.apply(pd.to_numeric, errors="coerce")
-        df = df.fillna(0)
-
-        if df.shape[0] < 2:
-            st.warning("Mínimo de 2 amostras necessário.")
+        if df.shape[0] < 2 or df.shape[1] < 2:
+            st.warning("Dados insuficientes para PCA.")
             return
 
-        if df.shape[1] < 2:
-            st.warning("Mínimo de 2 variáveis necessário.")
-            return
-
-        # PCA config
         n_components = st.slider(
-            "Número de Componentes Principais",
+            "Número de componentes principais",
             2,
             min(10, df.shape[1]),
             2
@@ -133,19 +161,16 @@ def render_ml_tab():
         loadings = pca.components_.T
         explained = pca.explained_variance_ratio_ * 100
 
-        # Guarda no estado global
+        # Guarda para ML
         st.session_state.opt_scores = scores
         st.session_state.opt_labels = labels
-        st.session_state.opt_features = features
+        st.session_state.opt_df = df
         st.session_state.opt_scaler = scaler
         st.session_state.opt_pca = pca
-        st.session_state.opt_df = df
 
         # =====================================================
-        # BIPLOT ESTILO CIENTÍFICO
+        # BIPLOT CIENTÍFICO
         # =====================================================
-        st.subheader("PCA — Biplot")
-
         fig, ax = plt.subplots(figsize=(6, 6), dpi=300)
 
         ax.scatter(
@@ -153,19 +178,11 @@ def render_ml_tab():
             scores[:, 1],
             s=70,
             edgecolors="black",
-            linewidths=0.6,
-            zorder=3
+            linewidths=0.6
         )
 
         for i, label in enumerate(labels):
-            ax.text(
-                scores[i, 0],
-                scores[i, 1],
-                label,
-                fontsize=9,
-                ha="left",
-                va="bottom"
-            )
+            ax.text(scores[i, 0], scores[i, 1], label, fontsize=9)
 
         scale = np.max(np.abs(scores)) * 0.9
 
@@ -176,7 +193,6 @@ def render_ml_tab():
                 loadings[i, 0] * scale,
                 loadings[i, 1] * scale,
                 head_width=0.04,
-                head_length=0.06,
                 linewidth=1.1,
                 length_includes_head=True
             )
@@ -185,13 +201,11 @@ def render_ml_tab():
                 loadings[i, 0] * scale * 1.05,
                 loadings[i, 1] * scale * 1.05,
                 var,
-                fontsize=9,
-                ha="center",
-                va="center"
+                fontsize=9
             )
 
-        ax.axhline(0, linewidth=0.8)
-        ax.axvline(0, linewidth=0.8)
+        ax.axhline(0, lw=0.8)
+        ax.axvline(0, lw=0.8)
 
         ax.set_xlabel(f"PC1 ({explained[0]:.1f}%)")
         ax.set_ylabel(f"PC2 ({explained[1]:.1f}%)")
@@ -201,41 +215,47 @@ def render_ml_tab():
 
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
-
-        ax.tick_params(direction="in", length=5, width=1)
         ax.set_aspect("equal", adjustable="box")
-
-        ax.grid(alpha=0.15, linestyle="--")
+        ax.grid(alpha=0.2, linestyle="--")
 
         st.pyplot(fig)
 
-        # Variância
-        st.subheader("Variância explicada")
+        # =====================================================
+        # SALVAR PCA
+        # =====================================================
+        if supabase and st.button("💾 Salvar PCA no Banco"):
 
-        var_df = pd.DataFrame({
-            "Componente": [f"PC{i+1}" for i in range(len(explained))],
-            "Variância (%)": explained.round(2)
-        })
+            exp_id = save_pca_supabase(
+                supabase,
+                labels,
+                scores,
+                explained
+            )
 
-        st.dataframe(var_df, use_container_width=True)
+            st.success("PCA salvo com sucesso!")
+            st.caption(f"Experimento ID: {exp_id}")
+
+            st.session_state.current_experiment_id = exp_id
 
     # =====================================================
-    # SUBABA 2 — MACHINE LEARNING
+    # SUBABA MACHINE LEARNING
     # =====================================================
     with subtabs[1]:
 
-        st.subheader("🤖 Machine Learning — Predição e Otimização")
+        st.subheader("🧠 Machine Learning")
 
         if "opt_scores" not in st.session_state:
-            st.info("Execute a PCA antes de utilizar o módulo de IA.")
+            st.info("Execute a PCA antes de treinar modelos.")
             return
 
         df_ml = st.session_state.opt_df
 
         task_type = st.selectbox(
             "Tipo de problema",
-            ["Regressão (predição de valor físico)",
-             "Classificação (predição de classe)"]
+            [
+                "Regressão (valor físico)",
+                "Classificação (classe)"
+            ]
         )
 
         target = st.selectbox(
@@ -255,6 +275,7 @@ def render_ml_tab():
 
         if st.button("▶ Treinar Modelo"):
 
+            # ---------------- REGRESSÃO ----------------
             if task_type.startswith("Regressão"):
 
                 model = RandomForestRegressor(
@@ -267,10 +288,11 @@ def render_ml_tab():
 
                 y_pred = model.predict(X_test)
 
-                r2 = r2_score(y_test, y_pred)
+                metric = r2_score(y_test, y_pred)
 
-                st.success(f"Modelo treinado — R² = {r2:.4f}")
+                st.success(f"Modelo treinado — R² = {metric:.4f}")
 
+            # ---------------- CLASSIFICAÇÃO ----------------
             else:
 
                 model = RandomForestClassifier(
@@ -284,51 +306,64 @@ def render_ml_tab():
 
                 y_pred = model.predict(X_test)
 
-                acc = accuracy_score(y_test, y_pred)
+                metric = accuracy_score(y_test, y_pred)
 
-                st.success(f"Modelo treinado — Accuracy = {acc:.4f}")
+                st.success(f"Modelo treinado — Accuracy = {metric:.4f}")
 
                 st.json(classification_report(y_test, y_pred, output_dict=True))
 
             st.session_state.opt_model = model
+            st.session_state.opt_metric = metric
             st.session_state.opt_target = target
             st.session_state.opt_task = task_type
+
+            # =====================================================
+            # SALVAR MODELO
+            # =====================================================
+            if supabase and "current_experiment_id" in st.session_state:
+
+                save_model_supabase(
+                    supabase,
+                    st.session_state.current_experiment_id,
+                    task_type,
+                    target,
+                    metric
+                )
+
+                st.success("Modelo salvo no histórico!")
 
         # =====================================================
         # PREDIÇÃO
         # =====================================================
         if "opt_model" in st.session_state:
 
-            st.subheader("Predição automática")
+            st.subheader("Predição Automática")
 
-            sample_select = st.selectbox(
+            sample_sel = st.selectbox(
                 "Selecionar amostra",
                 st.session_state.opt_labels
             )
 
             if st.button("▶ Predizer"):
 
-                idx = list(st.session_state.opt_labels).index(sample_select)
+                idx = list(st.session_state.opt_labels).index(sample_sel)
 
                 pc_vector = st.session_state.opt_scores[idx].reshape(1, -1)
 
-                model = st.session_state.opt_model
+                pred = st.session_state.opt_model.predict(pc_vector)[0]
 
-                pred = model.predict(pc_vector)[0]
-
-                st.success("Predição concluída")
+                st.success("Predição realizada")
 
                 st.markdown(f"""
                 ### Resultado SurfaceXLab
 
-                **Amostra:** {sample_select}  
+                **Amostra:** {sample_sel}  
                 **{st.session_state.opt_target}:** `{pred}`
                 """)
 
                 st.info("""
                 Recomendação:
                 Utilize as direções dominantes das componentes principais
-                para ajustar parâmetros experimentais e deslocar o sistema
+                para otimizar parâmetros experimentais e deslocar o sistema
                 em direção à região ótima do espaço multivariado.
                 """)
-
