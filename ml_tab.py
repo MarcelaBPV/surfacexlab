@@ -12,11 +12,13 @@ from sklearn.decomposition import PCA
 from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import r2_score, accuracy_score, classification_report
+from sklearn.metrics import mean_absolute_error
 
 
 # =====================================================
 # UTIL — LEITURA DE ARQUIVO
 # =====================================================
+
 def load_file(uploaded_file):
 
     if uploaded_file.name.endswith(".xlsx"):
@@ -34,6 +36,7 @@ def load_file(uploaded_file):
 # =====================================================
 # SALVAR PCA NO SUPABASE
 # =====================================================
+
 def save_pca_supabase(supabase, labels, scores, explained):
 
     exp = supabase.table("experiments").insert({
@@ -61,15 +64,10 @@ def save_pca_supabase(supabase, labels, scores, explained):
 
 
 # =====================================================
-# SALVAR MODELO ML (VOCÊ JÁ POSSUI ml_models)
+# SALVAR MODELO
 # =====================================================
-def save_model_supabase(
-    supabase,
-    experiment_id,
-    model_type,
-    target,
-    metric
-):
+
+def save_model_supabase(supabase, experiment_id, model_type, target, metric):
 
     supabase.table("ml_models").insert({
         "experiment_id": experiment_id,
@@ -80,20 +78,39 @@ def save_model_supabase(
 
 
 # =====================================================
+# FEATURE IMPORTANCE BACK-PROJECTION
+# =====================================================
+
+def project_feature_importance(pca, rf_importance, feature_names):
+
+    loadings = np.abs(pca.components_.T)
+
+    weighted = loadings @ rf_importance
+
+    importance_norm = weighted / weighted.sum()
+
+    df_importance = pd.DataFrame({
+        "Feature": feature_names,
+        "Importance": importance_norm
+    }).sort_values(by="Importance", ascending=False)
+
+    return df_importance
+
+
+# =====================================================
 # INTERFACE STREAMLIT
 # =====================================================
+
 def render_ml_tab(supabase=None):
 
-    st.header("🤖 Otimizador Inteligente — PCA + Machine Learning")
+    st.header("🤖 Otimizador Inteligente — PCA + Machine Learning Científico")
 
-    subtabs = st.tabs([
-        "📊 PCA Exploratório",
-        "🧠 Machine Learning"
-    ])
+    subtabs = st.tabs(["📊 PCA Exploratório", "🧠 Machine Learning"])
 
     # =====================================================
     # SUBABA PCA
     # =====================================================
+
     with subtabs[0]:
 
         st.subheader("📊 PCA Exploratório")
@@ -104,7 +121,6 @@ def render_ml_tab(supabase=None):
             horizontal=True
         )
 
-        # ---------------- UPLOAD ----------------
         if source == "Upload de Arquivo":
 
             uploaded_file = st.file_uploader(
@@ -118,7 +134,6 @@ def render_ml_tab(supabase=None):
 
             df = load_file(uploaded_file)
 
-        # ---------------- SISTEMA ----------------
         else:
 
             if "df_global_ml" not in st.session_state:
@@ -137,16 +152,9 @@ def render_ml_tab(supabase=None):
         df = df.set_index(sample_col)
         df = df.apply(pd.to_numeric, errors="coerce").fillna(0)
 
-        if df.shape[0] < 2 or df.shape[1] < 2:
+        if df.shape[0] < 3:
             st.warning("Dados insuficientes para PCA.")
             return
-
-        n_components = st.slider(
-            "Número de componentes principais",
-            2,
-            min(10, df.shape[1]),
-            2
-        )
 
         X = df.values
         labels = df.index.values
@@ -155,74 +163,63 @@ def render_ml_tab(supabase=None):
         scaler = StandardScaler()
         X_scaled = scaler.fit_transform(X)
 
+        n_components = min(6, X_scaled.shape[1])
+
         pca = PCA(n_components=n_components)
         scores = pca.fit_transform(X_scaled)
 
-        loadings = pca.components_.T
         explained = pca.explained_variance_ratio_ * 100
 
-        # Guarda para ML
-        st.session_state.opt_scores = scores
-        st.session_state.opt_labels = labels
-        st.session_state.opt_df = df
-        st.session_state.opt_scaler = scaler
-        st.session_state.opt_pca = pca
-
-        # =====================================================
-        # BIPLOT CIENTÍFICO
-        # =====================================================
-        fig, ax = plt.subplots(figsize=(6, 6), dpi=300)
-
-        ax.scatter(
-            scores[:, 0],
-            scores[:, 1],
-            s=70,
-            edgecolors="black",
-            linewidths=0.6
+        st.caption(
+            f"Variância explicada acumulada: "
+            f"{np.sum(explained):.2f}%"
         )
 
-        for i, label in enumerate(labels):
-            ax.text(scores[i, 0], scores[i, 1], label, fontsize=9)
+        # Guardar PCA para visualização apenas
+        st.session_state.opt_df = df
 
-        scale = np.max(np.abs(scores)) * 0.9
+        # ===========================
+        # BIPLOT
+        # ===========================
+
+        fig, ax = plt.subplots(figsize=(6, 6), dpi=300)
+
+        ax.scatter(scores[:, 0], scores[:, 1],
+                   s=70, edgecolors="black", linewidths=0.6)
+
+        for i, label in enumerate(labels):
+            ax.text(scores[i, 0], scores[i, 1], label, fontsize=8)
+
+        loadings = pca.components_.T
+        scale = np.max(np.abs(scores[:, :2])) * 0.85
 
         for i, var in enumerate(features):
+            ax.arrow(0, 0,
+                     loadings[i, 0] * scale,
+                     loadings[i, 1] * scale,
+                     head_width=0.04,
+                     linewidth=1)
 
-            ax.arrow(
-                0, 0,
-                loadings[i, 0] * scale,
-                loadings[i, 1] * scale,
-                head_width=0.04,
-                linewidth=1.1,
-                length_includes_head=True
-            )
-
-            ax.text(
-                loadings[i, 0] * scale * 1.05,
-                loadings[i, 1] * scale * 1.05,
-                var,
-                fontsize=9
-            )
-
-        ax.axhline(0, lw=0.8)
-        ax.axvline(0, lw=0.8)
+            ax.text(loadings[i, 0] * scale * 1.05,
+                    loadings[i, 1] * scale * 1.05,
+                    var,
+                    fontsize=8)
 
         ax.set_xlabel(f"PC1 ({explained[0]:.1f}%)")
         ax.set_ylabel(f"PC2 ({explained[1]:.1f}%)")
 
-        ax.margins(0)
-        plt.tight_layout(pad=0)
-
-        ax.spines["top"].set_visible(False)
-        ax.spines["right"].set_visible(False)
-        ax.set_aspect("equal", adjustable="box")
+        ax.axhline(0)
+        ax.axvline(0)
         ax.grid(alpha=0.2, linestyle="--")
+        ax.set_aspect("equal", adjustable="box")
 
+        plt.tight_layout()
         st.pyplot(fig)
 
-        # =====================================================
-        # SALVAR PCA
-        # =====================================================
+        # ===========================
+        # Salvar PCA
+        # ===========================
+
         if supabase and st.button("💾 Salvar PCA no Banco"):
 
             exp_id = save_pca_supabase(
@@ -232,30 +229,28 @@ def render_ml_tab(supabase=None):
                 explained
             )
 
-            st.success("PCA salvo com sucesso!")
-            st.caption(f"Experimento ID: {exp_id}")
-
             st.session_state.current_experiment_id = exp_id
+
+            st.success("PCA salvo com sucesso!")
+
 
     # =====================================================
     # SUBABA MACHINE LEARNING
     # =====================================================
+
     with subtabs[1]:
 
-        st.subheader("🧠 Machine Learning")
+        st.subheader(" Machine Learning Científico")
 
-        if "opt_scores" not in st.session_state:
-            st.info("Execute a PCA antes de treinar modelos.")
+        if "opt_df" not in st.session_state:
+            st.info("Execute o PCA primeiro.")
             return
 
-        df_ml = st.session_state.opt_df
+        df_ml = st.session_state.opt_df.copy()
 
         task_type = st.selectbox(
             "Tipo de problema",
-            [
-                "Regressão (valor físico)",
-                "Classificação (classe)"
-            ]
+            ["Regressão (valor físico)", "Classificação (classe)"]
         )
 
         target = st.selectbox(
@@ -263,19 +258,37 @@ def render_ml_tab(supabase=None):
             df_ml.columns.tolist()
         )
 
+        # ===========================
+        # Separação correta
+        # ===========================
+
         y = df_ml[target].values
-        X_ml = st.session_state.opt_scores
+        X = df_ml.drop(columns=[target])
+        feature_names = X.columns.values
+        X = X.values
 
         X_train, X_test, y_train, y_test = train_test_split(
-            X_ml,
-            y,
-            test_size=0.25,
-            random_state=42
+            X, y, test_size=0.25, random_state=42
         )
 
-        if st.button("▶ Treinar Modelo"):
+        # ===========================
+        # Pipeline Científico
+        # ===========================
 
-            # ---------------- REGRESSÃO ----------------
+        scaler = StandardScaler()
+        X_train_scaled = scaler.fit_transform(X_train)
+        X_test_scaled = scaler.transform(X_test)
+
+        n_components = min(6, X_train_scaled.shape[1])
+
+        pca = PCA(n_components=n_components)
+        X_train_pca = pca.fit_transform(X_train_scaled)
+        X_test_pca = pca.transform(X_test_scaled)
+
+        if st.button("▶ Treinar Modelo Científico"):
+
+            # -------- REGRESSÃO --------
+
             if task_type.startswith("Regressão"):
 
                 model = RandomForestRegressor(
@@ -284,15 +297,20 @@ def render_ml_tab(supabase=None):
                     n_jobs=-1
                 )
 
-                model.fit(X_train, y_train)
+                model.fit(X_train_pca, y_train)
 
-                y_pred = model.predict(X_test)
+                y_pred = model.predict(X_test_pca)
 
-                metric = r2_score(y_test, y_pred)
+                r2 = r2_score(y_test, y_pred)
+                mae = mean_absolute_error(y_test, y_pred)
 
-                st.success(f"Modelo treinado — R² = {metric:.4f}")
+                st.metric("R²", f"{r2:.4f}")
+                st.metric("MAE", f"{mae:.4f}")
 
-            # ---------------- CLASSIFICAÇÃO ----------------
+                metric_main = r2
+
+            # -------- CLASSIFICAÇÃO --------
+
             else:
 
                 model = RandomForestClassifier(
@@ -302,24 +320,67 @@ def render_ml_tab(supabase=None):
                     n_jobs=-1
                 )
 
-                model.fit(X_train, y_train)
+                model.fit(X_train_pca, y_train)
 
-                y_pred = model.predict(X_test)
+                y_pred = model.predict(X_test_pca)
 
-                metric = accuracy_score(y_test, y_pred)
+                acc = accuracy_score(y_test, y_pred)
 
-                st.success(f"Modelo treinado — Accuracy = {metric:.4f}")
+                st.metric("Accuracy", f"{acc:.4f}")
 
-                st.json(classification_report(y_test, y_pred, output_dict=True))
+                report = classification_report(
+                    y_test, y_pred, output_dict=True
+                )
+
+                st.json(report)
+
+                metric_main = acc
+
+            # ===========================
+            # FEATURE IMPORTANCE
+            # ===========================
+
+            rf_importance = model.feature_importances_
+
+            df_importance = project_feature_importance(
+                pca,
+                rf_importance,
+                feature_names
+            )
+
+            st.subheader("📊 Feature Importance Física")
+
+            st.dataframe(df_importance, use_container_width=True)
+
+            fig_imp, ax_imp = plt.subplots(figsize=(6, 4), dpi=300)
+
+            ax_imp.barh(
+                df_importance["Feature"],
+                df_importance["Importance"]
+            )
+
+            ax_imp.invert_yaxis()
+            ax_imp.set_xlabel("Importância normalizada")
+            ax_imp.set_title("Importância das Variáveis Físicas")
+
+            plt.tight_layout()
+            st.pyplot(fig_imp)
+
+            # ===========================
+            # Armazenar pipeline
+            # ===========================
 
             st.session_state.opt_model = model
-            st.session_state.opt_metric = metric
+            st.session_state.opt_scaler_ml = scaler
+            st.session_state.opt_pca_ml = pca
             st.session_state.opt_target = target
             st.session_state.opt_task = task_type
+            st.session_state.opt_metric = metric_main
 
-            # =====================================================
-            # SALVAR MODELO
-            # =====================================================
+            # ===========================
+            # Salvar no banco
+            # ===========================
+
             if supabase and "current_experiment_id" in st.session_state:
 
                 save_model_supabase(
@@ -327,30 +388,36 @@ def render_ml_tab(supabase=None):
                     st.session_state.current_experiment_id,
                     task_type,
                     target,
-                    metric
+                    metric_main
                 )
 
-                st.success("Modelo salvo no histórico!")
+                st.success("Modelo científico salvo com sucesso!")
+
 
         # =====================================================
         # PREDIÇÃO
         # =====================================================
+
         if "opt_model" in st.session_state:
 
-            st.subheader("Predição Automática")
+            st.subheader(" Predição Científica")
 
             sample_sel = st.selectbox(
                 "Selecionar amostra",
-                st.session_state.opt_labels
+                df_ml.index.tolist()
             )
 
-            if st.button("▶ Predizer"):
+            if st.button("▶ Predizer Amostra"):
 
-                idx = list(st.session_state.opt_labels).index(sample_sel)
+                row = df_ml.loc[sample_sel]
 
-                pc_vector = st.session_state.opt_scores[idx].reshape(1, -1)
+                X_sample = row.drop(st.session_state.opt_target).values.reshape(1, -1)
 
-                pred = st.session_state.opt_model.predict(pc_vector)[0]
+                X_scaled = st.session_state.opt_scaler_ml.transform(X_sample)
+
+                X_pca = st.session_state.opt_pca_ml.transform(X_scaled)
+
+                pred = st.session_state.opt_model.predict(X_pca)[0]
 
                 st.success("Predição realizada")
 
@@ -358,12 +425,11 @@ def render_ml_tab(supabase=None):
                 ### Resultado SurfaceXLab
 
                 **Amostra:** {sample_sel}  
-                **{st.session_state.opt_target}:** `{pred}`
+                **{st.session_state.opt_target}:** `{pred}`  
                 """)
 
                 st.info("""
-                Recomendação:
-                Utilize as direções dominantes das componentes principais
-                para otimizar parâmetros experimentais e deslocar o sistema
-                em direção à região ótima do espaço multivariado.
+                Utilize as variáveis físicas mais importantes
+                para orientar a otimização experimental e deslocar
+                o sistema em direção à região ótima do espaço PCA.
                 """)
