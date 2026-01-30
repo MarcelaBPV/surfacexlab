@@ -433,3 +433,101 @@ def render_ml_tab(supabase=None):
                 para orientar a otimização experimental e deslocar
                 o sistema em direção à região ótima do espaço PCA.
                 """)
+
+# =====================================================
+# OTIMIZAÇÃO AUTOMÁTICA NO ESPAÇO PCA
+# =====================================================
+
+if "opt_model" in st.session_state:
+
+    st.subheader("🚀 Otimização Automática no Espaço PCA")
+
+    objective = st.selectbox(
+        "Objetivo da otimização",
+        ["Maximizar propriedade", "Minimizar propriedade"]
+    )
+
+    n_candidates = st.slider(
+        "Número de candidatos simulados",
+        500,
+        10000,
+        3000,
+        step=500
+    )
+
+    if st.button("▶ Executar Otimização"):
+
+        model = st.session_state.opt_model
+        pca = st.session_state.opt_pca_ml
+        scaler = st.session_state.opt_scaler_ml
+
+        # ===========================
+        # Limites do espaço PCA
+        # ===========================
+
+        X_original = df_ml.drop(columns=[st.session_state.opt_target]).values
+
+        X_scaled_all = scaler.transform(X_original)
+        X_pca_all = pca.transform(X_scaled_all)
+
+        pca_min = X_pca_all.min(axis=0)
+        pca_max = X_pca_all.max(axis=0)
+
+        # ===========================
+        # Geração Monte Carlo
+        # ===========================
+
+        candidates_pca = np.random.uniform(
+            low=pca_min,
+            high=pca_max,
+            size=(n_candidates, X_pca_all.shape[1])
+        )
+
+        preds = model.predict(candidates_pca)
+
+        # ===========================
+        # Selecionar ótimo
+        # ===========================
+
+        if objective.startswith("Max"):
+            best_idx = np.argmax(preds)
+        else:
+            best_idx = np.argmin(preds)
+
+        best_pca = candidates_pca[best_idx].reshape(1, -1)
+        best_value = preds[best_idx]
+
+        # ===========================
+        # Voltar para espaço físico
+        # ===========================
+
+        best_scaled = pca.inverse_transform(best_pca)
+        best_physical = scaler.inverse_transform(best_scaled)
+
+        best_physical = best_physical.flatten()
+
+        feature_names = df_ml.drop(
+            columns=[st.session_state.opt_target]
+        ).columns
+
+        df_solution = pd.DataFrame({
+            "Parâmetro": feature_names,
+            "Valor Ótimo Sugerido": best_physical
+        })
+
+        st.success("Otimização concluída")
+
+        st.metric(
+            f"Valor ótimo previsto ({st.session_state.opt_target})",
+            f"{best_value:.4f}"
+        )
+
+        st.subheader("📋 Parâmetros Experimentais Recomendados")
+
+        st.dataframe(df_solution, use_container_width=True)
+
+        st.info("""
+        Estes valores representam a configuração ótima estimada
+        no espaço multivariado, baseada no modelo treinado.
+        Recomenda-se validação experimental para confirmação física.
+        """)
