@@ -73,31 +73,43 @@ def safe_import(module_name: str, func_name: str, optional: bool = False):
 
 
 # =========================================================
-# MÓDULOS PRINCIPAIS
+# IMPORTAÇÃO DOS MÓDULOS ANALÍTICOS
 # =========================================================
-render_raman_tab = safe_import(
-    "raman_tab", "render_raman_tab"
+render_raman_tab = safe_import("raman_tab", "render_raman_tab")
+
+render_mapeamento_molecular_tab = safe_import(
+    "mapeamento_molecular_tab",
+    "render_mapeamento_molecular_tab",
+    optional=True
 )
 
 render_resistividade_tab = safe_import(
-    "resistividade_tab", "render_resistividade_tab", optional=True
+    "resistividade_tab",
+    "render_resistividade_tab",
+    optional=True
 )
 
 render_tensiometria_tab = safe_import(
-    "tensiometria_tab", "render_tensiometria_tab", optional=True
+    "tensiometria_tab",
+    "render_tensiometria_tab",
+    optional=True
 )
 
 render_ml_tab = safe_import(
-    "ml_tab", "render_ml_tab", optional=True
+    "ml_tab",
+    "render_ml_tab",
+    optional=True
 )
 
 render_dashboard_tab = safe_import(
-    "dashboard_tab", "render_dashboard_tab", optional=True
+    "dashboard_tab",
+    "render_dashboard_tab",
+    optional=True
 )
 
 
 # =========================================================
-# SIDEBAR — CRM / CADASTRO DE AMOSTRAS (COM KEYS ÚNICAS)
+# SIDEBAR — CRM / CADASTRO DE AMOSTRAS
 # =========================================================
 with st.sidebar:
 
@@ -107,35 +119,16 @@ with st.sidebar:
 
     st.header("📦 Cadastro de Amostra")
 
-    sample_code = st.text_input(
-        "Código da Amostra *",
-        key="crm_sample_code"
-    )
-
-    material_type = st.text_input(
-        "Tipo de Material",
-        key="crm_material_type"
-    )
-
-    substrate = st.text_input(
-        "Substrato",
-        key="crm_substrate"
-    )
-
+    sample_code = st.text_input("Código da Amostra *", key="crm_sample_code")
+    material_type = st.text_input("Tipo de Material", key="crm_material_type")
+    substrate = st.text_input("Substrato", key="crm_substrate")
     surface_treatment = st.text_input(
         "Tratamento de Superfície",
         key="crm_surface_treatment"
     )
+    description = st.text_area("Descrição", key="crm_description")
 
-    description = st.text_area(
-        "Descrição",
-        key="crm_description"
-    )
-
-    if st.button(
-        "Salvar Amostra",
-        key="crm_save_button"
-    ):
+    if st.button("Salvar Amostra", key="crm_save_button"):
 
         if not sample_code:
             st.warning("⚠ Código da amostra é obrigatório.")
@@ -156,10 +149,11 @@ with st.sidebar:
 
 
 # =========================================================
-# ABAS PRINCIPAIS — MÓDULOS ANALÍTICOS
+# ABAS PRINCIPAIS
 # =========================================================
 tabs = st.tabs([
     "🧬 Molecular — Raman",
+    "🗺️ Mapeamento Molecular",
     "⚡ Elétrica — Resistividade",
     "💧 Físico-Mecânica — Tensiometria",
     "🤖 Otimizador — PCA + IA",
@@ -168,17 +162,27 @@ tabs = st.tabs([
 
 
 # ---------------------------------------------------------
-# RAMAN
+# RAMAN PADRÃO
 # ---------------------------------------------------------
 with tabs[0]:
-
     render_raman_tab(supabase)
+
+
+# ---------------------------------------------------------
+# MAPEAMENTO MOLECULAR RAMAN
+# ---------------------------------------------------------
+with tabs[1]:
+
+    if render_mapeamento_molecular_tab:
+        render_mapeamento_molecular_tab(supabase)
+    else:
+        st.info("Módulo de mapeamento molecular ainda não implementado.")
 
 
 # ---------------------------------------------------------
 # RESISTIVIDADE
 # ---------------------------------------------------------
-with tabs[1]:
+with tabs[2]:
 
     if render_resistividade_tab:
         render_resistividade_tab(supabase)
@@ -189,7 +193,7 @@ with tabs[1]:
 # ---------------------------------------------------------
 # TENSIOMETRIA
 # ---------------------------------------------------------
-with tabs[2]:
+with tabs[3]:
 
     if render_tensiometria_tab:
         render_tensiometria_tab(supabase)
@@ -198,9 +202,9 @@ with tabs[2]:
 
 
 # ---------------------------------------------------------
-# OTIMIZAÇÃO — PCA + IA
+# OTIMIZAÇÃO IA
 # ---------------------------------------------------------
-with tabs[3]:
+with tabs[4]:
 
     if render_ml_tab:
         render_ml_tab(supabase)
@@ -211,7 +215,7 @@ with tabs[3]:
 # ---------------------------------------------------------
 # DASHBOARD
 # ---------------------------------------------------------
-with tabs[4]:
+with tabs[5]:
 
     if render_dashboard_tab:
         render_dashboard_tab(supabase)
