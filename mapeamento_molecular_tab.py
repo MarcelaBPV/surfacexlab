@@ -1,0 +1,238 @@
+# mapeamento_molecular_tab.py
+# -*- coding: utf-8 -*-
+
+import streamlit as st
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
+from scipy.signal import savgol_filter, find_peaks
+from scipy.optimize import curve_fit
+from scipy import sparse
+from scipy.sparse.linalg import spsolve
+
+
+# =========================================================
+# DATABASE QUÍMICA
+# =========================================================
+RAMAN_DATABASE = {
+
+    (650, 680): "C–S (Proteins)",
+    (720, 730): "Adenine",
+    (750, 760): "Tryptophan",
+    (820, 850): "Tyrosine",
+    (930, 950): "Protein Backbone",
+    (1000, 1006): "Phenylalanine",
+    (1240, 1300): "Amide III",
+    (1440, 1470): "CH2 Lipids",
+    (1540, 1580): "Amide II",
+    (1640, 1680): "Amide I",
+
+    (1320, 1360): "D Band Carbon",
+    (1570, 1605): "G Band Carbon",
+    (2650, 2720): "2D Graphene",
+}
+
+
+# =========================================================
+# CLASSIFICAÇÃO
+# =========================================================
+def classify_raman_group(center):
+    for (low, high), label in RAMAN_DATABASE.items():
+        if low <= center <= high:
+            return label
+    return "Unassigned"
+
+
+# =========================================================
+# BASELINE ASLS
+# =========================================================
+def asls_baseline(y, lam=1e6, p=0.01, niter=10):
+
+    y = np.asarray(y, dtype=float)
+    N = len(y)
+
+    D = sparse.diags([1, -2, 1], [0, 1, 2], shape=(N - 2, N))
+    w = np.ones(N)
+
+    for _ in range(niter):
+        W = sparse.diags(w, 0)
+        Z = W + lam * D.T @ D
+        z = spsolve(Z, w * y)
+        w = p * (y > z) + (1 - p) * (y < z)
+
+    return z
+
+
+# =========================================================
+# LORENTZ
+# =========================================================
+def lorentz(x, amp, cen, wid, off):
+    return amp * ((0.5 * wid) ** 2 /
+                  ((x - cen) ** 2 + (0.5 * wid) ** 2)) + off
+
+
+def fit_lorentz(x, y, center, window=20):
+
+    mask = (x > center - window/2) & (x < center + window/2)
+
+    if mask.sum() < 8:
+        return None
+
+    xs = x[mask]
+    ys = y[mask]
+
+    p0 = [
+        np.max(ys) - np.min(ys),
+        center,
+        10,
+        np.min(ys)
+    ]
+
+    try:
+        popt, _ = curve_fit(lorentz, xs, ys, p0=p0, maxfev=8000)
+        amp, cen, wid, off = popt
+
+        return {
+            "center": float(cen),
+            "amplitude": float(amp),
+            "fwhm": float(2 * wid)
+        }
+
+    except Exception:
+        return None
+
+
+# =========================================================
+# PROCESSAMENTO DO MAPA
+# =========================================================
+def process_mapping(df):
+
+    grouped = df.groupby(["y", "x"])
+
+    all_peaks = []
+    chemical_maps = {}
+
+    for (y_val, x_val), group in grouped:
+
+        group = group.sort_values("wave")
+
+        x = group["wave"].values
+        y = group["intensity"].values
+
+        # Baseline
+        baseline = asls_baseline(y)
+        y_corr = y - baseline
+
+        # Suavização
+        y_smooth = savgol_filter(y_corr, 11, 3)
+
+        # Normalização
+        norm = np.max(np.abs(y_smooth))
+        y_norm = y_smooth / norm if norm > 0 else y_smooth
+
+        # Detecção de picos
+        peak_idx, _ = find_peaks(
+            y_norm,
+            prominence=0.02,
+            width=5
+        )
+
+        for idx in peak_idx:
+
+            cen = x[idx]
+            fit = fit_lorentz(x, y_norm, cen)
+
+            if not fit:
+                continue
+
+            group_name = classify_raman_group(fit["center"])
+
+            all_peaks.append({
+                "x": x_val,
+                "y": y_val,
+                "peak": fit["center"],
+                "amp": fit["amplitude"],
+                "fwhm": fit["fwhm"],
+                "group": group_name
+            })
+
+            chemical_maps.setdefault(group_name, []).append(
+                (x_val, y_val, fit["amplitude"])
+            )
+
+    return pd.DataFrame(all_peaks), chemical_maps
+
+
+# =========================================================
+# HEATMAP
+# =========================================================
+def plot_maps(chemical_maps):
+
+    figs = {}
+
+    for group, values in chemical_maps.items():
+
+        df = pd.DataFrame(values, columns=["x", "y", "amp"])
+
+        pivot = df.pivot_table(
+            index="y",
+            columns="x",
+            values="amp",
+            aggfunc="mean"
+        )
+
+        fig, ax = plt.subplots(figsize=(6,5), dpi=300)
+
+        im = ax.imshow(
+            pivot.values,
+            origin="lower",
+            aspect="auto"
+        )
+
+        ax.set_title(group)
+        ax.set_xlabel("X (µm)")
+        ax.set_ylabel("Y (µm)")
+
+        plt.colorbar(im, ax=ax)
+
+        figs[group] = fig
+
+    return figs
+
+
+# =========================================================
+# FUNÇÃO STREAMLIT
+# =========================================================
+def render_mapeamento_molecular_tab(supabase):
+
+    st.header("🗺️ Mapeamento Molecular Raman")
+
+    uploaded_file = st.file_uploader(
+        "Upload arquivo Raman Mapping",
+        type=["txt", "csv", "xls", "xlsx"]
+    )
+
+    if not uploaded_file:
+        return
+
+    try:
+
+        df = pd.read_csv(uploaded_file, sep=None, engine="python")
+        df.columns = [c.replace("#","").strip().lower() for c in df.columns]
+        df = df[["y","x","wave","intensity"]].astype(float)
+
+        peaks_df, chemical_maps = process_mapping(df)
+
+        st.subheader("Tabela de Picos")
+        st.dataframe(peaks_df)
+
+        st.subheader("Mapas Químicos")
+
+        figs = plot_maps(chemical_maps)
+
+        for fig in figs.values():
+            st.pyplot(fig)
+
+    except Exception as e:
+        st.error(f"Erro ao processar arquivo: {e}")
