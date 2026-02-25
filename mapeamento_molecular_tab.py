@@ -66,28 +66,40 @@ def read_mapping_file(uploaded_file):
 
     name = uploaded_file.name.lower()
 
+    # Excel continua normal
     if name.endswith((".xls", ".xlsx")):
         df = pd.read_excel(uploaded_file)
-    else:
-        try:
-            df = pd.read_csv(
-                uploaded_file,
-                sep=None,
-                engine="python",
-                comment="#",
-                skip_blank_lines=True
-            )
-        except Exception:
-            uploaded_file.seek(0)
-            df = pd.read_csv(uploaded_file, delim_whitespace=True)
 
-    df.columns = [c.replace("#", "").strip().lower() for c in df.columns]
-    df = df[["y", "x", "wave", "intensity"]]
+    else:
+        # leitura MUITO robusta Raman txt
+        uploaded_file.seek(0)
+
+        df = pd.read_csv(
+            uploaded_file,
+            sep=r"\s+|\t+|,",   # aceita espaço, tab ou vírgula
+            engine="python",
+            comment=None,
+            header=None,
+            skip_blank_lines=True,
+            encoding="latin1"
+        )
+
+        # se tiver 4 colunas assume formato Raman mapping
+        if df.shape[1] >= 4:
+            df = df.iloc[:, :4]
+            df.columns = ["y", "x", "wave", "intensity"]
+
+        else:
+            raise ValueError(
+                "Arquivo não possui 4 colunas esperadas: y, x, wave, intensity."
+            )
+
+    # converte tudo para número
     df = df.apply(pd.to_numeric, errors="coerce")
     df = df.dropna()
 
     if df.empty:
-        raise ValueError("Arquivo inválido ou sem dados.")
+        raise ValueError("Arquivo sem dados numéricos válidos.")
 
     return df
 
