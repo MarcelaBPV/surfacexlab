@@ -38,16 +38,14 @@ RAMAN_DATABASE = {
 # CLASSIFICAÇÃO QUÍMICA
 # =========================================================
 def classify_raman_group(center):
-
     for (low, high), label in RAMAN_DATABASE.items():
         if low <= center <= high:
             return label
-
     return "Unassigned"
 
 
 # =========================================================
-# BASELINE ASLS
+# BASELINE ASLS (corrigido)
 # =========================================================
 def asls_baseline(y, lam=1e6, p=0.01, niter=10):
 
@@ -57,14 +55,14 @@ def asls_baseline(y, lam=1e6, p=0.01, niter=10):
     y = np.asarray(y, dtype=float)
     N = len(y)
 
-    D = sparse.diags([1, -2, 1], [0, 1, 2], shape=(N - 2, N))
+    D = sparse.diags([1, -2, 1], [0, 1, 2], shape=(N-2, N))
     w = np.ones(N)
 
     for _ in range(niter):
         W = sparse.diags(w, 0)
         Z = W + lam * D.T @ D
-        z = spsolve(Z, w * y)
-        w = p * (y > z) + (1 - p) * (y < z)
+        z = spsolve(Z, w*y)
+        w = p*(y > z) + (1-p)*(y < z)
 
     return z
 
@@ -73,8 +71,8 @@ def asls_baseline(y, lam=1e6, p=0.01, niter=10):
 # MODELO LORENTZIANO
 # =========================================================
 def lorentz(x, amp, cen, wid, off):
-    return amp * ((0.5 * wid)**2 /
-                 ((x - cen)**2 + (0.5 * wid)**2)) + off
+    return amp*((0.5*wid)**2 /
+                ((x-cen)**2 + (0.5*wid)**2)) + off
 
 
 def fit_lorentz(x, y, center, window=20):
@@ -88,7 +86,7 @@ def fit_lorentz(x, y, center, window=20):
     ys = y[mask]
 
     p0 = [
-        np.max(ys) - np.min(ys),
+        np.max(ys)-np.min(ys),
         center,
         10,
         np.min(ys)
@@ -102,7 +100,7 @@ def fit_lorentz(x, y, center, window=20):
         return {
             "center": float(cen),
             "amplitude": float(amp),
-            "fwhm": float(2 * wid)
+            "fwhm": float(2*wid)
         }
 
     except Exception:
@@ -110,13 +108,12 @@ def fit_lorentz(x, y, center, window=20):
 
 
 # =========================================================
-# LEITURA ROBUSTA DE ARQUIVO RAMAN MAPPING
+# LEITURA ROBUSTA RAMAN MAPPING
 # =========================================================
 def read_mapping_file(uploaded_file):
 
     name = uploaded_file.name.lower()
 
-    # Excel
     if name.endswith((".xls", ".xlsx")):
         df = pd.read_excel(uploaded_file)
 
@@ -134,22 +131,16 @@ def read_mapping_file(uploaded_file):
             uploaded_file.seek(0)
             df = pd.read_csv(
                 uploaded_file,
-                delim_whitespace=True,
-                low_memory=False
+                delim_whitespace=True
             )
 
-    # padroniza colunas
     df.columns = [
-        c.replace("#", "").strip().lower()
+        c.replace("#","").strip().lower()
         for c in df.columns
     ]
 
-    # garante colunas corretas
-    df = df[["y", "x", "wave", "intensity"]]
-
-    # numérico
+    df = df[["y","x","wave","intensity"]]
     df = df.apply(pd.to_numeric, errors="coerce")
-
     df = df.dropna()
 
     if df.empty:
@@ -159,14 +150,59 @@ def read_mapping_file(uploaded_file):
 
 
 # =========================================================
-# PROCESSAMENTO DO MAPA RAMAN
+# PLOT AJUSTE RAMAN (ESTILO ARTIGO)
+# =========================================================
+def plot_raman_fit(x, y_exp, baseline, fits):
+
+    fig, ax = plt.subplots(figsize=(7,4), dpi=300)
+
+    y_corr = y_exp - baseline
+    ax.plot(x, y_corr, 'ks', ms=3, label="Experimental")
+
+    y_sum = np.zeros_like(x)
+    colors = plt.cm.tab10.colors
+
+    for i, fit in enumerate(fits):
+
+        amp = fit["amplitude"]
+        cen = fit["center"]
+        wid = fit["fwhm"]/2
+
+        y_peak = lorentz(x, amp, cen, wid, 0)
+
+        ax.plot(
+            x, y_peak,
+            color=colors[i % 10],
+            lw=1,
+            label=f"Peak{i+1}"
+        )
+
+        y_sum += y_peak
+
+        ax.text(cen, max(y_peak)*1.05,
+                f"{cen:.0f}", ha="center", fontsize=9)
+
+    ax.plot(x, y_sum, 'r--', lw=1.4, label="PeakSum")
+
+    ax.set_xlabel("Raman Shift (cm⁻¹)")
+    ax.set_ylabel("Intensity (a.u.)")
+    ax.invert_xaxis()
+    ax.legend(frameon=False, fontsize=8)
+    ax.grid(alpha=0.25)
+
+    return fig
+
+
+# =========================================================
+# PROCESSAMENTO DO MAPA
 # =========================================================
 def process_mapping(df):
 
-    grouped = df.groupby(["y", "x"])
+    grouped = df.groupby(["y","x"])
 
     all_peaks = []
     chemical_maps = {}
+    last_fit_plot = None
 
     for (y_val, x_val), group in grouped:
 
@@ -178,23 +214,20 @@ def process_mapping(df):
         if len(y) < 10:
             continue
 
-        # BASELINE
         baseline = asls_baseline(y)
         y_corr = y - baseline
-
-        # SUAVIZAÇÃO
         y_smooth = savgol_filter(y_corr, 11, 3)
 
-        # NORMALIZAÇÃO
         norm = np.max(np.abs(y_smooth))
-        y_norm = y_smooth / norm if norm > 0 else y_smooth
+        y_norm = y_smooth/norm if norm>0 else y_smooth
 
-        # DETECÇÃO DE PICOS
         peak_idx, _ = find_peaks(
             y_norm,
             prominence=0.02,
             width=5
         )
+
+        fits_local = []
 
         for idx in peak_idx:
 
@@ -203,6 +236,8 @@ def process_mapping(df):
 
             if not fit:
                 continue
+
+            fits_local.append(fit)
 
             group_name = classify_raman_group(fit["center"])
 
@@ -219,9 +254,12 @@ def process_mapping(df):
                 (x_val, y_val, fit["amplitude"])
             )
 
+        if fits_local:
+            last_fit_plot = plot_raman_fit(x, y, baseline, fits_local)
+
     peaks_df = pd.DataFrame(all_peaks)
 
-    return peaks_df, chemical_maps
+    return peaks_df, chemical_maps, last_fit_plot
 
 
 # =========================================================
@@ -233,7 +271,7 @@ def plot_maps(chemical_maps):
 
     for group, values in chemical_maps.items():
 
-        df = pd.DataFrame(values, columns=["x", "y", "amp"])
+        df = pd.DataFrame(values, columns=["x","y","amp"])
 
         pivot = df.pivot_table(
             index="y",
@@ -270,7 +308,7 @@ def render_mapeamento_molecular_tab(supabase):
 
     uploaded_file = st.file_uploader(
         "Upload arquivo Raman Mapping",
-        type=["txt", "csv", "xls", "xlsx"]
+        type=["txt","csv","xls","xlsx"]
     )
 
     if not uploaded_file:
@@ -280,10 +318,14 @@ def render_mapeamento_molecular_tab(supabase):
 
         df = read_mapping_file(uploaded_file)
 
-        peaks_df, chemical_maps = process_mapping(df)
+        peaks_df, chemical_maps, fit_plot = process_mapping(df)
 
         st.subheader("Tabela de Picos Raman")
         st.dataframe(peaks_df)
+
+        if fit_plot:
+            st.subheader("Ajuste Espectral (Deconvolução)")
+            st.pyplot(fit_plot)
 
         st.subheader("Mapas Químicos")
 
