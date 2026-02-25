@@ -7,37 +7,13 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 from scipy.signal import find_peaks
+from scipy.optimize import curve_fit
 from scipy import sparse
 from scipy.sparse.linalg import spsolve
 
 
 # =========================================================
-# DATABASE RAMAN — BIOMOLÉCULAS DO SANGUE
-# =========================================================
-RAMAN_DATABASE = {
-    (720, 730): "Adenine",
-    (750, 760): "Tryptophan",
-    (1000, 1006): "Phenylalanine",
-    (1240, 1300): "Amide III",
-    (1330, 1370): "Hemoglobin",
-    (1440, 1470): "Lipids",
-    (1540, 1580): "Amide II",
-    (1640, 1680): "Amide I",
-}
-
-
-# =========================================================
-# CLASSIFICAÇÃO
-# =========================================================
-def classify_raman_group(center):
-    for (low, high), label in RAMAN_DATABASE.items():
-        if low <= center <= high:
-            return label
-    return None
-
-
-# =========================================================
-# BASELINE ASLS
+# BASELINE ASLS ROBUSTO
 # =========================================================
 def asls_baseline(y, lam=1e6, p=0.01, niter=10):
 
@@ -47,54 +23,56 @@ def asls_baseline(y, lam=1e6, p=0.01, niter=10):
     y = np.asarray(y, dtype=float)
     N = len(y)
 
-    D = sparse.diags([1, -2, 1], [0, 1, 2], shape=(N - 2, N))
+    D = sparse.diags([1, -2, 1], [0, 1, 2], shape=(N-2, N))
     w = np.ones(N)
 
     for _ in range(niter):
         W = sparse.diags(w, 0)
         Z = W + lam * D.T @ D
-        z = spsolve(Z, w * y)
-        w = p * (y > z) + (1 - p) * (y < z)
+        z = spsolve(Z, w*y)
+        w = p*(y > z) + (1-p)*(y < z)
 
     return z
 
 
 # =========================================================
-# LEITURA ROBUSTA
+# MODELO LORENTZIANO
+# =========================================================
+def lorentz(x, amp, cen, wid):
+    return amp*((0.5*wid)**2 /
+               ((x-cen)**2 + (0.5*wid)**2))
+
+
+# =========================================================
+# LEITURA ROBUSTA ARQUIVO RAMAN
 # =========================================================
 def read_mapping_file(uploaded_file):
 
     name = uploaded_file.name.lower()
 
-    # Excel continua normal
     if name.endswith((".xls", ".xlsx")):
         df = pd.read_excel(uploaded_file)
 
     else:
-        # leitura MUITO robusta Raman txt
         uploaded_file.seek(0)
 
         df = pd.read_csv(
             uploaded_file,
-            sep=r"\s+|\t+|,",   # aceita espaço, tab ou vírgula
+            sep=r"\s+|\t+|,",
             engine="python",
-            comment=None,
             header=None,
             skip_blank_lines=True,
             encoding="latin1"
         )
 
-        # se tiver 4 colunas assume formato Raman mapping
-        if df.shape[1] >= 4:
-            df = df.iloc[:, :4]
-            df.columns = ["y", "x", "wave", "intensity"]
-
-        else:
+        if df.shape[1] < 4:
             raise ValueError(
-                "Arquivo não possui 4 colunas esperadas: y, x, wave, intensity."
+                "Arquivo deve ter 4 colunas: y, x, wave, intensity"
             )
 
-    # converte tudo para número
+        df = df.iloc[:, :4]
+        df.columns = ["y", "x", "wave", "intensity"]
+
     df = df.apply(pd.to_numeric, errors="coerce")
     df = df.dropna()
 
@@ -105,78 +83,96 @@ def read_mapping_file(uploaded_file):
 
 
 # =========================================================
-# PLOT ESTILO ARTIGO — PAINEL A
+# PLOT CIENTÍFICO COM AJUSTE + RESIDUAL
 # =========================================================
-def plot_single_spectrum(spec):
+def plot_raman_fit_publication(spec):
 
-    fig, ax = plt.subplots(figsize=(6,4), dpi=300)
+    x = spec["wave"]
+    y = spec["intensity"]
 
-    ax.plot(
-        spec["wave"],
-        spec["intensity"],
-        color="black",
-        lw=1.4
+    baseline = asls_baseline(y)
+    y_corr = y - baseline
+
+    peak_idx, _ = find_peaks(
+        y_corr,
+        prominence=np.max(y_corr)*0.08,
+        distance=15
     )
 
-    for cen in spec["peak_positions"]:
+    fits = []
+    y_sum = np.zeros_like(x)
 
-        ax.axvline(cen, color="gray", lw=0.8, ls="--")
+    for idx in peak_idx:
 
-        ax.text(
-            cen,
-            max(spec["intensity"]) * 0.85,
-            f"{cen:.0f}",
-            rotation=90,
-            fontsize=7,
-            ha="center"
-        )
+        cen_guess = x[idx]
+        amp_guess = y_corr[idx]
+        wid_guess = 15
 
-    ax.set_xlabel("Número de onda / cm⁻¹")
-    ax.set_ylabel("Intensidade Raman (a.u.)")
-    ax.invert_xaxis()
+        try:
+            popt, _ = curve_fit(
+                lorentz,
+                x,
+                y_corr,
+                p0=[amp_guess, cen_guess, wid_guess],
+                maxfev=6000
+            )
 
-    ax.grid(False)
-    for spine in ax.spines.values():
-        spine.set_linewidth(1)
+            amp, cen, wid = popt
 
-    return fig
+            peak_curve = lorentz(x, amp, cen, wid)
 
+            fits.append((amp, cen, wid, peak_curve))
+            y_sum += peak_curve
 
-# =========================================================
-# PLOT ESTILO ARTIGO — PAINEL B
-# =========================================================
-def plot_multi_spectra(spectra_list):
+        except Exception:
+            continue
 
-    fig, ax = plt.subplots(figsize=(6,4), dpi=300)
+    residual = y_corr - y_sum
 
-    cmap = plt.cm.viridis
+    # ===== FIGURA CIENTÍFICA =====
+    fig, axes = plt.subplots(
+        2, 1,
+        figsize=(6,5),
+        dpi=300,
+        sharex=True,
+        gridspec_kw={"height_ratios":[3,1]}
+    )
 
-    for i, spec in enumerate(spectra_list):
+    ax = axes[0]
+
+    ax.plot(x, y_corr, "k-", lw=1.2, label="Experimental")
+
+    colors = plt.cm.tab10.colors
+
+    for i, (_, cen, _, curve) in enumerate(fits):
 
         ax.plot(
-            spec["wave"],
-            spec["intensity"],
-            color=cmap(i / len(spectra_list)),
-            lw=1,
-            alpha=0.9,
-            label=f"Y={spec['y']:.0f}"
+            x,
+            curve,
+            color=colors[i % 10],
+            lw=1
         )
 
-    ax.set_xlabel("Número de onda / cm⁻¹")
-    ax.set_ylabel("Intensidade Raman (a.u.)")
-    ax.invert_xaxis()
+        ax.axvline(cen, ls="--", lw=0.7, color="gray")
 
-    ax.legend(frameon=False, fontsize=7)
+    ax.plot(x, y_sum, "r-", lw=1.3, label="PeakSum")
+
+    ax.legend(frameon=False, fontsize=8)
+    ax.set_ylabel("Intensity (a.u.)")
+    ax.invert_xaxis()
     ax.grid(False)
 
-    for spine in ax.spines.values():
-        spine.set_linewidth(1)
+    # residual
+    axes[1].plot(x, residual, "k-", lw=1)
+    axes[1].axhline(0, ls="--")
+    axes[1].set_xlabel("Raman Shift (cm⁻¹)")
+    axes[1].set_ylabel("Residual")
 
     return fig
 
 
 # =========================================================
-# TAB STREAMLIT
+# STREAMLIT TAB
 # =========================================================
 def render_mapeamento_molecular_tab(supabase):
 
@@ -201,54 +197,22 @@ def render_mapeamento_molecular_tab(supabase):
 
             group = group.sort_values("wave")
 
-            x = group["wave"].values
-            y = group["intensity"].values
-
-            baseline = asls_baseline(y)
-            y_corr = y - baseline
-
-            peak_idx, _ = find_peaks(
-                y_corr,
-                prominence=np.max(y_corr) * 0.08
-            )
-
-            peak_positions = []
-
-            for idx in peak_idx:
-                cen = x[idx]
-                if classify_raman_group(cen):
-                    peak_positions.append(cen)
-
             spectra_list.append({
                 "y": y_val,
-                "wave": x,
-                "intensity": y_corr,
-                "peak_positions": peak_positions
+                "wave": group["wave"].values,
+                "intensity": group["intensity"].values
             })
 
-        if not spectra_list:
-            st.warning("Nenhum espectro encontrado.")
-            return
+        st.subheader("Ajuste Raman — Todos os Espectros")
 
-        # =============================
-        # SELEÇÃO DO ESPECTRO
-        # =============================
-        selected_index = st.slider(
-            "Selecionar ponto do mapa",
-            0,
-            len(spectra_list)-1,
-            0
-        )
+        for i, spec in enumerate(spectra_list):
 
-        spec = spectra_list[selected_index]
+            st.markdown(
+                f"### Espectro {i+1} (Y={spec['y']:.0f} µm)"
+            )
 
-        st.subheader("Painel A — Espectro Individual")
-        fig_single = plot_single_spectrum(spec)
-        st.pyplot(fig_single)
-
-        st.subheader("Painel B — Comparação Espacial")
-        fig_multi = plot_multi_spectra(spectra_list)
-        st.pyplot(fig_multi)
+            fig = plot_raman_fit_publication(spec)
+            st.pyplot(fig)
 
     except Exception as e:
         st.error(f"Erro ao processar arquivo: {e}")
