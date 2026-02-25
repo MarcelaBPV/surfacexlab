@@ -18,14 +18,60 @@ from scipy.special import wofz
 # =========================================================
 RAMAN_DATABASE = {
 
-    (720, 730): "DNA/RNA – Adenine",
-    (750, 760): "Proteins – Tryptophan",
-    (1000, 1006): "Proteins – Phenylalanine",
-    (1240, 1300): "Proteins – Amide III",
-    (1330, 1370): "Hemoglobin",
-    (1440, 1470): "Lipids",
-    (1540, 1580): "Proteins – Amide II",
-    (1640, 1680): "Proteins – Amide I",
+    # ===============================
+    # ÁCIDOS NUCLEICOS / BASES
+    # ===============================
+    (720, 735): "Adenine (DNA/RNA)",
+    (780, 800): "Uracil / Cytosine (RNA/DNA)",
+    (1335, 1345): "Nucleic acids (DNA/RNA backbone)",
+
+    # ===============================
+    # AMINOÁCIDOS / PROTEÍNAS
+    # ===============================
+    (750, 760): "Tryptophan (Proteins)",
+    (830, 850): "Tyrosine (Proteins)",
+    (870, 880): "C–C stretch (Proteins)",
+    (930, 950): "α-Helix C–C (Proteins)",
+    (1000, 1006): "Phenylalanine (Proteins)",
+    (1030, 1045): "C–H in-plane bending (Proteins)",
+    (1120, 1140): "C–N stretching (Proteins)",
+    (1200, 1230): "Amide III (Proteins)",
+    (1240, 1300): "Amide III (Proteins)",
+    (1540, 1580): "Amide II (Proteins)",
+    (1640, 1680): "Amide I (Proteins)",
+
+    # ===============================
+    # LIPÍDIOS / FOSFOLIPÍDIOS
+    # ===============================
+    (1060, 1085): "C–C stretch (Lipids)",
+    (1295, 1310): "CH2 twisting (Lipids)",
+    (1440, 1475): "CH2/CH3 bending (Lipids)",
+    (1650, 1665): "C=C stretch (Unsaturated Lipids)",
+    (2850, 2870): "CH2 symmetric stretch (Lipids)",
+    (2880, 2900): "CH2 asymmetric stretch (Lipids)",
+
+    # ===============================
+    # HEMOGLOBINA / HEME
+    # ===============================
+    (750, 755): "Hemoglobin (heme breathing)",
+    (1125, 1145): "Hemoglobin (pyrrole deformation)",
+    (1340, 1380): "Hemoglobin (oxidation state)",
+    (1545, 1565): "Hemoglobin ν(C=C)",
+    (1600, 1630): "Hemoglobin (spin state)",
+
+    # ===============================
+    # CARBOIDRATOS / GLICOSE
+    # ===============================
+    (480, 520): "Glucose (C–C/C–O)",
+    (850, 920): "Glucose (C–O–C)",
+    (1040, 1060): "Glucose (C–O stretch)",
+
+    # ===============================
+    # METABÓLITOS / OUTROS
+    # ===============================
+    (620, 650): "Lactate",
+    (950, 980): "Phosphate (ATP/ADP)",
+    (1080, 1100): "Phospholipids / Phosphate",
 }
 
 
@@ -204,7 +250,7 @@ def plot_fit(spec, model="voigt"):
             ha="center"
         )
 
-    ax.plot(x, y_sum, "r-", lw=1.3, label="PeakSum")
+    #ax.plot(x, y_sum, "r-", lw=1.3, label="PeakSum")
 
     ax.legend(frameon=False, fontsize=8)
     ax.set_ylabel("Intensity (a.u.)")
