@@ -10,10 +10,34 @@ from scipy.signal import find_peaks
 from scipy.optimize import curve_fit
 from scipy import sparse
 from scipy.sparse.linalg import spsolve
+from scipy.special import wofz
 
 
 # =========================================================
-# BASELINE ASLS ROBUSTO
+# DATABASE RAMAN — BIOMOLÉCULAS SANGUE
+# =========================================================
+RAMAN_DATABASE = {
+
+    (720, 730): "DNA/RNA – Adenine",
+    (750, 760): "Proteins – Tryptophan",
+    (1000, 1006): "Proteins – Phenylalanine",
+    (1240, 1300): "Proteins – Amide III",
+    (1330, 1370): "Hemoglobin",
+    (1440, 1470): "Lipids",
+    (1540, 1580): "Proteins – Amide II",
+    (1640, 1680): "Proteins – Amide I",
+}
+
+
+def classify_raman_peak(center):
+    for (low, high), label in RAMAN_DATABASE.items():
+        if low <= center <= high:
+            return label
+    return "Unassigned"
+
+
+# =========================================================
+# BASELINE ASLS
 # =========================================================
 def asls_baseline(y, lam=1e6, p=0.01, niter=10):
 
@@ -36,15 +60,19 @@ def asls_baseline(y, lam=1e6, p=0.01, niter=10):
 
 
 # =========================================================
-# MODELO LORENTZIANO
+# PERFIS ESPECTRAIS
 # =========================================================
 def lorentz(x, amp, cen, wid):
-    return amp*((0.5*wid)**2 /
-               ((x-cen)**2 + (0.5*wid)**2))
+    return amp*((0.5*wid)**2 / ((x-cen)**2 + (0.5*wid)**2))
+
+
+def voigt_profile(x, amp, cen, sigma, gamma):
+    z = ((x - cen) + 1j*gamma) / (sigma*np.sqrt(2))
+    return amp*np.real(wofz(z))/(sigma*np.sqrt(2*np.pi))
 
 
 # =========================================================
-# LEITURA ROBUSTA ARQUIVO RAMAN
+# LEITURA ROBUSTA COM DECIMAL VÍRGULA
 # =========================================================
 def read_mapping_file(uploaded_file):
 
@@ -58,34 +86,30 @@ def read_mapping_file(uploaded_file):
 
         df = pd.read_csv(
             uploaded_file,
-            sep=r"\s+|\t+|,",
+            sep=r"\s+|\t+|;|,",
             engine="python",
             header=None,
-            skip_blank_lines=True,
-            encoding="latin1"
+            encoding="latin1",
+            decimal=","
         )
 
-        if df.shape[1] < 4:
-            raise ValueError(
-                "Arquivo deve ter 4 colunas: y, x, wave, intensity"
-            )
-
         df = df.iloc[:, :4]
-        df.columns = ["y", "x", "wave", "intensity"]
+        df.columns = ["y","x","wave","intensity"]
 
+    df = df.replace(",", ".", regex=True)
     df = df.apply(pd.to_numeric, errors="coerce")
     df = df.dropna()
 
     if df.empty:
-        raise ValueError("Arquivo sem dados numéricos válidos.")
+        raise ValueError("Arquivo sem dados válidos.")
 
     return df
 
 
 # =========================================================
-# PLOT CIENTÍFICO COM AJUSTE + RESIDUAL
+# FITTING GENÉRICO (LORENTZ OU VOIGT)
 # =========================================================
-def plot_raman_fit_publication(spec):
+def plot_fit(spec, model="voigt"):
 
     x = spec["wave"]
     y = spec["intensity"]
@@ -101,37 +125,52 @@ def plot_raman_fit_publication(spec):
 
     fits = []
     y_sum = np.zeros_like(x)
+    labels = []
 
     for idx in peak_idx:
 
         cen_guess = x[idx]
         amp_guess = y_corr[idx]
-        wid_guess = 15
 
         try:
-            popt, _ = curve_fit(
-                lorentz,
-                x,
-                y_corr,
-                p0=[amp_guess, cen_guess, wid_guess],
-                maxfev=6000
-            )
+            if model == "lorentz":
 
-            amp, cen, wid = popt
+                popt, _ = curve_fit(
+                    lorentz,
+                    x,
+                    y_corr,
+                    p0=[amp_guess, cen_guess, 15],
+                    maxfev=8000
+                )
 
-            peak_curve = lorentz(x, amp, cen, wid)
+                curve = lorentz(x, *popt)
+                cen = popt[1]
 
-            fits.append((amp, cen, wid, peak_curve))
-            y_sum += peak_curve
+            else:
 
-        except Exception:
+                popt, _ = curve_fit(
+                    voigt_profile,
+                    x,
+                    y_corr,
+                    p0=[amp_guess, cen_guess, 8, 8],
+                    maxfev=8000
+                )
+
+                curve = voigt_profile(x, *popt)
+                cen = popt[1]
+
+            fits.append((cen, curve))
+            y_sum += curve
+            labels.append((cen, classify_raman_peak(cen)))
+
+        except:
             continue
 
     residual = y_corr - y_sum
 
-    # ===== FIGURA CIENTÍFICA =====
+    # ===== FIGURA =====
     fig, axes = plt.subplots(
-        2, 1,
+        2,1,
         figsize=(6,5),
         dpi=300,
         sharex=True,
@@ -144,25 +183,27 @@ def plot_raman_fit_publication(spec):
 
     colors = plt.cm.tab10.colors
 
-    for i, (_, cen, _, curve) in enumerate(fits):
-
-        ax.plot(
-            x,
-            curve,
-            color=colors[i % 10],
-            lw=1
-        )
-
+    for i, (cen, curve) in enumerate(fits):
+        ax.plot(x, curve, color=colors[i % 10], lw=1)
         ax.axvline(cen, ls="--", lw=0.7, color="gray")
 
     ax.plot(x, y_sum, "r-", lw=1.3, label="PeakSum")
+
+    for cen, label in labels:
+        ax.text(
+            cen,
+            max(y_corr)*0.85,
+            label,
+            rotation=90,
+            fontsize=7,
+            ha="center"
+        )
 
     ax.legend(frameon=False, fontsize=8)
     ax.set_ylabel("Intensity (a.u.)")
     ax.invert_xaxis()
     ax.grid(False)
 
-    # residual
     axes[1].plot(x, residual, "k-", lw=1)
     axes[1].axhline(0, ls="--")
     axes[1].set_xlabel("Raman Shift (cm⁻¹)")
@@ -178,9 +219,16 @@ def render_mapeamento_molecular_tab(supabase):
 
     st.header("🗺️ Mapeamento Molecular Raman")
 
+    model = st.radio(
+        "Tipo de ajuste espectral:",
+        ["Voigt (recomendado)", "Lorentziano"]
+    )
+
+    model = "voigt" if "Voigt" in model else "lorentz"
+
     uploaded_file = st.file_uploader(
         "Upload Raman Mapping",
-        type=["txt", "csv", "xls", "xlsx"]
+        type=["txt","csv","xls","xlsx"]
     )
 
     if not uploaded_file:
@@ -189,12 +237,11 @@ def render_mapeamento_molecular_tab(supabase):
     try:
 
         df = read_mapping_file(uploaded_file)
-        grouped = df.groupby(["y", "x"])
+        grouped = df.groupby(["y","x"])
 
         spectra_list = []
 
         for (y_val, x_val), group in grouped:
-
             group = group.sort_values("wave")
 
             spectra_list.append({
@@ -203,16 +250,23 @@ def render_mapeamento_molecular_tab(supabase):
                 "intensity": group["intensity"].values
             })
 
-        st.subheader("Ajuste Raman — Todos os Espectros")
+        st.subheader("Ajuste Raman")
+
+        cols = st.columns(2)
 
         for i, spec in enumerate(spectra_list):
 
-            st.markdown(
-                f"### Espectro {i+1} (Y={spec['y']:.0f} µm)"
-            )
+            with cols[i % 2]:
 
-            fig = plot_raman_fit_publication(spec)
-            st.pyplot(fig)
+                st.markdown(
+                    f"**Espectro {i+1} — Y={spec['y']:.0f} µm**"
+                )
+
+                fig = plot_fit(spec, model=model)
+                st.pyplot(fig)
+
+            if i % 2 == 1:
+                cols = st.columns(2)
 
     except Exception as e:
         st.error(f"Erro ao processar arquivo: {e}")
