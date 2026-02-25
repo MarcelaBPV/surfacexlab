@@ -31,7 +31,7 @@ if LOGO_PATH.exists():
 # =========================================================
 st.set_page_config(
     page_title="SurfaceXLab",
-    page_icon=logo_image if logo_image else "🧪",
+    page_icon=logo_image if logo_image else "X",
     layout="wide",
 )
 
@@ -152,12 +152,12 @@ with st.sidebar:
 # ABAS PRINCIPAIS
 # =========================================================
 tabs = st.tabs([
-    "🧬 Molecular — Raman",
-    "🗺️ Mapeamento Molecular",
-    "⚡ Elétrica — Resistividade",
-    "💧 Físico-Mecânica — Tensiometria",
-    "🤖 Otimizador — PCA + IA",
-    "📊 Dashboard"
+    "1 Molecular - Raman",
+    "2 Mapeamento Molecular",
+    "3 Elétrica - Resistividade",
+    "4 Físico-Mecânica - Tensiometria",
+    "5 Otimizador - PCA + IA",
+    "6 Dashboard"
 ])
 
 
