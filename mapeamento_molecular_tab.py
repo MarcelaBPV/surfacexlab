@@ -84,17 +84,14 @@ def read_mapping_file(uploaded_file):
             )
         except Exception:
             uploaded_file.seek(0)
-            df = pd.read_csv(
-                uploaded_file,
-                delim_whitespace=True
-            )
+            df = pd.read_csv(uploaded_file, delim_whitespace=True)
 
     df.columns = [
         c.replace("#", "").strip().lower()
         for c in df.columns
     ]
 
-    df = df[["y","x","wave","intensity"]]
+    df = df[["y", "x", "wave", "intensity"]]
     df = df.apply(pd.to_numeric, errors="coerce")
     df = df.dropna()
 
@@ -105,7 +102,7 @@ def read_mapping_file(uploaded_file):
 
 
 # =========================================================
-# STREAMLIT TAB PRINCIPAL
+# TAB PRINCIPAL
 # =========================================================
 def render_mapeamento_molecular_tab(supabase):
 
@@ -113,7 +110,7 @@ def render_mapeamento_molecular_tab(supabase):
 
     uploaded_file = st.file_uploader(
         "Upload arquivo Raman Mapping",
-        type=["txt","csv","xls","xlsx"]
+        type=["txt", "csv", "xls", "xlsx"]
     )
 
     if not uploaded_file:
@@ -122,14 +119,12 @@ def render_mapeamento_molecular_tab(supabase):
     try:
 
         df = read_mapping_file(uploaded_file)
-
-        grouped = df.groupby(["y","x"])
-
+        grouped = df.groupby(["y", "x"])
         spectra_list = []
 
-        # ==========================================
-        # PROCESSAMENTO DOS ESPECTROS
-        # ==========================================
+        # =========================
+        # PROCESSAMENTO
+        # =========================
         for (y_val, x_val), group in grouped:
 
             group = group.sort_values("wave")
@@ -140,7 +135,6 @@ def render_mapeamento_molecular_tab(supabase):
             baseline = asls_baseline(y)
             y_corr = y - baseline
 
-            # DETECÇÃO DE PICOS
             peak_idx, _ = find_peaks(
                 y_corr,
                 prominence=np.max(y_corr)*0.05
@@ -149,15 +143,11 @@ def render_mapeamento_molecular_tab(supabase):
             peaks = []
 
             for idx in peak_idx:
-
                 cen = x[idx]
-                group_name = classify_raman_group(cen)
-
-                peaks.append((cen, group_name))
+                peaks.append((cen, classify_raman_group(cen)))
 
             spectra_list.append({
                 "y": y_val,
-                "x": x_val,
                 "wave": x,
                 "intensity": y_corr,
                 "peaks": peaks
@@ -167,38 +157,60 @@ def render_mapeamento_molecular_tab(supabase):
             st.warning("Nenhum espectro válido encontrado.")
             return
 
-        # ==========================================
-        # 1️⃣ CARROSSEL ESPECTROS INDIVIDUAIS
-        # ==========================================
-        st.subheader("Espectros Individuais")
 
-        index = st.slider(
-            "Navegar pelo mapa Raman",
-            0,
-            len(spectra_list)-1,
-            0
-        )
+        # =====================================================
+        # MINIATURAS DOS ESPECTROS
+        # =====================================================
+        st.subheader("Galeria de Espectros Raman")
 
-        spec = spectra_list[index]
+        if "selected_spec" not in st.session_state:
+            st.session_state.selected_spec = 0
 
-        fig, ax = plt.subplots(figsize=(7,4), dpi=300)
+        cols = st.columns(4)
 
-        ax.plot(
+        for i, spec in enumerate(spectra_list):
+
+            with cols[i % 4]:
+
+                fig_small, ax_small = plt.subplots(figsize=(3,2))
+
+                ax_small.plot(
+                    spec["wave"],
+                    spec["intensity"],
+                    'k-', lw=1
+                )
+
+                ax_small.set_xticks([])
+                ax_small.set_yticks([])
+                ax_small.set_title(f"Y={spec['y']:.0f}")
+
+                st.pyplot(fig_small)
+
+                if st.button("Abrir", key=f"btn_{i}"):
+                    st.session_state.selected_spec = i
+
+
+        # =====================================================
+        # ESPECTRO GRANDE
+        # =====================================================
+        st.divider()
+        st.subheader("Espectro Selecionado")
+
+        spec = spectra_list[st.session_state.selected_spec]
+
+        fig_big, ax_big = plt.subplots(figsize=(10,5), dpi=300)
+
+        ax_big.plot(
             spec["wave"],
             spec["intensity"],
-            'k-',
-            lw=1.2
+            'k-', lw=1.4
         )
 
         for cen, group_name in spec["peaks"]:
 
-            ax.axvline(
-                cen,
-                linestyle="--",
-                alpha=0.6
-            )
+            ax_big.axvline(cen, linestyle="--", alpha=0.6)
 
-            ax.text(
+            ax_big.text(
                 cen,
                 max(spec["intensity"])*0.9,
                 f"{cen:.0f}\n{group_name}",
@@ -207,33 +219,29 @@ def render_mapeamento_molecular_tab(supabase):
                 ha="center"
             )
 
-        ax.set_title(f"Ponto Y={spec['y']:.0f} µm")
-        ax.set_xlabel("Raman Shift (cm⁻¹)")
-        ax.set_ylabel("Intensity (a.u.)")
+        ax_big.set_xlabel("Raman Shift (cm⁻¹)")
+        ax_big.set_ylabel("Intensity (a.u.)")
+        ax_big.set_title(f"Ponto Y={spec['y']:.0f} µm")
 
-        ax.invert_xaxis()
-        ax.grid(alpha=0.3)
+        ax_big.invert_xaxis()
+        ax_big.grid(alpha=0.3)
 
-        st.pyplot(fig)
+        st.pyplot(fig_big)
 
-        # ==========================================
-        # 2️⃣ TODOS ESPECTROS SOBREPOSTOS
-        # ==========================================
+
+        # =====================================================
+        # TODOS ESPECTROS SOBREPOSTOS
+        # =====================================================
         st.subheader("Comparação Global dos Espectros")
 
-        fig_all, ax_all = plt.subplots(figsize=(7,4), dpi=300)
+        fig_all, ax_all = plt.subplots(figsize=(8,4), dpi=300)
 
         for spec in spectra_list:
-            ax_all.plot(
-                spec["wave"],
-                spec["intensity"],
-                alpha=0.5
-            )
+            ax_all.plot(spec["wave"], spec["intensity"], alpha=0.4)
 
         ax_all.set_xlabel("Raman Shift (cm⁻¹)")
         ax_all.set_ylabel("Intensity (a.u.)")
         ax_all.set_title("Todos os Espectros Raman")
-
         ax_all.invert_xaxis()
         ax_all.grid(alpha=0.3)
 
