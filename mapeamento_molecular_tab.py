@@ -14,7 +14,7 @@ from scipy.special import wofz
 
 
 # =========================================================
-# COMPATIBILIDADE NUMPY 1.x / 2.x
+# COMPATIBILIDADE NUMPY
 # =========================================================
 def integrate_area(y, x):
     try:
@@ -190,7 +190,6 @@ def plot_fit(spec, smooth=False, window=11, poly=3,
     x = np.array(spec["wave"])
     y = np.array(spec["intensity"])
 
-    # região robusta
     if region_min is not None and region_max is not None:
         mask = (x>=region_min)&(x<=region_max)
         x = x[mask]
@@ -199,14 +198,12 @@ def plot_fit(spec, smooth=False, window=11, poly=3,
     if len(x) < 10:
         return None, pd.DataFrame()
 
-    # suavização
     if smooth:
         y = smooth_savgol(y,window,poly)
 
     baseline = asls_baseline(y)
     y_corr = y - baseline
 
-    # normalização
     if normalization=="SNV":
         y_corr=normalize_snv(y_corr)
 
@@ -310,11 +307,9 @@ def render_mapeamento_molecular_tab(supabase):
 
     if region_choice=="Fingerprint 800–1800":
         region_min,region_max=800,1800
-
     elif region_choice=="Personalizado":
         region_min=st.number_input("Min",800)
         region_max=st.number_input("Max",1800)
-
     else:
         region_min,region_max=None,None
 
@@ -329,14 +324,16 @@ def render_mapeamento_molecular_tab(supabase):
     df=read_mapping_file(uploaded_file)
     grouped=df.groupby(["y","x"])
 
-    for i,(pos,group) in enumerate(grouped):
+    cols = st.columns(2)
+
+    for i,((y_pos,x_pos),group) in enumerate(grouped):
 
         spec={
             "wave":group["wave"].values,
             "intensity":group["intensity"].values
         }
 
-        st.markdown(f"### Espectro {i+1}")
+        titulo = f"Espectro {i+1} ({y_pos:.0f},{x_pos:.0f})"
 
         fig,peak_df=plot_fit(
             spec,
@@ -349,5 +346,15 @@ def render_mapeamento_molecular_tab(supabase):
         )
 
         if fig:
-            st.pyplot(fig)
-            st.dataframe(peak_df)
+            with cols[i%2]:
+
+                st.markdown(f"#### {titulo}")
+
+                with st.expander("🔍 Expandir espectro"):
+                    st.pyplot(fig,use_container_width=True)
+
+                with st.expander("📊 Dados do espectro"):
+                    st.dataframe(peak_df,use_container_width=True)
+
+        if i%2==1:
+            cols = st.columns(2)
