@@ -24,7 +24,7 @@ def integrate_area(y, x):
 
 
 # =========================================================
-# DATABASE RAMAN BIOMOLECULAR
+# DATABASE RAMAN
 # =========================================================
 RAMAN_DATABASE = {
 
@@ -120,19 +120,15 @@ def smooth_savgol(y, window=11, poly=3):
 # PERFIL VOIGT
 # =========================================================
 def voigt_profile(x, amp, cen, sigma, gamma):
-
     z = ((x-cen)+1j*gamma)/(sigma*np.sqrt(2))
     return amp*np.real(wofz(z))/(sigma*np.sqrt(2*np.pi))
 
 
 def multi_voigt(x, *params):
-
     y = np.zeros_like(x)
-
     for i in range(0, len(params), 4):
         amp, cen, sigma, gamma = params[i:i+4]
         y += voigt_profile(x, amp, cen, sigma, gamma)
-
     return y
 
 
@@ -140,13 +136,10 @@ def multi_voigt(x, *params):
 # FWHM
 # =========================================================
 def calc_fwhm(x, curve):
-
     half = np.max(curve)/2
     idx = np.where(curve >= half)[0]
-
     if len(idx) < 2:
         return np.nan
-
     return abs(x[idx[-1]] - x[idx[0]])
 
 
@@ -159,7 +152,6 @@ def read_mapping_file(uploaded_file):
 
     if name.endswith((".xls",".xlsx")):
         df = pd.read_excel(uploaded_file)
-
     else:
         uploaded_file.seek(0)
         df = pd.read_csv(
@@ -206,7 +198,6 @@ def plot_fit(spec, smooth=False, window=11, poly=3,
 
     if normalization=="SNV":
         y_corr=normalize_snv(y_corr)
-
     elif normalization=="Área":
         y_corr=normalize_area(y_corr,x)
 
@@ -244,10 +235,8 @@ def plot_fit(spec, smooth=False, window=11, poly=3,
     peak_table=[]
 
     for i in range(0,len(popt),4):
-
         amp,cen,sigma,gamma=popt[i:i+4]
         err_cen=perr[i+1]
-
         curve=voigt_profile(x,amp,cen,sigma,gamma)
 
         peak_table.append({
@@ -285,10 +274,7 @@ def render_mapeamento_molecular_tab(supabase):
 
     st.header("🧬 Mapeamento Molecular Raman")
 
-    st.subheader("Pré-processamento")
-
     smooth=st.checkbox("Suavização Savitzky-Golay")
-
     if smooth:
         window=st.slider("Janela",5,31,11,step=2)
         poly=st.slider("Polinômio",2,5,3)
@@ -322,18 +308,23 @@ def render_mapeamento_molecular_tab(supabase):
         return
 
     df=read_mapping_file(uploaded_file)
-    grouped=df.groupby(["y","x"])
+
+    # 🔥 ORDENAR CORRETAMENTE PARA NÃO PULAR ESPECTROS
+    grouped = (
+        df.sort_values(["y","x"])
+          .groupby(["y","x"], sort=True)
+    )
 
     cols = st.columns(2)
 
-    for i,((y_pos,x_pos),group) in enumerate(grouped):
+    for i,((y_pos,x_pos),group) in enumerate(grouped, start=1):
 
         spec={
             "wave":group["wave"].values,
             "intensity":group["intensity"].values
         }
 
-        titulo = f"Espectro {i+1} ({y_pos:.0f},{x_pos:.0f})"
+        titulo = f"Espectro {i} ({y_pos:.0f},{x_pos:.0f})"
 
         fig,peak_df=plot_fit(
             spec,
@@ -346,7 +337,7 @@ def render_mapeamento_molecular_tab(supabase):
         )
 
         if fig:
-            with cols[i%2]:
+            with cols[(i-1)%2]:
 
                 st.markdown(f"#### {titulo}")
 
@@ -356,5 +347,5 @@ def render_mapeamento_molecular_tab(supabase):
                 with st.expander("📊 Dados do espectro"):
                     st.dataframe(peak_df,use_container_width=True)
 
-        if i%2==1:
+        if i%2==0:
             cols = st.columns(2)
