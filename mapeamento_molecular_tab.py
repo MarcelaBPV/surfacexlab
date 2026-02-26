@@ -24,16 +24,16 @@ def integrate_area(y, x):
 
 
 # =========================================================
-# DATABASE RAMAN PROBABILÍSTICO (baseado na sua figura)
+# DATABASE RAMAN PROBABILÍSTICO
 # =========================================================
 RAMAN_DATABASE = [
     {"center": 1003, "label": "Phenylalanine"},
     {"center": 1245, "label": "Amide III proteins"},
     {"center": 1335, "label": "Hemoglobin"},
     {"center": 1445, "label": "Lipids CH2"},
-    {"center": 1543, "label": "Amide II (v11)"},
-    {"center": 1562, "label": "Nucleic acids (v19)"},
-    {"center": 1581, "label": "Aromatic C=C (v37)"},
+    {"center": 1543, "label": "Amide II"},
+    {"center": 1562, "label": "Nucleic acids"},
+    {"center": 1581, "label": "Aromatic C=C"},
     {"center": 1602, "label": "C=C stretching"},
     {"center": 1621, "label": "Tyrosine / CαCβ"},
     {"center": 1632, "label": "Protein side chains"},
@@ -76,7 +76,6 @@ def smooth_savgol(y, window=11, poly=3):
 # PERFIL VOIGT
 # =========================================================
 def voigt_profile(x, amp, cen, sigma, gamma):
-
     z = ((x-cen)+1j*gamma)/(sigma*np.sqrt(2))
     return amp*np.real(wofz(z))/(sigma*np.sqrt(2*np.pi))
 
@@ -98,7 +97,7 @@ def multi_voigt(x, *params):
 
 
 # =========================================================
-# ESTATÍSTICA
+# MÉTRICAS ESTATÍSTICAS
 # =========================================================
 def compute_statistics(y_exp, y_fit, k):
 
@@ -146,7 +145,6 @@ def molecular_probability(center, error, fwhm, area):
         })
 
     df=pd.DataFrame(probabilities)
-
     total=df["Score"].sum()
 
     if total>0:
@@ -180,6 +178,7 @@ def plot_fit(spec, smooth=False):
     )
 
     if len(peak_idx)==0:
+        st.warning("Nenhum pico detectado.")
         return None, pd.DataFrame()
 
     init_params=[]
@@ -275,18 +274,35 @@ def render_mapeamento_molecular_tab(supabase):
     smooth = st.checkbox("Suavização Savitzky-Golay")
 
     uploaded_file = st.file_uploader(
-        "Upload espectro Raman",
+        "Upload espectro Raman (2 colunas: shift, intensidade)",
         type=["txt","csv"]
     )
 
     if not uploaded_file:
         return
 
-    df = pd.read_csv(uploaded_file)
+    # LEITURA ROBUSTA UNIVERSAL
+    try:
+        df = pd.read_csv(uploaded_file)
+    except:
+        uploaded_file.seek(0)
+        df = pd.read_csv(
+            uploaded_file,
+            sep=r"\s+|\t+|;|,",
+            engine="python",
+            header=None,
+            decimal=","
+        )
+
+    df = df.dropna()
+
+    if df.shape[1] < 2:
+        st.error("Arquivo inválido. O espectro deve conter pelo menos duas colunas.")
+        return
 
     spec={
-        "wave":df.iloc[:,0].values,
-        "intensity":df.iloc[:,1].values
+        "wave":df.iloc[:,0].astype(float).values,
+        "intensity":df.iloc[:,1].astype(float).values
     }
 
     fig,peak_df = plot_fit(spec,smooth=smooth)
