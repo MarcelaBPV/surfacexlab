@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-from scipy.signal import find_peaks
+from scipy.signal import find_peaks, savgol_filter
 from scipy.optimize import curve_fit
 from scipy import sparse
 from scipy.sparse.linalg import spsolve
@@ -14,20 +14,47 @@ from scipy.special import wofz
 
 
 # =========================================================
-# DATABASE RAMAN — BIOMOLÉCULAS DO SANGUE
+# DATABASE RAMAN BIOMOLECULAR (EXPANDIDO – LITERATURA)
 # =========================================================
 RAMAN_DATABASE = {
 
-    (720,735): "Adenine (DNA/RNA)",
+    # Ácidos nucleicos
+    (720,735): "Adenine DNA/RNA",
     (780,800): "Uracil/Cytosine",
+    (1070,1100): "DNA backbone PO2",
+    (1570,1605): "Guanine/Adenine ring",
+
+    # Proteínas
     (1000,1006): "Phenylalanine",
-    (1240,1300): "Amide III",
+    (1240,1300): "Amide III proteins",
+    (1540,1580): "Amide II proteins",
+    (1640,1680): "Amide I proteins",
+    (830,860): "Tyrosine",
+
+    # Lipídios
+    (1300,1315): "CH2 twisting lipids",
+    (1440,1475): "CH2 bending lipids",
+    (1650,1670): "C=C lipids",
+
+    # Carboidratos
+    (850,920): "Glucose/carbohydrates",
+    (1040,1060): "C-O carbohydrates",
+    (1120,1150): "C-C carbohydrates",
+
+    # Sangue/biomarcadores
     (1330,1370): "Hemoglobin",
-    (1440,1475): "Lipids",
-    (1540,1580): "Amide II",
-    (1640,1680): "Amide I",
-    (850,920): "Glucose",
+    (1545,1565): "Hemoglobin porphyrin",
     (620,650): "Lactate",
+    (750,770): "Cytochrome",
+
+    # Fosfolipídios
+    (1080,1095): "PO2 phospholipids",
+
+    # Colesterol / membrana
+    (700,710): "Cholesterol",
+
+    # Outros biomarcadores comuns
+    (1450,1465): "Proteins/lipids CH2",
 }
 
 
@@ -39,12 +66,9 @@ def classify_raman_peak(center):
 
 
 # =========================================================
-# BASELINE ASLS
+# BASELINE ASLS ROBUSTO
 # =========================================================
-def asls_baseline(y, lam=1e6, p=0.01, niter=10):
-
-    if len(y) < 10:
-        return np.zeros_like(y)
+def asls_baseline(y, lam=1e7, p=0.01, niter=15):
 
     y = np.asarray(y, dtype=float)
     N = len(y)
@@ -62,15 +86,68 @@ def asls_baseline(y, lam=1e6, p=0.01, niter=10):
 
 
 # =========================================================
-# MODELOS ESPECTRAIS
+# NORMALIZAÇÃO
 # =========================================================
-def lorentz(x, amp, cen, wid):
-    return amp*((0.5*wid)**2/((x-cen)**2+(0.5*wid)**2))
+def normalize_snv(y):
+    std = np.std(y)
+    if std == 0:
+        return y
+    return (y - np.mean(y)) / std
 
 
+def normalize_area(y, x):
+    area = np.trapz(y, x)
+    if area == 0:
+        return y
+    return y / area
+
+
+# =========================================================
+# SUAVIZAÇÃO
+# =========================================================
+def smooth_savgol(y, window=11, poly=3):
+
+    if window % 2 == 0:
+        window += 1
+
+    if len(y) < window:
+        return y
+
+    return savgol_filter(y, window, poly)
+
+
+# =========================================================
+# PERFIL VOIGT
+# =========================================================
 def voigt_profile(x, amp, cen, sigma, gamma):
-    z=((x-cen)+1j*gamma)/(sigma*np.sqrt(2))
+
+    z = ((x-cen)+1j*gamma)/(sigma*np.sqrt(2))
     return amp*np.real(wofz(z))/(sigma*np.sqrt(2*np.pi))
+
+
+def multi_voigt(x, *params):
+
+    y = np.zeros_like(x)
+
+    for i in range(0, len(params), 4):
+        amp, cen, sigma, gamma = params[i:i+4]
+        y += voigt_profile(x, amp, cen, sigma, gamma)
+
+    return y
+
+
+# =========================================================
+# FWHM
+# =========================================================
+def calc_fwhm(x, curve):
+
+    half = np.max(curve)/2
+    idx = np.where(curve >= half)[0]
+
+    if len(idx)<2:
+        return np.nan
+
+    return abs(x[idx[-1]] - x[idx[0]])
 
 
 # =========================================================
@@ -104,108 +181,104 @@ def read_mapping_file(uploaded_file):
 
 
 # =========================================================
-# FITTING COM REGIÃO
+# FIT GLOBAL MULTIPICO
 # =========================================================
-def plot_fit(spec, model="voigt", region_min=None, region_max=None):
+def plot_fit(spec, smooth=False, window=11, poly=3,
+             normalization="Nenhuma",
+             region_min=None, region_max=None):
 
-    x=spec["wave"]
-    y=spec["intensity"]
+    x=np.array(spec["wave"])
+    y=np.array(spec["intensity"])
 
-    # Recorte espectral
-    if region_min is not None:
+    # região
+    if region_min:
         mask=(x>=region_min)&(x<=region_max)
         x=x[mask]
         y=y[mask]
 
+    # suavização
+    if smooth:
+        y=smooth_savgol(y,window,poly)
+
     baseline=asls_baseline(y)
     y_corr=y-baseline
 
+    # normalização
+    if normalization=="SNV":
+        y_corr=normalize_snv(y_corr)
+
+    elif normalization=="Área":
+        y_corr=normalize_area(y_corr,x)
+
+    # detecção picos
+    prominence=np.std(y_corr)*3
+
     peak_idx,_=find_peaks(
         y_corr,
-        prominence=np.max(y_corr)*0.08,
-        distance=15
+        prominence=prominence,
+        distance=20
     )
 
-    fits=[]
-    y_sum=np.zeros_like(x)
+    if len(peak_idx)==0:
+        return None,pd.DataFrame()
+
+    # parâmetros iniciais
+    init_params=[]
+    for idx in peak_idx:
+        init_params += [y_corr[idx],x[idx],8,8]
+
+    # fitting global
+    try:
+
+        popt,pcov=curve_fit(
+            multi_voigt,
+            x,
+            y_corr,
+            p0=init_params,
+            maxfev=40000
+        )
+
+        y_fit=multi_voigt(x,*popt)
+        perr=np.sqrt(np.diag(pcov))
+
+    except:
+        return None,pd.DataFrame()
+
+    residual=y_corr-y_fit
+
+    # tabela picos
     peak_table=[]
 
-    for idx in peak_idx:
+    for i in range(0,len(popt),4):
 
-        cen_guess=x[idx]
-        amp_guess=y_corr[idx]
+        amp,cen,sigma,gamma=popt[i:i+4]
+        err_cen=perr[i+1]
 
-        try:
-            if model=="lorentz":
+        curve=voigt_profile(x,amp,cen,sigma,gamma)
 
-                popt,_=curve_fit(
-                    lorentz,x,y_corr,
-                    p0=[amp_guess,cen_guess,15],
-                    maxfev=8000
-                )
+        peak_table.append({
+            "Peak (cm⁻¹)":round(cen,1),
+            "Erro ±":round(err_cen,2),
+            "FWHM":round(calc_fwhm(x,curve),2),
+            "Área":round(np.trapz(curve,x),2),
+            "Grupo molecular":classify_raman_peak(cen)
+        })
 
-                curve=lorentz(x,*popt)
-                cen=popt[1]
-
-            else:
-
-                popt,_=curve_fit(
-                    voigt_profile,x,y_corr,
-                    p0=[amp_guess,cen_guess,8,8],
-                    maxfev=8000
-                )
-
-                curve=voigt_profile(x,*popt)
-                cen=popt[1]
-
-            fits.append((cen,curve))
-            y_sum+=curve
-
-            peak_table.append({
-                "Peak (cm⁻¹)":round(cen,1),
-                "Grupo molecular":classify_raman_peak(cen),
-                "Intensidade":round(float(np.max(curve)),2),
-                "Modelo":model
-            })
-
-        except:
-            continue
-
-    residual=y_corr-y_sum
-
+    # gráfico
     fig,axes=plt.subplots(
-        2,1,
-        figsize=(6,5),
-        dpi=300,
+        2,1,figsize=(6,5),dpi=300,
         sharex=True,
         gridspec_kw={"height_ratios":[3,1]}
     )
 
-    ax=axes[0]
+    axes[0].plot(x,y_corr,"k-",lw=1,label="Experimental")
+    axes[0].plot(x,y_fit,"r--",lw=1,label="Fit global")
+    axes[0].invert_xaxis()
+    axes[0].legend()
 
-    ax.plot(x,y_corr,"k-",lw=1.2,label="Experimental")
-
-    colors=plt.cm.tab10.colors
-
-    for i,(cen,curve) in enumerate(fits):
-
-        ax.plot(x,curve,color=colors[i%10],lw=1)
-        ax.axvline(cen,ls="--",lw=0.7,color="gray")
-
-        ax.text(
-            cen,
-            max(y_corr)*0.95,
-            classify_raman_peak(cen),
-            fontsize=7,
-            ha="center"
-        )
-
-    ax.set_ylabel("Intensity (a.u.)")
-    ax.invert_xaxis()
-    ax.grid(False)
-
-    axes[1].plot(x,residual,"k-",lw=1)
+    axes[1].plot(x,residual,"k-")
     axes[1].axhline(0,ls="--")
+
     axes[1].set_xlabel("Raman Shift (cm⁻¹)")
     axes[1].set_ylabel("Residual")
 
@@ -217,39 +290,34 @@ def plot_fit(spec, model="voigt", region_min=None, region_max=None):
 # =========================================================
 def render_mapeamento_molecular_tab(supabase):
 
-    st.header("🗺️ Mapeamento Molecular Raman")
+    st.header("🧬 Mapeamento Molecular Raman")
 
-    # Tipo de ajuste
-    model_choice=st.radio(
-        "Tipo de ajuste:",
-        ["Voigt (recomendado)","Lorentziano"]
+    st.subheader("Pré-processamento")
+
+    smooth=st.checkbox("Suavização Savitzky-Golay")
+
+    if smooth:
+        window=st.slider("Janela",5,31,11,step=2)
+        poly=st.slider("Polinômio",2,5,3)
+    else:
+        window,poly=11,3
+
+    normalization=st.radio(
+        "Normalização:",
+        ["Nenhuma","SNV","Área"]
     )
 
-    model="voigt" if "Voigt" in model_choice else "lorentz"
-
-    # Região espectral
     region_choice=st.radio(
         "Região espectral:",
-        [
-            "Completo",
-            "Fingerprint (800–1800)",
-            "CH Stretch (2800–3100)",
-            "Personalizado"
-        ]
+        ["Completo","Fingerprint 800–1800","Personalizado"]
     )
 
-    if region_choice=="Fingerprint (800–1800)":
+    if region_choice=="Fingerprint 800–1800":
         region_min,region_max=800,1800
 
-    elif region_choice=="CH Stretch (2800–3100)":
-        region_min,region_max=2800,3100
-
     elif region_choice=="Personalizado":
-        c1,c2=st.columns(2)
-        with c1:
-            region_min=st.number_input("Min cm⁻¹",900)
-        with c2:
-            region_max=st.number_input("Max cm⁻¹",1700)
+        region_min=st.number_input("Min",800)
+        region_max=st.number_input("Max",1800)
 
     else:
         region_min,region_max=None,None
@@ -262,47 +330,28 @@ def render_mapeamento_molecular_tab(supabase):
     if not uploaded_file:
         return
 
-    try:
+    df=read_mapping_file(uploaded_file)
+    grouped=df.groupby(["y","x"])
 
-        df=read_mapping_file(uploaded_file)
-        grouped=df.groupby(["y","x"])
+    for i,(pos,group) in enumerate(grouped):
 
-        spectra_list=[]
+        spec={
+            "wave":group["wave"].values,
+            "intensity":group["intensity"].values
+        }
 
-        for (y_val,x_val),group in grouped:
+        st.markdown(f"### Espectro {i+1}")
 
-            group=group.sort_values("wave")
+        fig,peak_df=plot_fit(
+            spec,
+            smooth=smooth,
+            window=window,
+            poly=poly,
+            normalization=normalization,
+            region_min=region_min,
+            region_max=region_max
+        )
 
-            spectra_list.append({
-                "y":y_val,
-                "wave":group["wave"].values,
-                "intensity":group["intensity"].values
-            })
-
-        st.subheader("Ajuste Raman")
-
-        cols=st.columns(2)
-
-        for i,spec in enumerate(spectra_list):
-
-            with cols[i%2]:
-
-                st.markdown(
-                    f"**Espectro {i+1} — Y={spec['y']:.0f} µm**"
-                )
-
-                fig,peak_df=plot_fit(
-                    spec,
-                    model=model,
-                    region_min=region_min,
-                    region_max=region_max
-                )
-
-                st.pyplot(fig)
-                st.dataframe(peak_df,use_container_width=True)
-
-            if i%2==1:
-                cols=st.columns(2)
-
-    except Exception as e:
-        st.error(f"Erro ao processar arquivo: {e}")
+        if fig:
+            st.pyplot(fig)
+            st.dataframe(peak_df)
