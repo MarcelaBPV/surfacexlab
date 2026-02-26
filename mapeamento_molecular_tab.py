@@ -14,46 +14,46 @@ from scipy.special import wofz
 
 
 # =========================================================
-# DATABASE RAMAN BIOMOLECULAR (EXPANDIDO – LITERATURA)
+# COMPATIBILIDADE NUMPY 1.x / 2.x
+# =========================================================
+def integrate_area(y, x):
+    try:
+        return np.trapezoid(y, x)
+    except AttributeError:
+        return np.trapz(y, x)
+
+
+# =========================================================
+# DATABASE RAMAN BIOMOLECULAR
 # =========================================================
 RAMAN_DATABASE = {
 
-    # Ácidos nucleicos
     (720,735): "Adenine DNA/RNA",
     (780,800): "Uracil/Cytosine",
     (1070,1100): "DNA backbone PO2",
     (1570,1605): "Guanine/Adenine ring",
 
-    # Proteínas
     (1000,1006): "Phenylalanine",
     (1240,1300): "Amide III proteins",
     (1540,1580): "Amide II proteins",
     (1640,1680): "Amide I proteins",
     (830,860): "Tyrosine",
 
-    # Lipídios
     (1300,1315): "CH2 twisting lipids",
     (1440,1475): "CH2 bending lipids",
     (1650,1670): "C=C lipids",
 
-    # Carboidratos
     (850,920): "Glucose/carbohydrates",
     (1040,1060): "C-O carbohydrates",
     (1120,1150): "C-C carbohydrates",
 
-    # Sangue/biomarcadores
     (1330,1370): "Hemoglobin",
     (1545,1565): "Hemoglobin porphyrin",
     (620,650): "Lactate",
     (750,770): "Cytochrome",
 
-    # Fosfolipídios
     (1080,1095): "PO2 phospholipids",
-
-    # Colesterol / membrana
     (700,710): "Cholesterol",
-
-    # Outros biomarcadores comuns
     (1450,1465): "Proteins/lipids CH2",
 }
 
@@ -66,7 +66,7 @@ def classify_raman_peak(center):
 
 
 # =========================================================
-# BASELINE ASLS ROBUSTO
+# BASELINE ASLS
 # =========================================================
 def asls_baseline(y, lam=1e7, p=0.01, niter=15):
 
@@ -96,7 +96,7 @@ def normalize_snv(y):
 
 
 def normalize_area(y, x):
-    area = np.trapz(y, x)
+    area = integrate_area(y, x)
     if area == 0:
         return y
     return y / area
@@ -144,7 +144,7 @@ def calc_fwhm(x, curve):
     half = np.max(curve)/2
     idx = np.where(curve >= half)[0]
 
-    if len(idx)<2:
+    if len(idx) < 2:
         return np.nan
 
     return abs(x[idx[-1]] - x[idx[0]])
@@ -155,14 +155,14 @@ def calc_fwhm(x, curve):
 # =========================================================
 def read_mapping_file(uploaded_file):
 
-    name=uploaded_file.name.lower()
+    name = uploaded_file.name.lower()
 
     if name.endswith((".xls",".xlsx")):
-        df=pd.read_excel(uploaded_file)
+        df = pd.read_excel(uploaded_file)
 
     else:
         uploaded_file.seek(0)
-        df=pd.read_csv(
+        df = pd.read_csv(
             uploaded_file,
             sep=r"\s+|\t+|;|,",
             engine="python",
@@ -170,12 +170,12 @@ def read_mapping_file(uploaded_file):
             decimal=","
         )
 
-        df=df.iloc[:,:4]
+        df = df.iloc[:,:4]
         df.columns=["y","x","wave","intensity"]
 
-    df=df.replace(",",".",regex=True)
-    df=df.apply(pd.to_numeric,errors="coerce")
-    df=df.dropna()
+    df = df.replace(",",".",regex=True)
+    df = df.apply(pd.to_numeric,errors="coerce")
+    df = df.dropna()
 
     return df
 
@@ -187,21 +187,24 @@ def plot_fit(spec, smooth=False, window=11, poly=3,
              normalization="Nenhuma",
              region_min=None, region_max=None):
 
-    x=np.array(spec["wave"])
-    y=np.array(spec["intensity"])
+    x = np.array(spec["wave"])
+    y = np.array(spec["intensity"])
 
-    # região
-    if region_min:
-        mask=(x>=region_min)&(x<=region_max)
-        x=x[mask]
-        y=y[mask]
+    # região robusta
+    if region_min is not None and region_max is not None:
+        mask = (x>=region_min)&(x<=region_max)
+        x = x[mask]
+        y = y[mask]
+
+    if len(x) < 10:
+        return None, pd.DataFrame()
 
     # suavização
     if smooth:
-        y=smooth_savgol(y,window,poly)
+        y = smooth_savgol(y,window,poly)
 
-    baseline=asls_baseline(y)
-    y_corr=y-baseline
+    baseline = asls_baseline(y)
+    y_corr = y - baseline
 
     # normalização
     if normalization=="SNV":
@@ -210,7 +213,6 @@ def plot_fit(spec, smooth=False, window=11, poly=3,
     elif normalization=="Área":
         y_corr=normalize_area(y_corr,x)
 
-    # detecção picos
     prominence=np.std(y_corr)*3
 
     peak_idx,_=find_peaks(
@@ -222,18 +224,14 @@ def plot_fit(spec, smooth=False, window=11, poly=3,
     if len(peak_idx)==0:
         return None,pd.DataFrame()
 
-    # parâmetros iniciais
     init_params=[]
     for idx in peak_idx:
         init_params += [y_corr[idx],x[idx],8,8]
 
-    # fitting global
     try:
-
         popt,pcov=curve_fit(
             multi_voigt,
-            x,
-            y_corr,
+            x,y_corr,
             p0=init_params,
             maxfev=40000
         )
@@ -241,12 +239,11 @@ def plot_fit(spec, smooth=False, window=11, poly=3,
         y_fit=multi_voigt(x,*popt)
         perr=np.sqrt(np.diag(pcov))
 
-    except:
+    except Exception:
         return None,pd.DataFrame()
 
     residual=y_corr-y_fit
 
-    # tabela picos
     peak_table=[]
 
     for i in range(0,len(popt),4):
@@ -260,11 +257,10 @@ def plot_fit(spec, smooth=False, window=11, poly=3,
             "Peak (cm⁻¹)":round(cen,1),
             "Erro ±":round(err_cen,2),
             "FWHM":round(calc_fwhm(x,curve),2),
-            "Área":round(np.trapz(curve,x),2),
+            "Área":round(integrate_area(curve,x),2),
             "Grupo molecular":classify_raman_peak(cen)
         })
 
-    # gráfico
     fig,axes=plt.subplots(
         2,1,figsize=(6,5),dpi=300,
         sharex=True,
