@@ -1,3 +1,4 @@
+# mapeamento_molecular_tab.py
 # -*- coding: utf-8 -*-
 
 import streamlit as st
@@ -7,199 +8,301 @@ import matplotlib.pyplot as plt
 
 from scipy.signal import find_peaks
 from scipy.optimize import curve_fit
+from scipy import sparse
+from scipy.sparse.linalg import spsolve
 from scipy.special import wofz
-from sklearn.decomposition import PCA
-from sklearn.preprocessing import StandardScaler
+
 
 # =========================================================
-# DATABASE MOLECULAR AVANÇADO
+# DATABASE RAMAN — BIOMOLÉCULAS DO SANGUE
 # =========================================================
-RAMAN_DATABASE = [
+RAMAN_DATABASE = {
 
-    (1658,10,"Amide I (Proteins)"),
-    (1602,8,"C=C stretching"),
-    (1581,8,"Hemoglobin mode"),
-    (1562,8,"Heme vibration"),
-    (1543,8,"Hemoglobin ν11"),
-    (1445,10,"Lipids CH2"),
-    (1335,12,"Hemoglobin oxidation"),
-    (1003,6,"Phenylalanine"),
-    (750,6,"Tryptophan"),
-]
+    (720,735): "Adenine (DNA/RNA)",
+    (780,800): "Uracil/Cytosine",
+    (1000,1006): "Phenylalanine",
+    (1240,1300): "Amide III",
+    (1330,1370): "Hemoglobin",
+    (1440,1475): "Lipids",
+    (1540,1580): "Amide II",
+    (1640,1680): "Amide I",
+    (850,920): "Glucose",
+    (620,650): "Lactate",
+}
 
 
 def classify_raman_peak(center):
-
-    best_label="Unassigned"
-    best_diff=1e9
-
-    for ref,tol,label in RAMAN_DATABASE:
-
-        diff=abs(center-ref)
-
-        if diff<tol and diff<best_diff:
-            best_diff=diff
-            best_label=label
-
-    return best_label
+    for (low, high), label in RAMAN_DATABASE.items():
+        if low <= center <= high:
+            return label
+    return "Unassigned"
 
 
 # =========================================================
-# PERFIL VOIGT
+# BASELINE ASLS
 # =========================================================
-def voigt(x,amp,cen,sigma,gamma):
+def asls_baseline(y, lam=1e6, p=0.01, niter=10):
+
+    if len(y) < 10:
+        return np.zeros_like(y)
+
+    y = np.asarray(y, dtype=float)
+    N = len(y)
+
+    D = sparse.diags([1,-2,1],[0,1,2], shape=(N-2,N))
+    w = np.ones(N)
+
+    for _ in range(niter):
+        W = sparse.diags(w,0)
+        Z = W + lam*D.T@D
+        z = spsolve(Z, w*y)
+        w = p*(y>z)+(1-p)*(y<z)
+
+    return z
+
+
+# =========================================================
+# MODELOS ESPECTRAIS
+# =========================================================
+def lorentz(x, amp, cen, wid):
+    return amp*((0.5*wid)**2/((x-cen)**2+(0.5*wid)**2))
+
+
+def voigt_profile(x, amp, cen, sigma, gamma):
     z=((x-cen)+1j*gamma)/(sigma*np.sqrt(2))
     return amp*np.real(wofz(z))/(sigma*np.sqrt(2*np.pi))
 
 
 # =========================================================
-# DECONVOLUÇÃO MULTIPICO
+# LEITURA ARQUIVO
 # =========================================================
-def fit_multi_voigt(x,y):
+def read_mapping_file(uploaded_file):
 
-    peak_idx,_=find_peaks(y,prominence=np.max(y)*0.05,distance=15)
+    name=uploaded_file.name.lower()
 
-    curves=[]
-    table=[]
+    if name.endswith((".xls",".xlsx")):
+        df=pd.read_excel(uploaded_file)
 
-    for idx in peak_idx:
+    else:
+        uploaded_file.seek(0)
+        df=pd.read_csv(
+            uploaded_file,
+            sep=r"\s+|\t+|;|,",
+            engine="python",
+            header=None,
+            decimal=","
+        )
 
-        cen_guess=x[idx]
-        amp_guess=y[idx]
-
-        try:
-
-            popt,_=curve_fit(
-                voigt,x,y,
-                p0=[amp_guess,cen_guess,8,8],
-                maxfev=12000
-            )
-
-            curve=voigt(x,*popt)
-            cen=popt[1]
-
-            curves.append(curve)
-
-            table.append({
-                "Peak":round(cen,1),
-                "Grupo":classify_raman_peak(cen),
-                "Amplitude":round(float(popt[0]),2)
-            })
-
-        except:
-            continue
-
-    return curves,pd.DataFrame(table)
-
-
-# =========================================================
-# PCA AUTOMÁTICO
-# =========================================================
-def run_pca(spectra):
-
-    X=np.vstack(spectra)
-
-    scaler=StandardScaler()
-    X_scaled=scaler.fit_transform(X)
-
-    pca=PCA(n_components=2)
-    scores=pca.fit_transform(X_scaled)
-
-    return scores,pca.explained_variance_ratio_
-
-
-# =========================================================
-# PLOT FITTING
-# =========================================================
-def plot_spectrum(x,y):
-
-    curves,table=fit_multi_voigt(x,y)
-
-    fig,ax=plt.subplots(figsize=(6,4),dpi=300)
-
-    ax.plot(x,y,"k",lw=1.3,label="Experimental")
-
-    for c in curves:
-        ax.plot(x,c,alpha=0.7)
-
-    ax.set_xlabel("Raman Shift (cm⁻¹)")
-    ax.set_ylabel("Intensity")
-    ax.invert_xaxis()
-
-    return fig,table
-
-
-# =========================================================
-# STREAMLIT TAB PRINCIPAL
-# =========================================================
-def render_mapeamento_molecular_tab(supabase):
-
-    st.header("🧬 Raman Molecular Mapping — Advanced")
-
-    uploaded=st.file_uploader(
-        "Upload Raman mapping",
-        type=["txt","csv","xls","xlsx"]
-    )
-
-    if not uploaded:
-        return
-
-    df=pd.read_csv(
-        uploaded,
-        sep=r"\s+|\t+|;|,",
-        engine="python",
-        header=None,
-        decimal=","
-    )
-
-    df=df.iloc[:,:4]
-    df.columns=["y","x","wave","intensity"]
+        df=df.iloc[:,:4]
+        df.columns=["y","x","wave","intensity"]
 
     df=df.replace(",",".",regex=True)
     df=df.apply(pd.to_numeric,errors="coerce")
     df=df.dropna()
 
-    grouped=df.groupby(["y","x"])
+    return df
 
-    spectra=[]
-    waves=None
 
-    cols=st.columns(2)
+# =========================================================
+# FITTING COM REGIÃO
+# =========================================================
+def plot_fit(spec, model="voigt", region_min=None, region_max=None):
 
-    for i,((y,x),g) in enumerate(grouped):
+    x=spec["wave"]
+    y=spec["intensity"]
 
-        g=g.sort_values("wave")
+    # Recorte espectral
+    if region_min is not None:
+        mask=(x>=region_min)&(x<=region_max)
+        x=x[mask]
+        y=y[mask]
 
-        wave=g.wave.values
-        intensity=g.intensity.values
+    baseline=asls_baseline(y)
+    y_corr=y-baseline
 
-        spectra.append(intensity)
-        waves=wave
+    peak_idx,_=find_peaks(
+        y_corr,
+        prominence=np.max(y_corr)*0.08,
+        distance=15
+    )
 
-        with cols[i%2]:
+    fits=[]
+    y_sum=np.zeros_like(x)
+    peak_table=[]
 
-            st.markdown(f"### Ponto Y={y}")
+    for idx in peak_idx:
 
-            fig,table=plot_spectrum(wave,intensity)
+        cen_guess=x[idx]
+        amp_guess=y_corr[idx]
 
-            st.pyplot(fig)
-            st.dataframe(table,use_container_width=True)
+        try:
+            if model=="lorentz":
 
-        if i%2==1:
-            cols=st.columns(2)
+                popt,_=curve_fit(
+                    lorentz,x,y_corr,
+                    p0=[amp_guess,cen_guess,15],
+                    maxfev=8000
+                )
 
-    # =====================================================
-    # PCA AUTOMÁTICO
-    # =====================================================
-    st.subheader("📊 PCA Molecular")
+                curve=lorentz(x,*popt)
+                cen=popt[1]
 
-    scores,var=run_pca(spectra)
+            else:
 
-    fig,ax=plt.subplots(figsize=(5,4),dpi=300)
+                popt,_=curve_fit(
+                    voigt_profile,x,y_corr,
+                    p0=[amp_guess,cen_guess,8,8],
+                    maxfev=8000
+                )
 
-    ax.scatter(scores[:,0],scores[:,1])
+                curve=voigt_profile(x,*popt)
+                cen=popt[1]
 
-    ax.set_xlabel(f"PC1 ({var[0]*100:.1f}%)")
-    ax.set_ylabel(f"PC2 ({var[1]*100:.1f}%)")
+            fits.append((cen,curve))
+            y_sum+=curve
 
-    st.pyplot(fig)
+            peak_table.append({
+                "Peak (cm⁻¹)":round(cen,1),
+                "Grupo molecular":classify_raman_peak(cen),
+                "Intensidade":round(float(np.max(curve)),2),
+                "Modelo":model
+            })
+
+        except:
+            continue
+
+    residual=y_corr-y_sum
+
+    fig,axes=plt.subplots(
+        2,1,
+        figsize=(6,5),
+        dpi=300,
+        sharex=True,
+        gridspec_kw={"height_ratios":[3,1]}
+    )
+
+    ax=axes[0]
+
+    ax.plot(x,y_corr,"k-",lw=1.2,label="Experimental")
+
+    colors=plt.cm.tab10.colors
+
+    for i,(cen,curve) in enumerate(fits):
+
+        ax.plot(x,curve,color=colors[i%10],lw=1)
+        ax.axvline(cen,ls="--",lw=0.7,color="gray")
+
+        ax.text(
+            cen,
+            max(y_corr)*0.95,
+            classify_raman_peak(cen),
+            fontsize=7,
+            ha="center"
+        )
+
+    ax.set_ylabel("Intensity (a.u.)")
+    ax.invert_xaxis()
+    ax.grid(False)
+
+    axes[1].plot(x,residual,"k-",lw=1)
+    axes[1].axhline(0,ls="--")
+    axes[1].set_xlabel("Raman Shift (cm⁻¹)")
+    axes[1].set_ylabel("Residual")
+
+    return fig,pd.DataFrame(peak_table)
+
+
+# =========================================================
+# STREAMLIT TAB
+# =========================================================
+def render_mapeamento_molecular_tab(supabase):
+
+    st.header("🗺️ Mapeamento Molecular Raman")
+
+    # Tipo de ajuste
+    model_choice=st.radio(
+        "Tipo de ajuste:",
+        ["Voigt (recomendado)","Lorentziano"]
+    )
+
+    model="voigt" if "Voigt" in model_choice else "lorentz"
+
+    # Região espectral
+    region_choice=st.radio(
+        "Região espectral:",
+        [
+            "Completo",
+            "Fingerprint (800–1800)",
+            "CH Stretch (2800–3100)",
+            "Personalizado"
+        ]
+    )
+
+    if region_choice=="Fingerprint (800–1800)":
+        region_min,region_max=800,1800
+
+    elif region_choice=="CH Stretch (2800–3100)":
+        region_min,region_max=2800,3100
+
+    elif region_choice=="Personalizado":
+        c1,c2=st.columns(2)
+        with c1:
+            region_min=st.number_input("Min cm⁻¹",900)
+        with c2:
+            region_max=st.number_input("Max cm⁻¹",1700)
+
+    else:
+        region_min,region_max=None,None
+
+    uploaded_file=st.file_uploader(
+        "Upload Raman Mapping",
+        type=["txt","csv","xls","xlsx"]
+    )
+
+    if not uploaded_file:
+        return
+
+    try:
+
+        df=read_mapping_file(uploaded_file)
+        grouped=df.groupby(["y","x"])
+
+        spectra_list=[]
+
+        for (y_val,x_val),group in grouped:
+
+            group=group.sort_values("wave")
+
+            spectra_list.append({
+                "y":y_val,
+                "wave":group["wave"].values,
+                "intensity":group["intensity"].values
+            })
+
+        st.subheader("Ajuste Raman")
+
+        cols=st.columns(2)
+
+        for i,spec in enumerate(spectra_list):
+
+            with cols[i%2]:
+
+                st.markdown(
+                    f"**Espectro {i+1} — Y={spec['y']:.0f} µm**"
+                )
+
+                fig,peak_df=plot_fit(
+                    spec,
+                    model=model,
+                    region_min=region_min,
+                    region_max=region_max
+                )
+
+                st.pyplot(fig)
+                st.dataframe(peak_df,use_container_width=True)
+
+            if i%2==1:
+                cols=st.columns(2)
+
+    except Exception as e:
+        st.error(f"Erro ao processar arquivo: {e}")
