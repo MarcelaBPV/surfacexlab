@@ -24,17 +24,33 @@ def integrate_area(y, x):
 
 
 # =========================================================
-# DATABASE RAMAN
+# DATABASE RAMAN EXPANDIDO (literatura + sua amostra)
 # =========================================================
 RAMAN_DATABASE = {
+
+    # Nucleotídeos / aromáticos
+    (1540,1550): "Aromatic ring vibration",
+    (1560,1570): "Nucleic acids (Adenine/Guanine)",
+    (1575,1590): "Aromatic C=C stretch",
+
+    # Região Amida / proteínas
+    (1640,1680): "Amide I proteins",
+    (1530,1550): "Amide II proteins",
+    (1240,1300): "Amide III proteins",
+
+    # Lipídios e membranas
+    (1440,1475): "Lipids CH2 bending",
+    (1650,1670): "C=C lipids",
+
+    # Biomoléculas comuns
     (720,735): "Adenine DNA/RNA",
     (780,800): "Uracil/Cytosine",
     (1000,1006): "Phenylalanine",
-    (1240,1300): "Amide III",
     (1330,1370): "Hemoglobin",
-    (1440,1475): "Lipids",
-    (1540,1580): "Amide II",
-    (1640,1680): "Amide I",
+
+    # Carboidratos
+    (1120,1150): "C-C carbohydrates",
+    (1040,1060): "C-O carbohydrates",
 }
 
 
@@ -46,7 +62,7 @@ def classify_raman_peak(center):
 
 
 # =========================================================
-# BASELINE ASLS
+# BASELINE ALS
 # =========================================================
 def asls_baseline(y, lam=1e7, p=0.01, niter=15):
 
@@ -80,6 +96,7 @@ def smooth_savgol(y, window=11, poly=3):
 # PERFIL VOIGT
 # =========================================================
 def voigt_profile(x, amp, cen, sigma, gamma):
+
     z = ((x-cen)+1j*gamma)/(sigma*np.sqrt(2))
     return amp*np.real(wofz(z))/(sigma*np.sqrt(2*np.pi))
 
@@ -91,12 +108,10 @@ def multi_voigt(x, *params):
     for i in range(0, len(params), 4):
         amp, cen, sigma, gamma = params[i:i+4]
 
-        # REFINAMENTO FÍSICO
+        # Refinamento físico
         sigma = max(sigma, 4)
         gamma = max(gamma, 4)
-
-        if amp < 0:
-            amp = 0
+        amp = max(amp, 0)
 
         y += voigt_profile(x, amp, cen, sigma, gamma)
 
@@ -120,7 +135,7 @@ def compute_statistics(y_exp, y_fit, k):
     aic = n*np.log(ss_res/n) + 2*k
     bic = n*np.log(ss_res/n) + k*np.log(n)
 
-    snr = np.max(y_exp) / np.std(residual)
+    snr = np.max(y_exp) / (np.std(residual)+1e-9)
 
     return r2, rmse, aic, bic, snr
 
@@ -128,16 +143,10 @@ def compute_statistics(y_exp, y_fit, k):
 # =========================================================
 # FIT GLOBAL REFINADO
 # =========================================================
-def plot_fit(spec, smooth=False, window=11, poly=3,
-             region_min=None, region_max=None):
+def plot_fit(spec, smooth=False, window=11, poly=3):
 
     x = np.array(spec["wave"])
     y = np.array(spec["intensity"])
-
-    if region_min is not None and region_max is not None:
-        mask = (x>=region_min)&(x<=region_max)
-        x = x[mask]
-        y = y[mask]
 
     if smooth:
         y = smooth_savgol(y,window,poly)
@@ -152,12 +161,6 @@ def plot_fit(spec, smooth=False, window=11, poly=3,
         prominence=prominence,
         distance=25
     )
-
-    # REMOVER PICOS MUITO FRACOS (SNR)
-    peak_idx = [
-        idx for idx in peak_idx
-        if y_corr[idx] > np.std(y_corr)*2
-    ]
 
     if len(peak_idx)==0:
         return None, pd.DataFrame()
@@ -183,7 +186,7 @@ def plot_fit(spec, smooth=False, window=11, poly=3,
         y_fit = multi_voigt(x,*popt)
         perr = np.sqrt(np.diag(pcov))
 
-    except:
+    except Exception:
         return None, pd.DataFrame()
 
     r2,rmse,aic,bic,snr = compute_statistics(
@@ -209,6 +212,7 @@ def plot_fit(spec, smooth=False, window=11, poly=3,
             "Grupo molecular":classify_raman_peak(cen)
         })
 
+    # Plot
     fig,axes = plt.subplots(
         2,1,figsize=(6,5),dpi=300,
         sharex=True,
@@ -217,8 +221,8 @@ def plot_fit(spec, smooth=False, window=11, poly=3,
 
     axes[0].plot(x,y_corr,"k-",lw=1,label="Experimental")
     axes[0].plot(x,y_fit,"r--",lw=1,label="Fit refinado")
-    axes[0].legend()
     axes[0].invert_xaxis()
+    axes[0].legend()
 
     axes[1].plot(x,y_corr-y_fit,"k-")
     axes[1].axhline(0,ls="--")
@@ -237,3 +241,34 @@ def plot_fit(spec, smooth=False, window=11, poly=3,
     )
 
     return fig, pd.DataFrame(peak_table)
+
+
+# =========================================================
+# STREAMLIT TAB
+# =========================================================
+def render_mapeamento_molecular_tab(supabase):
+
+    st.header("🧬 Análise Raman Refinada")
+
+    smooth = st.checkbox("Suavização Savitzky-Golay")
+
+    uploaded_file = st.file_uploader(
+        "Upload espectro Raman",
+        type=["txt","csv","xls","xlsx"]
+    )
+
+    if not uploaded_file:
+        return
+
+    df = pd.read_csv(uploaded_file)
+
+    spec={
+        "wave":df.iloc[:,0].values,
+        "intensity":df.iloc[:,1].values
+    }
+
+    fig,peak_df = plot_fit(spec,smooth=smooth)
+
+    if fig:
+        st.pyplot(fig,use_container_width=True)
+        st.dataframe(peak_df,use_container_width=True)
