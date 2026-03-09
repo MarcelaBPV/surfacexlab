@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-from scipy.signal import find_peaks, savgol_filter
+from scipy.signal import savgol_filter, find_peaks
 from scipy import sparse
 from scipy.sparse.linalg import spsolve
 
@@ -16,8 +16,7 @@ from scipy.sparse.linalg import spsolve
 # =========================================================
 def asls_baseline(y, lam=1e7, p=0.01, niter=15):
 
-    y = np.asarray(y)
-
+    y = np.asarray(y, dtype=float)
     N = len(y)
 
     D = sparse.diags([1,-2,1],[0,1,2], shape=(N-2,N))
@@ -26,7 +25,7 @@ def asls_baseline(y, lam=1e7, p=0.01, niter=15):
     for _ in range(niter):
 
         W = sparse.diags(w,0)
-        Z = W + lam * D.T @ D
+        Z = W + lam*D.T@D
 
         z = spsolve(Z, w*y)
 
@@ -38,7 +37,9 @@ def asls_baseline(y, lam=1e7, p=0.01, niter=15):
 # =========================================================
 # SUAVIZAÇÃO
 # =========================================================
-def smooth_signal(y, window=11, poly=3):
+def smooth_signal(y):
+
+    window = 11
 
     if window % 2 == 0:
         window += 1
@@ -46,7 +47,7 @@ def smooth_signal(y, window=11, poly=3):
     if len(y) < window:
         return y
 
-    return savgol_filter(y, window, poly)
+    return savgol_filter(y, window, 3)
 
 
 # =========================================================
@@ -59,13 +60,13 @@ def normalize(y):
     if max_val == 0:
         return y
 
-    return y / max_val
+    return y/max_val
 
 
 # =========================================================
 # LEITURA DO ARQUIVO
 # =========================================================
-def read_mapping_file(uploaded_file):
+def read_mapping(uploaded_file):
 
     uploaded_file.seek(0)
 
@@ -79,48 +80,42 @@ def read_mapping_file(uploaded_file):
 
     df = df.dropna()
 
-    # formato mapping (y x wave intensity)
+    df = df.iloc[:,:4]
 
-    if df.shape[1] >= 4:
+    df.columns = ["y","x","wave","intensity"]
 
-        df = df.iloc[:,:4]
-        df.columns = ["y","x","wave","intensity"]
+    df["y"] = pd.to_numeric(df["y"], errors="coerce")
+    df["wave"] = pd.to_numeric(df["wave"], errors="coerce")
+    df["intensity"] = pd.to_numeric(df["intensity"], errors="coerce")
 
-    else:
-
-        df.columns = ["wave","intensity"]
-        df["y"] = 0
-        df["x"] = 0
+    df = df.dropna()
 
     return df
 
 
 # =========================================================
-# PROCESSAMENTO DO ESPECTRO
+# PROCESSAR ESPECTRO
 # =========================================================
-def process_spectrum(x, y):
+def process_spectrum(wave, intensity):
 
-    idx = np.argsort(x)
+    idx = np.argsort(wave)
 
-    x = x[idx]
-    y = y[idx]
+    x = wave[idx]
+    y = intensity[idx]
 
-    # suavização
-    y_smooth = smooth_signal(y)
+    y = smooth_signal(y)
 
-    # baseline
-    baseline = asls_baseline(y_smooth)
+    baseline = asls_baseline(y)
 
-    y_corr = y_smooth - baseline
+    y_corr = y - baseline
 
-    # normalização
     y_norm = normalize(y_corr)
 
-    return x, y_norm, baseline
+    return x, y_norm
 
 
 # =========================================================
-# DETECÇÃO DE PICOS
+# DETECTAR PICOS
 # =========================================================
 def detect_peaks(x, y):
 
@@ -135,33 +130,40 @@ def detect_peaks(x, y):
     for idx in peak_idx:
 
         peaks.append({
-            "Peak (cm⁻¹)": round(x[idx],2),
-            "Intensity": round(y[idx],3)
+            "Peak (cm⁻¹)": float(round(float(x[idx]),2)),
+            "Intensity": float(round(float(y[idx]),3))
         })
 
     return peak_idx, pd.DataFrame(peaks)
 
 
 # =========================================================
-# PLOT
+# PLOT PEQUENO
 # =========================================================
-def plot_spectrum(x, y, peak_idx):
+def plot_small(x,y):
+
+    fig, ax = plt.subplots(figsize=(3,2), dpi=120)
+
+    ax.plot(x,y,"k",lw=1)
+
+    ax.set_xticks([])
+    ax.set_yticks([])
+
+    ax.invert_xaxis()
+
+    return fig
+
+
+# =========================================================
+# PLOT GRANDE
+# =========================================================
+def plot_large(x,y,peak_idx):
 
     fig, ax = plt.subplots(figsize=(6,4), dpi=200)
 
-    ax.plot(x, y, "k-", lw=1.2)
+    ax.plot(x,y,"k",lw=1.2)
 
-    ax.scatter(x[peak_idx], y[peak_idx], color="red", zorder=3)
-
-    for i in peak_idx:
-
-        ax.text(
-            x[i],
-            y[i]+0.02,
-            f"{x[i]:.0f}",
-            fontsize=8,
-            ha="center"
-        )
+    ax.scatter(x[peak_idx],y[peak_idx],color="red")
 
     ax.set_xlabel("Raman Shift (cm⁻¹)")
     ax.set_ylabel("Normalized Intensity")
@@ -172,62 +174,66 @@ def plot_spectrum(x, y, peak_idx):
 
 
 # =========================================================
-# STREAMLIT TAB
+# STREAMLIT
 # =========================================================
 def render_mapeamento_molecular_tab(supabase):
 
-    st.header("🔬 Raman Mapping – 17 Spectra")
+    st.header("🔬 Raman Mapping")
 
     uploaded_file = st.file_uploader(
-        "Upload Raman Mapping",
+        "Upload arquivo Raman Mapping",
         type=["txt","csv"]
     )
 
     if not uploaded_file:
         return
 
-    df = read_mapping_file(uploaded_file)
+    df = read_mapping(uploaded_file)
 
-    grouped = df.groupby(["y","x"])
+    # agrupar apenas pelo Y
+    spectra = []
 
-    spectra_list = []
-
-    for (y_val, x_val), group in grouped:
+    for y_val, group in df.groupby("y"):
 
         group = group.sort_values("wave")
 
-        spectra_list.append({
+        spectra.append({
             "y": y_val,
-            "x": x_val,
             "wave": group["wave"].values,
             "intensity": group["intensity"].values
         })
 
-    st.write(f"Total de espectros detectados: **{len(spectra_list)}**")
+    st.write(f"Total de espectros detectados: **{len(spectra)}**")
 
-    cols = st.columns(2)
+    cols = st.columns(4)
 
-    for i, spec in enumerate(spectra_list):
+    for i, spec in enumerate(spectra):
 
-        x, y, baseline = process_spectrum(
+        x, y = process_spectrum(
             spec["wave"],
             spec["intensity"]
         )
 
-        peak_idx, peak_df = detect_peaks(x, y)
+        peak_idx, peak_df = detect_peaks(x,y)
 
-        with cols[i % 2]:
+        with cols[i%4]:
 
-            st.subheader(f"Espectro {i+1} — Y={spec['y']}")
+            st.caption(f"Y = {spec['y']}")
 
-            fig = plot_spectrum(x, y, peak_idx)
+            fig_small = plot_small(x,y)
 
-            st.pyplot(fig)
+            if st.button(f"Abrir {i+1}"):
 
-            st.dataframe(
-                peak_df,
-                use_container_width=True
-            )
+                st.pyplot(plot_large(x,y,peak_idx))
 
-        if i % 2 == 1:
-            cols = st.columns(2)
+                st.dataframe(
+                    peak_df,
+                    use_container_width=True
+                )
+
+            else:
+
+                st.pyplot(fig_small)
+
+        if i%4==3:
+            cols = st.columns(4)
