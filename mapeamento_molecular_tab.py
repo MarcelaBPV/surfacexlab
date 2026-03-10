@@ -1,4 +1,3 @@
-# mapeamento_molecular_tab.py
 # -*- coding: utf-8 -*-
 
 import streamlit as st
@@ -9,13 +8,15 @@ import matplotlib.pyplot as plt
 from scipy.signal import savgol_filter, find_peaks
 from scipy import sparse
 from scipy.sparse.linalg import spsolve
+from scipy.special import wofz
+from sklearn.decomposition import PCA
 
 
 # =========================================================
-# DATABASE RAMAN – SANGUE (LITERATURA)
+# DATABASE MOLECULAR RAMAN SANGUE (LITERATURA)
 # =========================================================
 
-RAMAN_BLOOD_DB = [
+RAMAN_DB = [
 
     (720,"DNA/RNA Adenine"),
     (754,"Hemoglobin breathing"),
@@ -35,24 +36,28 @@ RAMAN_BLOOD_DB = [
     (1562,"Hemoglobin ν19"),
     (1581,"Aromatic C=C"),
     (1602,"C=C stretching"),
-    (1620,"Tyrosine / proteins"),
+    (1620,"Tyrosine proteins"),
     (1632,"Protein side chains"),
     (1655,"Amide I proteins"),
 ]
 
 
+# =========================================================
+# IDENTIFICAÇÃO MOLECULAR
+# =========================================================
+
 def identify_molecule(peak):
 
-    best = "Unknown"
-    min_diff = 1e9
+    best="Unknown"
+    diff_min=1e9
 
-    for ref,label in RAMAN_BLOOD_DB:
+    for ref,label in RAMAN_DB:
 
-        diff = abs(peak-ref)
+        diff=abs(peak-ref)
 
-        if diff < min_diff and diff < 15:
-            min_diff = diff
-            best = label
+        if diff<diff_min and diff<15:
+            diff_min=diff
+            best=label
 
     return best
 
@@ -60,25 +65,25 @@ def identify_molecule(peak):
 # =========================================================
 # BASELINE ASLS
 # =========================================================
-def asls_baseline(y, lam=1e7, p=0.01, niter=15):
 
-    y = np.asarray(y)
+def baseline_asls(y, lam=1e7, p=0.01, niter=15):
 
-    N = len(y)
+    y=np.asarray(y)
 
-    D = sparse.diags([1,-2,1],[0,1,2], shape=(N-2,N))
+    N=len(y)
 
-    w = np.ones(N)
+    D=sparse.diags([1,-2,1],[0,1,2], shape=(N-2,N))
+    w=np.ones(N)
 
     for _ in range(niter):
 
-        W = sparse.diags(w,0)
+        W=sparse.diags(w,0)
 
-        Z = W + lam * D.T @ D
+        Z=W+lam*D.T@D
 
-        z = spsolve(Z, w*y)
+        z=spsolve(Z,w*y)
 
-        w = p*(y>z)+(1-p)*(y<z)
+        w=p*(y>z)+(1-p)*(y<z)
 
     return z
 
@@ -86,40 +91,49 @@ def asls_baseline(y, lam=1e7, p=0.01, niter=15):
 # =========================================================
 # SUAVIZAÇÃO
 # =========================================================
+
 def smooth(y):
 
-    window = 11
-
-    if window % 2 == 0:
-        window += 1
-
-    if len(y) < window:
+    if len(y)<11:
         return y
 
-    return savgol_filter(y,window,3)
+    return savgol_filter(y,11,3)
 
 
 # =========================================================
 # NORMALIZAÇÃO
 # =========================================================
+
 def normalize(y):
 
-    m = np.max(np.abs(y))
+    m=np.max(np.abs(y))
 
-    if m == 0:
+    if m==0:
         return y
 
     return y/m
 
 
 # =========================================================
-# LEITURA ARQUIVO
+# PERFIL VOIGT
 # =========================================================
+
+def voigt(x,a,c,s,g):
+
+    z=((x-c)+1j*g)/(s*np.sqrt(2))
+
+    return a*np.real(wofz(z))/(s*np.sqrt(2*np.pi))
+
+
+# =========================================================
+# LEITURA DO ARQUIVO
+# =========================================================
+
 def read_mapping(file):
 
     file.seek(0)
 
-    df = pd.read_csv(
+    df=pd.read_csv(
         file,
         sep=r"\s+|\t+|;|,",
         engine="python",
@@ -127,36 +141,37 @@ def read_mapping(file):
         decimal=","
     )
 
-    df = df.iloc[:,:4]
+    df=df.iloc[:,:4]
 
-    df.columns = ["y","x","wave","intensity"]
+    df.columns=["y","x","wave","intensity"]
 
-    df["y"] = pd.to_numeric(df["y"],errors="coerce")
-    df["wave"] = pd.to_numeric(df["wave"],errors="coerce")
-    df["intensity"] = pd.to_numeric(df["intensity"],errors="coerce")
+    df["y"]=pd.to_numeric(df["y"],errors="coerce")
+    df["wave"]=pd.to_numeric(df["wave"],errors="coerce")
+    df["intensity"]=pd.to_numeric(df["intensity"],errors="coerce")
 
-    df = df.dropna()
+    df=df.dropna()
 
     return df
 
 
 # =========================================================
-# PROCESSAMENTO
+# PROCESSAMENTO DO ESPECTRO
 # =========================================================
+
 def process_spectrum(wave,intensity):
 
-    idx = np.argsort(wave)
+    idx=np.argsort(wave)
 
-    x = wave[idx]
-    y = intensity[idx]
+    x=wave[idx]
+    y=intensity[idx]
 
-    y = smooth(y)
+    y=smooth(y)
 
-    baseline = asls_baseline(y)
+    baseline=baseline_asls(y)
 
-    y_corr = y-baseline
+    y_corr=y-baseline
 
-    y_norm = normalize(y_corr)
+    y_norm=normalize(y_corr)
 
     return x,y_norm
 
@@ -164,9 +179,10 @@ def process_spectrum(wave,intensity):
 # =========================================================
 # DETECÇÃO DE PICOS
 # =========================================================
+
 def detect_peaks(x,y):
 
-    peaks,_ = find_peaks(
+    peaks,_=find_peaks(
         y,
         prominence=0.05,
         distance=20
@@ -176,7 +192,7 @@ def detect_peaks(x,y):
 
     for p in peaks:
 
-        pos = float(x[p])
+        pos=float(x[p])
 
         table.append({
             "Peak (cm⁻¹)":round(pos,1),
@@ -188,101 +204,157 @@ def detect_peaks(x,y):
 
 
 # =========================================================
-# PLOT PEQUENO
+# HEATMAP
 # =========================================================
-def plot_small(x,y):
 
-    fig,ax = plt.subplots(figsize=(3,2),dpi=120)
+def plot_heatmap(df):
 
-    ax.plot(x,y,"k",lw=1)
+    pivot=df.pivot_table(
+        index="y",
+        columns="wave",
+        values="intensity"
+    )
 
-    ax.invert_xaxis()
+    fig,ax=plt.subplots(figsize=(6,4))
 
-    ax.set_xticks([])
-    ax.set_yticks([])
+    im=ax.imshow(
+        pivot.values,
+        aspect="auto",
+        cmap="inferno",
+        origin="lower"
+    )
+
+    ax.set_ylabel("Y position")
+
+    ax.set_title("Raman intensity map")
+
+    fig.colorbar(im)
 
     return fig
 
 
 # =========================================================
-# PLOT GRANDE
+# PCA
 # =========================================================
-def plot_large(x,y,peaks):
 
-    fig,ax = plt.subplots(figsize=(6,4),dpi=200)
+def run_pca(spectra):
 
-    ax.plot(x,y,"k",lw=1.2)
+    X=[]
 
-    ax.scatter(x[peaks],y[peaks],color="red")
+    for s in spectra:
 
-    ax.set_xlabel("Raman Shift (cm⁻¹)")
-    ax.set_ylabel("Normalized Intensity")
+        X.append(s["intensity"])
 
-    ax.invert_xaxis()
+    X=np.array(X)
+
+    pca=PCA(n_components=2)
+
+    scores=pca.fit_transform(X)
+
+    fig,ax=plt.subplots()
+
+    ax.scatter(scores[:,0],scores[:,1])
+
+    ax.set_xlabel("PC1")
+    ax.set_ylabel("PC2")
+
+    ax.set_title("PCA Raman spectra")
 
     return fig
 
 
 # =========================================================
-# STREAMLIT TAB
+# STREAMLIT
 # =========================================================
+
 def render_mapeamento_molecular_tab(supabase):
 
-    st.header("🔬 Raman Molecular Mapping")
+    st.header("🧬 Raman Molecular Mapping")
 
-    file = st.file_uploader(
-        "Upload Raman mapping file",
+    file=st.file_uploader(
+        "Upload Raman mapping",
         type=["txt","csv"]
     )
 
     if not file:
         return
 
-    df = read_mapping(file)
+    df=read_mapping(file)
 
     spectra=[]
 
     for y_val,group in df.groupby("y"):
 
-        group = group.sort_values("wave")
+        group=group.sort_values("wave")
+
+        x,y=process_spectrum(
+            group["wave"].values,
+            group["intensity"].values
+        )
 
         spectra.append({
             "y":y_val,
-            "wave":group["wave"].values,
-            "intensity":group["intensity"].values
+            "wave":x,
+            "intensity":y
         })
 
-    st.write(f"Total de espectros detectados: **{len(spectra)}**")
+    st.write(f"Total espectros: **{len(spectra)}**")
 
-    cols = st.columns(4)
+    cols=st.columns(4)
 
     for i,spec in enumerate(spectra):
 
-        x,y = process_spectrum(
+        peaks,table=detect_peaks(
             spec["wave"],
             spec["intensity"]
         )
-
-        peaks,table = detect_peaks(x,y)
 
         with cols[i%4]:
 
             st.caption(f"Y = {spec['y']}")
 
-            fig_small = plot_small(x,y)
+            fig,ax=plt.subplots(figsize=(3,2))
 
-            if st.button(f"Abrir {i+1}"):
+            ax.plot(
+                spec["wave"],
+                spec["intensity"],
+                "k",
+                lw=1
+            )
 
-                st.pyplot(plot_large(x,y,peaks))
+            ax.invert_xaxis()
 
-                st.dataframe(
-                    table,
-                    use_container_width=True
+            st.pyplot(fig)
+
+            if st.button(f"Expandir {i}"):
+
+                fig2,ax2=plt.subplots(figsize=(6,4))
+
+                ax2.plot(
+                    spec["wave"],
+                    spec["intensity"],
+                    "k"
                 )
 
-            else:
+                ax2.scatter(
+                    spec["wave"][peaks],
+                    spec["intensity"][peaks],
+                    color="red"
+                )
 
-                st.pyplot(fig_small)
+                ax2.invert_xaxis()
+
+                st.pyplot(fig2)
+
+                st.dataframe(table)
 
         if i%4==3:
-            cols = st.columns(4)
+            cols=st.columns(4)
+
+    st.subheader("Mapa Raman")
+
+    st.pyplot(plot_heatmap(df))
+
+    st.subheader("PCA espectral")
+
+    st.pyplot(run_pca(spectra))
