@@ -117,7 +117,7 @@ with st.sidebar:
         st.image(logo_image, use_container_width=True)
         st.divider()
 
-    st.header("📦 Cadastro de Amostra")
+    st.header("*Cadastro de Amostra")
 
     sample_code = st.text_input("Código da Amostra *", key="crm_sample_code")
     material_type = st.text_input("Tipo de Material", key="crm_material_type")
@@ -171,7 +171,7 @@ with tabs[0]:
 # ---------------------------------------------------------
 # MAPEAMENTO MOLECULAR RAMAN
 # ---------------------------------------------------------
-with tabs[1]:
+with tabs[3]:
 
     if render_mapeamento_molecular_tab:
         render_mapeamento_molecular_tab(supabase)
@@ -182,7 +182,7 @@ with tabs[1]:
 # ---------------------------------------------------------
 # RESISTIVIDADE
 # ---------------------------------------------------------
-with tabs[2]:
+with tabs[1]:
 
     if render_resistividade_tab:
         render_resistividade_tab(supabase)
@@ -193,7 +193,7 @@ with tabs[2]:
 # ---------------------------------------------------------
 # TENSIOMETRIA
 # ---------------------------------------------------------
-with tabs[3]:
+with tabs[2]:
 
     if render_tensiometria_tab:
         render_tensiometria_tab(supabase)
