@@ -153,11 +153,11 @@ with st.sidebar:
 # =========================================================
 tabs = st.tabs([
     "1 Molecular - Raman",
-    "2 Mapeamento Molecular",
-    "3 Elétrica - Resistividade",
-    "4 Físico-Mecânica - Tensiometria",
-    "5 Otimizador - PCA + IA",
-    "6 Dashboard"
+    "2 Elétrica - Resistividade",
+    "3 Físico-Mecânica - Tensiometria",
+    "4 Mapeamento Molecular"
+    #"5 Otimizador - PCA + IA",
+    #"6 Dashboard"
 ])
 
 
