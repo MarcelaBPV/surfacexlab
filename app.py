@@ -1,10 +1,7 @@
-# app.py
-# -*- coding: utf-8 -*-
-
-"""
-SurfaceXLab
-Plataforma CRM para caracterização e otimização de superfícies
-"""
+# =========================================================
+# SurfaceXLab
+# Plataforma CRM para Caracterização e Otimização de Superfícies
+# =========================================================
 
 import streamlit as st
 from supabase import create_client, Client
@@ -13,26 +10,39 @@ from PIL import Image
 
 
 # =========================================================
-# LOGO — CARREGAMENTO SEGURO
+# CONFIGURAÇÃO DE DIRETÓRIOS
 # =========================================================
-BASE_DIR = Path(__file__).parent
-LOGO_PATH = BASE_DIR / "assets" / "surfacexlab_logo.png"
 
-logo_image = None
-if LOGO_PATH.exists():
-    try:
-        logo_image = Image.open(LOGO_PATH)
-    except Exception:
-        logo_image = None
+BASE_DIR = Path(__file__).parent
+ASSETS_DIR = BASE_DIR / "assets"
+LOGO_PATH = ASSETS_DIR / "surfacexlab_logo.png"
+
+
+# =========================================================
+# CARREGAMENTO DA LOGO
+# =========================================================
+
+def load_logo():
+    """Carrega logo de forma segura"""
+    if LOGO_PATH.exists():
+        try:
+            return Image.open(LOGO_PATH)
+        except Exception:
+            return None
+    return None
+
+
+logo_image = load_logo()
 
 
 # =========================================================
 # CONFIGURAÇÃO DA PÁGINA
 # =========================================================
+
 st.set_page_config(
     page_title="SurfaceXLab",
     page_icon=logo_image if logo_image else "X",
-    layout="wide",
+    layout="wide"
 )
 
 st.title("SurfaceXLab — Plataforma de Caracterização e Otimização de Superfícies")
@@ -41,11 +51,13 @@ st.title("SurfaceXLab — Plataforma de Caracterização e Otimização de Super
 # =========================================================
 # CONEXÃO COM SUPABASE
 # =========================================================
+
 @st.cache_resource
 def init_supabase() -> Client:
+    """Inicializa conexão com Supabase"""
     return create_client(
         st.secrets["SUPABASE_URL"],
-        st.secrets["SUPABASE_ANON_KEY"],
+        st.secrets["SUPABASE_ANON_KEY"]
     )
 
 
@@ -55,19 +67,25 @@ supabase = init_supabase()
 # =========================================================
 # IMPORTAÇÃO SEGURA DE MÓDULOS
 # =========================================================
+
 def safe_import(module_name: str, func_name: str, optional: bool = False):
     """
     Importa funções de módulos de forma segura.
-    Se optional=True, não interrompe a aplicação caso o módulo não exista.
     """
+
     try:
         module = __import__(module_name, fromlist=[func_name])
+
         if not hasattr(module, func_name):
             raise AttributeError
+
         return getattr(module, func_name)
+
     except Exception:
+
         if optional:
             return None
+
         st.error(f"❌ Função `{func_name}` não encontrada em `{module_name}.py`")
         st.stop()
 
@@ -75,7 +93,11 @@ def safe_import(module_name: str, func_name: str, optional: bool = False):
 # =========================================================
 # IMPORTAÇÃO DOS MÓDULOS ANALÍTICOS
 # =========================================================
-render_raman_tab = safe_import("raman_tab", "render_raman_tab")
+
+render_raman_tab = safe_import(
+    "raman_tab",
+    "render_raman_tab"
+)
 
 render_mapeamento_molecular_tab = safe_import(
     "mapeamento_molecular_tab",
@@ -109,31 +131,30 @@ render_dashboard_tab = safe_import(
 
 
 # =========================================================
-# SIDEBAR — CRM / CADASTRO DE AMOSTRAS
+# SIDEBAR — CADASTRO DE AMOSTRAS (CRM)
 # =========================================================
+
 with st.sidebar:
 
     if logo_image:
         st.image(logo_image, use_container_width=True)
         st.divider()
 
-    st.header("*Cadastro de Amostra")
+    st.header("Cadastro de Amostra")
 
-    sample_code = st.text_input("Código da Amostra *", key="crm_sample_code")
-    material_type = st.text_input("Tipo de Material", key="crm_material_type")
-    substrate = st.text_input("Substrato", key="crm_substrate")
-    surface_treatment = st.text_input(
-        "Tratamento de Superfície",
-        key="crm_surface_treatment"
-    )
-    description = st.text_area("Descrição", key="crm_description")
+    sample_code = st.text_input("Código da Amostra *")
+    material_type = st.text_input("Tipo de Material")
+    substrate = st.text_input("Substrato")
+    surface_treatment = st.text_input("Tratamento de Superfície")
+    description = st.text_area("Descrição da Amostra")
 
-    if st.button("Salvar Amostra", key="crm_save_button"):
+    if st.button("Salvar Amostra"):
 
         if not sample_code:
             st.warning("⚠ Código da amostra é obrigatório.")
         else:
             try:
+
                 supabase.table("samples").insert({
                     "sample_code": sample_code,
                     "material_type": material_type,
@@ -149,39 +170,31 @@ with st.sidebar:
 
 
 # =========================================================
-# ABAS PRINCIPAIS
+# ABAS PRINCIPAIS DA PLATAFORMA
 # =========================================================
+
 tabs = st.tabs([
     "1 Molecular - Raman",
     "2 Elétrica - Resistividade",
     "3 Físico-Mecânica - Tensiometria",
-    "4 Mapeamento Molecular"
-    #"5 Otimizador - PCA + IA",
-    #"6 Dashboard"
+    "4 Mapeamento Molecular",
+    "5 Otimização IA",
+    "6 Dashboard"
 ])
 
 
-# ---------------------------------------------------------
-# RAMAN PADRÃO
-# ---------------------------------------------------------
+# =========================================================
+# RAMAN
+# =========================================================
+
 with tabs[0]:
     render_raman_tab(supabase)
 
 
-# ---------------------------------------------------------
-# MAPEAMENTO MOLECULAR RAMAN
-# ---------------------------------------------------------
-with tabs[3]:
-
-    if render_mapeamento_molecular_tab:
-        render_mapeamento_molecular_tab(supabase)
-    else:
-        st.info("Módulo de mapeamento molecular ainda não implementado.")
-
-
-# ---------------------------------------------------------
+# =========================================================
 # RESISTIVIDADE
-# ---------------------------------------------------------
+# =========================================================
+
 with tabs[1]:
 
     if render_resistividade_tab:
@@ -190,9 +203,10 @@ with tabs[1]:
         st.info("Módulo de resistividade ainda não implementado.")
 
 
-# ---------------------------------------------------------
+# =========================================================
 # TENSIOMETRIA
-# ---------------------------------------------------------
+# =========================================================
+
 with tabs[2]:
 
     if render_tensiometria_tab:
@@ -201,9 +215,22 @@ with tabs[2]:
         st.info("Módulo de tensiometria ainda não implementado.")
 
 
-# ---------------------------------------------------------
-# OTIMIZAÇÃO IA
-# ---------------------------------------------------------
+# =========================================================
+# MAPEAMENTO MOLECULAR RAMAN
+# =========================================================
+
+with tabs[3]:
+
+    if render_mapeamento_molecular_tab:
+        render_mapeamento_molecular_tab(supabase)
+    else:
+        st.info("Módulo de mapeamento molecular ainda não implementado.")
+
+
+# =========================================================
+# OTIMIZAÇÃO COM IA
+# =========================================================
+
 with tabs[4]:
 
     if render_ml_tab:
@@ -212,9 +239,10 @@ with tabs[4]:
         st.info("Módulo de otimização inteligente ainda não implementado.")
 
 
-# ---------------------------------------------------------
+# =========================================================
 # DASHBOARD
-# ---------------------------------------------------------
+# =========================================================
+
 with tabs[5]:
 
     if render_dashboard_tab:
