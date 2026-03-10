@@ -70,7 +70,7 @@ supabase = init_supabase()
 
 def safe_import(module_name: str, func_name: str, optional: bool = False):
     """
-    Importa funções de módulos de forma segura.
+    Importa funções de módulos de forma segura
     """
 
     try:
@@ -117,17 +117,17 @@ render_tensiometria_tab = safe_import(
     optional=True
 )
 
-render_ml_tab = safe_import(
-    "ml_tab",
-    "render_ml_tab",
-    optional=True
-)
+# render_ml_tab = safe_import(
+#     "ml_tab",
+#     "render_ml_tab",
+#     optional=True
+# )
 
-render_dashboard_tab = safe_import(
-    "dashboard_tab",
-    "render_dashboard_tab",
-    optional=True
-)
+# render_dashboard_tab = safe_import(
+#     "dashboard_tab",
+#     "render_dashboard_tab",
+#     optional=True
+# )
 
 
 # =========================================================
@@ -170,16 +170,16 @@ with st.sidebar:
 
 
 # =========================================================
-# ABAS PRINCIPAIS DA PLATAFORMA
+# ABAS PRINCIPAIS
 # =========================================================
 
 tabs = st.tabs([
     "1 Molecular - Raman",
     "2 Elétrica - Resistividade",
     "3 Físico-Mecânica - Tensiometria",
-    "4 Mapeamento Molecular",
-    "5 Otimização IA",
-    "6 Dashboard"
+    "4 Mapeamento Molecular"
+    # "5 Otimização IA",
+    # "6 Dashboard"
 ])
 
 
@@ -228,24 +228,24 @@ with tabs[3]:
 
 
 # =========================================================
-# OTIMIZAÇÃO COM IA
+# OTIMIZAÇÃO IA (DESATIVADO)
 # =========================================================
 
-with tabs[4]:
-
-    if render_ml_tab:
-        render_ml_tab(supabase)
-    else:
-        st.info("Módulo de otimização inteligente ainda não implementado.")
+# with tabs[4]:
+#
+#     if render_ml_tab:
+#         render_ml_tab(supabase)
+#     else:
+#         st.info("Módulo de otimização inteligente ainda não implementado.")
 
 
 # =========================================================
-# DASHBOARD
+# DASHBOARD (DESATIVADO)
 # =========================================================
 
-with tabs[5]:
-
-    if render_dashboard_tab:
-        render_dashboard_tab(supabase)
-    else:
-        st.info("Dashboard ainda não implementado.")
+# with tabs[5]:
+#
+#     if render_dashboard_tab:
+#         render_dashboard_tab(supabase)
+#     else:
+#         st.info("Dashboard ainda não implementado.")
