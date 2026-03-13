@@ -121,15 +121,19 @@ def render_tensiometria_tab(supabase=None):
                 st.session_state.tensiometry_samples = {}
                 st.experimental_rerun()
 
+
 # =========================================================
 # FUNÇÃO PCA
 # =========================================================
-
     def run_pca(df_pca):
 
-        if "Amostra" not in df_pca.columns:
-            df_pca = df_pca.reset_index()
+        df_pca = df_pca.copy()
 
+        # garantir coluna Amostra
+        if "Amostra" not in df_pca.columns:
+            df_pca["Amostra"] = df_pca.index.astype(str)
+
+        # colunas possíveis
         feature_cols = [
             "Rrms (mm)",
             "q* (°)",
@@ -149,7 +153,7 @@ def render_tensiometria_tab(supabase=None):
 
         X = df_pca[feature_cols].apply(pd.to_numeric, errors="coerce").fillna(0).values
 
-        labels = df_pca["Amostra"]
+        labels = df_pca["Amostra"].astype(str).values
 
         X_scaled = StandardScaler().fit_transform(X)
 
@@ -205,10 +209,10 @@ def render_tensiometria_tab(supabase=None):
             "Variância (%)":explained.round(2)
         }))
 
+
 # =========================================================
 # SUBABA 2 — PCA
 # =========================================================
-
     with subtabs[1]:
 
         option = st.radio(
