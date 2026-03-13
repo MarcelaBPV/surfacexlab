@@ -9,227 +9,274 @@ import matplotlib.pyplot as plt
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
 
-from tensiometria_processing import (
-    read_contact_angle_log,
-    clean_contact_angle,
-    compute_rrms,
-    compute_q_star,
-)
+
+# ==========================================================
+# PROPRIEDADES DOS LÍQUIDOS (OWRK)
+# ==========================================================
+
+LIQUIDS = {
+
+"Agua":{
+"gamma":72.8,
+"gamma_d":21.8,
+"gamma_p":51.0
+},
+
+"Diiodometano":{
+"gamma":50.8,
+"gamma_d":50.8,
+"gamma_p":0.0
+},
+
+"Etilenoglicol":{
+"gamma":48.0,
+"gamma_d":29.0,
+"gamma_p":19.0
+},
+
+"Glicerol":{
+"gamma":63.4,
+"gamma_d":37.0,
+"gamma_p":26.4
+}
+
+}
 
 
-# =========================================================
+# ==========================================================
+# MÉTODO OWRK
+# ==========================================================
+
+def calculate_owrk(df_sample):
+
+    X=[]
+    Y=[]
+
+    for _,row in df_sample.iterrows():
+
+        liquid=row["Liquido"]
+        theta=row["Angulo"]
+
+        if liquid not in LIQUIDS:
+            continue
+
+        L=LIQUIDS[liquid]
+
+        theta=np.radians(theta)
+
+        y=(L["gamma"]*(1+np.cos(theta))) / (2*np.sqrt(L["gamma_d"]))
+        x=np.sqrt(L["gamma_p"]/L["gamma_d"])
+
+        X.append(x)
+        Y.append(y)
+
+    X=np.array(X)
+    Y=np.array(Y)
+
+    coef=np.polyfit(X,Y,1)
+
+    slope=coef[0]
+    intercept=coef[1]
+
+    gamma_s_d = intercept**2
+    gamma_s_p = slope**2
+    gamma_total = gamma_s_d + gamma_s_p
+
+    return gamma_total, gamma_s_d, gamma_s_p
+
+
+# ==========================================================
 # ABA TENSIOMETRIA
-# =========================================================
-def render_tensiometria_tab(supabase=None):
+# ==========================================================
 
-    st.header("💧 Físico-Mecânica — Tensiometria Óptica")
+def render_tensiometria_tab():
 
-    st.markdown(
-        """
-        **Subaba 1**  
-        Upload do arquivo `.LOG` + cálculo automático de **Rrms\\*** e **q\\***  
-        Inserção manual de **ID/IG** e **I2D/IG**
-
-        **Subaba 2**  
-        PCA multivariada baseada em  
-        **Rrms\\*, ID/IG, I2D/IG e q\\***
-        """
-    )
-
-    # =====================================================
-    # SESSION STATE
-    # =====================================================
-    if "tensiometry_samples" not in st.session_state:
-        st.session_state.tensiometry_samples = {}
+    st.header("💧 Tensiometria Óptica — Energia de Superfície")
 
     subtabs = st.tabs([
-        "📐 Upload & Processamento",
+        "📐 Energia de Superfície",
         "📊 PCA — Tensiometria"
     ])
 
-    # =====================================================
-    # SUBABA 1 — PROCESSAMENTO
-    # =====================================================
+    if "tensiometry_samples" not in st.session_state:
+        st.session_state.tensiometry_samples = {}
+
+
+
+# ==========================================================
+# SUBABA 1 — CÁLCULO ENERGIA
+# ==========================================================
+
     with subtabs[0]:
 
-        uploaded_files = st.file_uploader(
-            "Upload dos arquivos .LOG de tensiometria",
-            type=["log", "txt", "csv"],
-            accept_multiple_files=True
+        uploaded_file = st.file_uploader(
+        "Upload arquivo Excel de ângulo de contato",
+        type=["xls","xlsx","ods"]
         )
 
-        st.markdown("### 🔬 Parâmetros complementares (Raman / Topografia)")
+        if uploaded_file:
 
-        col1, col2 = st.columns(2)
-        with col1:
-            id_ig = st.number_input("ID/IG", value=0.0, format="%.4f")
-        with col2:
-            i2d_ig = st.number_input("I2D/IG", value=0.0, format="%.4f")
+            df = pd.read_excel(uploaded_file)
 
-        if uploaded_files:
+            st.subheader("Dados carregados")
 
-            for file in uploaded_files:
+            st.dataframe(df)
 
-                if file.name in st.session_state.tensiometry_samples:
-                    st.warning(f"{file.name} já foi processado.")
-                    continue
+            samples=df["Amostra"].unique()
 
-                st.markdown(f"---\n### 📄 Amostra: `{file.name}`")
+            results=[]
 
-                try:
-                    # -----------------------------
-                    # Leitura e limpeza
-                    # -----------------------------
-                    df_raw = read_contact_angle_log(file)
-                    df = clean_contact_angle(df_raw)
+            for sample in samples:
 
-                    if df.empty:
-                        st.warning("Arquivo ignorado (sem dados válidos).")
-                        continue
+                sub=df[df["Amostra"]==sample]
 
-                    # -----------------------------
-                    # Cálculos físicos
-                    # -----------------------------
-                    rrms = compute_rrms(df)
-                    q_star = compute_q_star(df)
+                gamma,gamma_d,gamma_p = calculate_owrk(sub)
 
-                    # -----------------------------
-                    # Gráfico θ × tempo
-                    # -----------------------------
-                    fig, ax = plt.subplots(figsize=(7, 4), dpi=300)
+                results.append({
 
-                    ax.plot(df["time_s"], df["theta_mean"], lw=1.5)
-                    ax.axhline(q_star, color="red", ls="--", label="q*")
+                "Amostra":sample,
+                "Energia_total":gamma,
+                "Dispersiva":gamma_d,
+                "Polar":gamma_p
 
-                    ax.set_xlabel("Tempo (s)")
-                    ax.set_ylabel("Ângulo de contato (°)")
-                    ax.set_title("Evolução do ângulo de contato")
-                    ax.legend()
-                    ax.grid(alpha=0.3)
+                })
 
-                    st.pyplot(fig)
+            df_results=pd.DataFrame(results)
 
-                    # -----------------------------
-                    # Summary consolidado
-                    # -----------------------------
-                    summary = {
-                        "Amostra": file.name,
-                        "Rrms*": rrms,
-                        "ID/IG": id_ig,
-                        "I2D/IG": i2d_ig,
-                        "q*": q_star,
-                    }
+            st.subheader("Energia de superfície calculada")
 
-                    st.session_state.tensiometry_samples[file.name] = summary
+            st.dataframe(df_results)
 
-                    # -----------------------------
-                    # Preview individual
-                    # -----------------------------
-                    st.markdown("**Variáveis calculadas para a amostra:**")
+            for _,row in df_results.iterrows():
 
-                    st.dataframe(
-                        pd.DataFrame([summary]).set_index("Amostra"),
-                        use_container_width=True
-                    )
+                st.session_state.tensiometry_samples[row["Amostra"]]=row
 
-                    st.success("✔ Amostra processada com sucesso")
 
-                except Exception as e:
-                    st.error("Erro ao processar a amostra")
-                    st.exception(e)
+# ==========================================================
+# GRÁFICO POLAR vs DISPERSIVO
+# ==========================================================
 
-        # =====================================================
-        # EXPORTAÇÃO PARA ML
-        # =====================================================
-        if st.session_state.tensiometry_samples:
+            st.subheader("Mapa polar vs dispersivo")
 
-            st.markdown("---")
-            st.subheader("📋 Resumo físico consolidado")
+            fig,ax=plt.subplots(figsize=(6,6),dpi=300)
 
-            df_all = pd.DataFrame(st.session_state.tensiometry_samples.values())
+            ax.scatter(
+            df_results["Dispersiva"],
+            df_results["Polar"],
+            s=90,
+            edgecolor="black"
+            )
 
-            st.dataframe(df_all, use_container_width=True)
+            for i,row in df_results.iterrows():
 
-            # 👉 EXPORTA MATRIZ LIMPA PARA ML TAB
-            df_ml = df_all.copy()
-            df_ml = df_ml.apply(pd.to_numeric, errors="ignore")
+                ax.text(
+                row["Dispersiva"]+0.5,
+                row["Polar"]+0.5,
+                row["Amostra"]
+                )
 
-            st.session_state.tensiometry_features = df_ml
+            ax.set_xlabel("Componente dispersiva γsᵈ (mN/m)")
+            ax.set_ylabel("Componente polar γsᵖ (mN/m)")
 
-            if st.button("🗑 Limpar amostras de tensiometria"):
-                st.session_state.tensiometry_samples = {}
-                st.session_state.tensiometry_features = None
-                st.experimental_rerun()
+            ax.set_title("Energia de superfície — método OWRK")
 
-    # =====================================================
-    # SUBABA 2 — PCA LOCAL
-    # =====================================================
+            ax.grid(alpha=0.3)
+
+            st.pyplot(fig)
+
+
+
+# ==========================================================
+# SUBABA 2 — PCA
+# ==========================================================
+
     with subtabs[1]:
 
         if len(st.session_state.tensiometry_samples) < 2:
+
             st.info("Carregue ao menos duas amostras.")
             return
 
-        df_pca = pd.DataFrame(st.session_state.tensiometry_samples.values())
+        df_pca=pd.DataFrame(st.session_state.tensiometry_samples.values())
 
-        st.subheader("Dados de entrada da PCA")
-        st.dataframe(df_pca, use_container_width=True)
+        st.subheader("Dados utilizados na PCA")
 
-        feature_cols = ["Rrms*", "ID/IG", "I2D/IG", "q*"]
+        st.dataframe(df_pca)
 
-        X = df_pca[feature_cols].values
-        labels = df_pca["Amostra"].values
+        features=[
+        "Energia_total",
+        "Dispersiva",
+        "Polar"
+        ]
 
-        X_scaled = StandardScaler().fit_transform(X)
+        X=df_pca[features].values
 
-        pca = PCA(n_components=2)
-        scores = pca.fit_transform(X_scaled)
-        loadings = pca.components_.T
-        explained = pca.explained_variance_ratio_ * 100
+        labels=df_pca["Amostra"]
 
-        # ---------------------------
-        # BIPLOT
-        # ---------------------------
-        fig, ax = plt.subplots(figsize=(7, 7), dpi=300)
+        scaler=StandardScaler()
 
-        ax.scatter(scores[:, 0], scores[:, 1], s=90, edgecolor="black")
+        X_scaled=scaler.fit_transform(X)
 
-        for i, label in enumerate(labels):
-            ax.text(scores[i, 0] + 0.03, scores[i, 1] + 0.03, label, fontsize=9)
+        pca=PCA(n_components=2)
 
-        scale = np.max(np.abs(scores)) * 0.85
+        scores=pca.fit_transform(X_scaled)
 
-        for i, var in enumerate(feature_cols):
+        loadings=pca.components_.T
+
+        explained=pca.explained_variance_ratio_*100
+
+
+# ==========================================================
+# BIPLOT PCA
+# ==========================================================
+
+        fig,ax=plt.subplots(figsize=(7,7),dpi=300)
+
+        ax.scatter(scores[:,0],scores[:,1],s=90,edgecolor="black")
+
+        for i,label in enumerate(labels):
+
+            ax.text(scores[i,0]+0.05,scores[i,1]+0.05,label)
+
+        scale=np.max(np.abs(scores))*0.8
+
+        for i,var in enumerate(features):
+
             ax.arrow(
-                0, 0,
-                loadings[i, 0] * scale,
-                loadings[i, 1] * scale,
-                color="black",
-                head_width=0.08,
-                length_includes_head=True
+            0,0,
+            loadings[i,0]*scale,
+            loadings[i,1]*scale,
+            head_width=0.08
             )
 
             ax.text(
-                loadings[i, 0] * scale * 1.1,
-                loadings[i, 1] * scale * 1.1,
-                var,
-                fontsize=9
+            loadings[i,0]*scale*1.1,
+            loadings[i,1]*scale*1.1,
+            var
             )
 
-        ax.axhline(0, color="gray", lw=0.6)
-        ax.axvline(0, color="gray", lw=0.6)
+        ax.axhline(0,color="gray")
+        ax.axvline(0,color="gray")
 
         ax.set_xlabel(f"PC1 ({explained[0]:.1f}%)")
         ax.set_ylabel(f"PC2 ({explained[1]:.1f}%)")
-        ax.set_title("PCA — Tensiometria")
-        ax.set_aspect("equal", adjustable="box")
+
+        ax.set_title("PCA — Energia de superfície")
+
         ax.grid(alpha=0.3)
 
         st.pyplot(fig)
 
+
+# ==========================================================
+# VARIÂNCIA
+# ==========================================================
+
         st.subheader("Variância explicada")
 
         st.dataframe(pd.DataFrame({
-            "Componente": ["PC1", "PC2"],
-            "Variância (%)": explained.round(2)
+
+        "Componente":["PC1","PC2"],
+        "Variância (%)":explained.round(2)
+
         }))
