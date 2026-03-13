@@ -129,11 +129,9 @@ def render_tensiometria_tab(supabase=None):
 
         df_pca = df_pca.copy()
 
-        # garantir coluna Amostra
         if "Amostra" not in df_pca.columns:
             df_pca["Amostra"] = df_pca.index.astype(str)
 
-        # colunas possíveis
         feature_cols = [
             "Rrms (mm)",
             "q* (°)",
@@ -174,20 +172,29 @@ def render_tensiometria_tab(supabase=None):
 
         scale = np.max(np.abs(scores))*0.8
 
-        for i,var in enumerate(feature_cols):
+        # =========================================================
+        # VETORES DAS VARIÁVEIS (AGORA COM NOME)
+        # =========================================================
+        for i in range(len(feature_cols)):
+
+            var_name = feature_cols[i]
 
             ax.arrow(
-                0,0,
+                0,
+                0,
                 loadings[i,0]*scale,
                 loadings[i,1]*scale,
                 head_width=0.05,
-                color="black"
+                color="black",
+                length_includes_head=True
             )
 
             ax.text(
-                loadings[i,0]*scale*1.1,
-                loadings[i,1]*scale*1.1,
-                var
+                loadings[i,0]*scale*1.15,
+                loadings[i,1]*scale*1.15,
+                var_name,
+                fontsize=10,
+                fontweight="bold"
             )
 
         ax.axhline(0,color="gray",lw=0.5)
