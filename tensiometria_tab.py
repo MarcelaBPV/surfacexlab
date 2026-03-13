@@ -19,9 +19,6 @@ def render_tensiometria_tab(supabase=None):
 
     st.header("💧 Físico-Mecânica — Tensiometria Óptica")
 
-    # =========================================================
-    # SESSION STATE
-    # =========================================================
     if "tensiometry_samples" not in st.session_state:
         st.session_state.tensiometry_samples = {}
 
@@ -116,6 +113,8 @@ def render_tensiometria_tab(supabase=None):
                 st.session_state.tensiometry_samples.values()
             )
 
+            df_all["Amostra"] = list(st.session_state.tensiometry_samples.keys())
+
             st.dataframe(df_all,use_container_width=True)
 
             if st.button("Limpar dados"):
@@ -128,6 +127,9 @@ def render_tensiometria_tab(supabase=None):
 
     def run_pca(df_pca):
 
+        if "Amostra" not in df_pca.columns:
+            df_pca = df_pca.reset_index()
+
         feature_cols = [
             "Rrms (mm)",
             "q* (°)",
@@ -138,7 +140,15 @@ def render_tensiometria_tab(supabase=None):
             "I2D/IG"
         ]
 
-        X = df_pca[feature_cols].values
+        feature_cols = [c for c in feature_cols if c in df_pca.columns]
+
+        if len(feature_cols) < 2:
+            st.error("Dados insuficientes para PCA")
+            st.write("Colunas disponíveis:", df_pca.columns.tolist())
+            return
+
+        X = df_pca[feature_cols].apply(pd.to_numeric, errors="coerce").fillna(0).values
+
         labels = df_pca["Amostra"]
 
         X_scaled = StandardScaler().fit_transform(X)
@@ -146,7 +156,9 @@ def render_tensiometria_tab(supabase=None):
         pca = PCA(n_components=2)
 
         scores = pca.fit_transform(X_scaled)
+
         loadings = pca.components_.T
+
         explained = pca.explained_variance_ratio_ * 100
 
         fig,ax = plt.subplots(figsize=(7,7),dpi=300)
@@ -171,8 +183,7 @@ def render_tensiometria_tab(supabase=None):
             ax.text(
                 loadings[i,0]*scale*1.1,
                 loadings[i,1]*scale*1.1,
-                var,
-                fontsize=9
+                var
             )
 
         ax.axhline(0,color="gray",lw=0.5)
@@ -200,24 +211,17 @@ def render_tensiometria_tab(supabase=None):
 
     with subtabs[1]:
 
-        st.subheader("Fonte dos dados para PCA")
-
         option = st.radio(
-            "Escolha a origem dos dados",
+            "Fonte dos dados",
             [
                 "Usar amostras processadas",
                 "Carregar arquivo (CSV / XLS / XLSX)"
             ]
         )
 
-# =========================================================
-# PCA — USANDO DADOS PROCESSADOS
-# =========================================================
-
         if option == "Usar amostras processadas":
 
             if len(st.session_state.tensiometry_samples) < 2:
-
                 st.info("Processar ao menos duas amostras.")
                 return
 
@@ -225,16 +229,14 @@ def render_tensiometria_tab(supabase=None):
                 st.session_state.tensiometry_samples.values()
             )
 
-            run_pca(df_pca)
+            df_pca["Amostra"] = list(st.session_state.tensiometry_samples.keys())
 
-# =========================================================
-# PCA — CARREGAR ARQUIVO
-# =========================================================
+            run_pca(df_pca)
 
         else:
 
             uploaded_pca = st.file_uploader(
-                "Upload dados para PCA",
+                "Upload dados PCA",
                 type=["csv","xls","xlsx"]
             )
 
