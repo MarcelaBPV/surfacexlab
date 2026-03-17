@@ -155,7 +155,7 @@ def read_mapping(file):
 
 
 # =========================================================
-# PROCESSAMENTO DO ESPECTRO
+# PROCESSAMENTO DO ESPECTRO - alterar eixos d intensidade
 # =========================================================
 
 def process_spectrum(wave,intensity):
