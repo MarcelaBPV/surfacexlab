@@ -155,7 +155,7 @@ def read_mapping(file):
 
 
 # =========================================================
-# PROCESSAMENTO DO ESPECTRO - alterar eixos d intensidade
+# PROCESSAMENTO DO ESPECTRO 
 # =========================================================
 
 def process_spectrum(wave,intensity):
@@ -204,34 +204,49 @@ def detect_peaks(x,y):
 
 
 # =========================================================
-# HEATMAP
+# HEATMAP - - alterar eixos de intensidade
 # =========================================================
 
 def plot_heatmap(df):
 
-    pivot=df.pivot_table(
+    pivot = df.pivot_table(
         index="y",
         columns="wave",
         values="intensity"
     )
 
-    fig,ax=plt.subplots(figsize=(6,4))
+    # ordenar eixos
+    pivot = pivot.sort_index(axis=0)
+    pivot = pivot.sort_index(axis=1)
 
-    im=ax.imshow(
+    y_vals = pivot.index.values
+    x_vals = pivot.columns.values
+
+    fig, ax = plt.subplots(figsize=(6,4))
+
+    im = ax.imshow(
         pivot.values,
         aspect="auto",
         cmap="inferno",
-        origin="lower"
+        origin="lower",
+        extent=[
+            x_vals.min(), x_vals.max(),   # eixo X = Raman shift
+            y_vals.min(), y_vals.max()    # eixo Y = posição
+        ]
     )
 
-    ax.set_ylabel("Y position")
+    # =====================================================
+    # EIXOS CORRETOS
+    # =====================================================
+    ax.set_xlabel("Raman shift (cm⁻¹)")
+    ax.set_ylabel("Posição Y (plano cartesiano)")
 
     ax.set_title("Raman intensity map")
 
-    fig.colorbar(im)
+    cbar = fig.colorbar(im)
+    cbar.set_label("Intensidade")
 
     return fig
-
 
 # =========================================================
 # PCA
