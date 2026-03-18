@@ -286,7 +286,10 @@ def render_mapeamento_molecular_tab(supabase):
 
     st.header("🧬 Raman Molecular Mapping")
 
-    file=st.file_uploader(
+    # =========================================================
+    # UPLOAD
+    # =========================================================
+    file = st.file_uploader(
         "Upload Raman mapping",
         type=["txt","csv"]
     )
@@ -294,82 +297,117 @@ def render_mapeamento_molecular_tab(supabase):
     if not file:
         return
 
-    df=read_mapping(file)
+    df = read_mapping(file)
 
-    spectra=[]
+    # =========================================================
+    # PROCESSAMENTO
+    # =========================================================
+    spectra = []
 
-    for y_val,group in df.groupby("y"):
+    for y_val, group in df.groupby("y"):
 
-        group=group.sort_values("wave")
+        group = group.sort_values("wave")
 
-        x,y=process_spectrum(
+        x, y = process_spectrum(
             group["wave"].values,
             group["intensity"].values
         )
 
         spectra.append({
-            "y":y_val,
-            "wave":x,
-            "intensity":y
+            "y": y_val,
+            "wave": x,
+            "intensity": y
         })
 
     st.write(f"Total espectros: **{len(spectra)}**")
 
-    cols=st.columns(4)
+    # =========================================================
+    # SUBABAS
+    # =========================================================
+    subtabs = st.tabs([
+        "Espectros",
+        "Mapa Raman",
+        "PCA",
+        "Grupos (1500–1750 cm⁻¹)"
+    ])
 
-    for i,spec in enumerate(spectra):
+# =========================================================
+# ABA 1 — ESPECTROS
+# =========================================================
+    with subtabs[0]:
 
-        peaks,table=detect_peaks(
-            spec["wave"],
-            spec["intensity"]
-        )
+        cols = st.columns(4)
 
-        with cols[i%4]:
+        for i, spec in enumerate(spectra):
 
-            st.caption(f"Y = {spec['y']}")
-
-            fig,ax=plt.subplots(figsize=(3,2))
-
-            ax.plot(
+            peaks, table = detect_peaks(
                 spec["wave"],
-                spec["intensity"],
-                "k",
-                lw=1
+                spec["intensity"]
             )
 
-            ax.invert_xaxis()
+            with cols[i % 4]:
 
-            st.pyplot(fig)
+                st.caption(f"Y = {spec['y']}")
 
-            if st.button(f"Expandir {i}"):
+                fig, ax = plt.subplots(figsize=(3,2))
 
-                fig2,ax2=plt.subplots(figsize=(6,4))
-
-                ax2.plot(
+                ax.plot(
                     spec["wave"],
                     spec["intensity"],
-                    "k"
+                    "k",
+                    lw=1
                 )
 
-                ax2.scatter(
-                    spec["wave"][peaks],
-                    spec["intensity"][peaks],
-                    color="red"
-                )
+                ax.invert_xaxis()
 
-                ax2.invert_xaxis()
+                st.pyplot(fig)
 
-                st.pyplot(fig2)
+                if st.button(f"Expandir {i}"):
 
-                st.dataframe(table)
+                    fig2, ax2 = plt.subplots(figsize=(6,4))
 
-        if i%4==3:
-            cols=st.columns(4)
+                    ax2.plot(
+                        spec["wave"],
+                        spec["intensity"],
+                        "k"
+                    )
 
-    st.subheader("Mapa Raman")
+                    ax2.scatter(
+                        spec["wave"][peaks],
+                        spec["intensity"][peaks],
+                        color="red"
+                    )
 
-    st.pyplot(plot_heatmap(df))
+                    ax2.invert_xaxis()
 
-    st.subheader("PCA espectral")
+                    st.pyplot(fig2)
 
-    st.pyplot(run_pca(spectra))
+                    st.dataframe(table)
+
+            if i % 4 == 3:
+                cols = st.columns(4)
+
+# =========================================================
+# ABA 2 — HEATMAP
+# =========================================================
+    with subtabs[1]:
+
+        st.subheader("Mapa Raman")
+        st.pyplot(plot_heatmap(df))
+
+# =========================================================
+# ABA 3 — PCA
+# =========================================================
+    with subtabs[2]:
+
+        st.subheader("PCA espectral")
+        st.pyplot(run_pca(spectra))
+
+# =========================================================
+# ABA 4 — GRUPOS região 1500–1750 cm⁻¹
+# =========================================================
+    with subtabs[3]:
+
+        st.subheader("Espectros por região (1500–1750 cm⁻¹)")
+
+        st.pyplot(plot_raman_groups(spectra))
