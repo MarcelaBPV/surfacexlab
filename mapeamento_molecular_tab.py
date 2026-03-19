@@ -15,29 +15,52 @@ from sklearn.decomposition import PCA
 # DATABASE MOLECULAR RAMAN
 # =========================================================
 RAMAN_DB = [
-    (720,"DNA/RNA Adenine"),
-    (754,"Hemoglobin breathing"),
-    (760,"Tryptophan"),
-    (785,"DNA/RNA Cytosine"),
-    (830,"Tyrosine"),
-    (855,"Glucose"),
-    (960,"Phosphate / ATP"),
-    (1003,"Phenylalanine"),
-    (1095,"DNA backbone"),
-    (1127,"Hemoglobin pyrrole"),
-    (1245,"Amide III proteins"),
-    (1300,"Lipids CH2"),
-    (1335,"Hemoglobin oxidation"),
-    (1445,"Lipids CH2 bending"),
-    (1543,"Amide II proteins"),
-    (1562,"Hemoglobin ν19"),
-    (1581,"Aromatic C=C"),
-    (1602,"C=C stretching"),
-    (1620,"Tyrosine proteins"),
-    (1632,"Protein side chains"),
-    (1655,"Amide I proteins"),
-]
 
+    # =====================================================
+    # REGIÃO BAIXA — DNA / proteínas / metabólitos
+    # =====================================================
+    (720,  "DNA/RNA Adenine"),
+    (754,  "Hemoglobin breathing"),
+    (760,  "Tryptophan"),
+    (785,  "DNA/RNA Cytosine"),
+    (830,  "Tyrosine"),
+    (855,  "Glucose"),
+    (960,  "Phosphate / ATP"),
+    (1003, "Phenylalanine"),
+    (1095, "DNA backbone"),
+    (1127, "Hemoglobin pyrrole"),
+
+    # =====================================================
+    # REGIÃO INTERMEDIÁRIA — lipídios / proteínas
+    # =====================================================
+    (1245, "Amide III proteins"),
+    (1300, "Lipids CH2"),
+    (1335, "Hemoglobin oxidation"),
+    (1445, "Lipids CH2 bending"),
+
+    # =====================================================
+    # REGIÃO ALTA — HEME / PROTEÍNAS (CRÍTICA)
+    # =====================================================
+    (1535, "ν11 heme"),
+    (1543, "Amide II proteins"),
+    (1545, "Amide II"),
+    (1555, "ν19 heme"),
+    (1562, "Hemoglobin ν19"),
+    (1565, "Hemoglobin"),
+    (1575, "ν37 C=C"),
+    (1581, "Aromatic C=C"),
+    (1600, "C=C stretching"),
+    (1602, "C=C stretching"),
+    (1617, "C=C aromatic"),
+    (1620, "Tyrosine proteins"),
+    (1626, "C=C / protein"),
+    (1631, "ν10 heme"),
+    (1632, "Protein side chains"),
+    (1635, "Protein structure"),
+    (1655, "Amide I proteins"),
+    (1660, "Amide I β-sheet"),
+    (1665, "Amide I α-helix"),
+]
 
 # =========================================================
 # IDENTIFICAÇÃO MOLECULAR
