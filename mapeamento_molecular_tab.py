@@ -215,6 +215,7 @@ def plot_raman_groups_annotated(spectra):
     for ax,(label,(ymin,ymax)) in zip(axes,groups.items()):
 
         all_peaks=[]
+        curves=[]
 
         for spec in spectra:
 
@@ -228,45 +229,56 @@ def plot_raman_groups_annotated(spectra):
                 if len(x)==0:
                     continue
 
-                ax.plot(x,y,lw=1,alpha=0.6)
+                curves.append(y)
+                ax.plot(x,y,lw=1,alpha=0.5)
 
-                peaks,_=find_peaks(y,prominence=0.05,distance=15)
+        # =====================================================
+        # MÉDIA DO GRUPO (curva principal estilo artigo)
+        # =====================================================
+        if len(curves)>0:
 
-                for p in peaks:
-                    pos=float(x[p])
-                    mol=identify_molecule(pos)
+            mean_curve=np.mean(curves,axis=0)
 
-                    if mol!="Unknown":
-                        all_peaks.append((pos,mol))
+            ax.plot(x,mean_curve,'k',lw=2)
 
-        # agrupar picos
-        unique={}
-        for pos,mol in all_peaks:
-            key=round(pos,-1)
-            if key not in unique:
-                unique[key]=mol
+            # detectar picos na média
+            peaks,_=find_peaks(mean_curve,prominence=0.05,distance=15)
 
-        # plotar identificação
-        for pos,mol in unique.items():
+            peak_data=[]
 
-            ax.axvline(pos,color="red",linestyle="--",alpha=0.5)
+            for p in peaks:
 
-            ax.text(
-                pos,
-                ax.get_ylim()[1]*0.85,
-                mol.split()[0],
-                rotation=90,
-                fontsize=8,
-                color="red"
-            )
+                pos=float(x[p])
+                intensity=float(mean_curve[p])
+                mol=identify_molecule(pos)
 
-        tables[label]=pd.DataFrame([
-            {"Peak (cm⁻¹)":k,"Molécula":v}
-            for k,v in unique.items()
-        ])
+                if mol!="Unknown":
+
+                    peak_data.append((pos,intensity,mol))
+
+                    # bolinha no pico
+                    ax.scatter(pos,intensity,color="red",s=25,zorder=5)
+
+                    # texto horizontal
+                    ax.text(
+                        pos,
+                        intensity+0.05,
+                        mol.split()[0],
+                        fontsize=8,
+                        ha="center"
+                    )
+
+            tables[label]=pd.DataFrame([
+                {
+                    "Peak (cm⁻¹)":round(p[0],1),
+                    "Intensidade":round(p[1],3),
+                    "Molécula":p[2]
+                }
+                for p in peak_data
+            ])
 
         ax.set_title(label)
-        ax.grid(alpha=0.3)
+        ax.grid(alpha=0.2)
 
     axes[-1].set_xlabel("Raman shift (cm⁻¹)")
     fig.text(0.02,0.5,"Intensity",rotation=90)
@@ -274,7 +286,6 @@ def plot_raman_groups_annotated(spectra):
     plt.tight_layout()
 
     return fig,tables
-
 
 # =========================================================
 # STREAMLIT
