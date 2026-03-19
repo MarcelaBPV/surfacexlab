@@ -8,7 +8,6 @@ import matplotlib.pyplot as plt
 from scipy.signal import savgol_filter, find_peaks
 from scipy import sparse
 from scipy.sparse.linalg import spsolve
-from scipy.special import wofz
 from sklearn.decomposition import PCA
 
 
@@ -49,7 +48,6 @@ def identify_molecule(peak):
     diff_min=1e9
 
     for ref,label in RAMAN_DB:
-
         diff=abs(peak-ref)
 
         if diff<diff_min and diff<15:
@@ -71,7 +69,6 @@ def baseline_asls(y, lam=1e7, p=0.01, niter=15):
     w=np.ones(N)
 
     for _ in range(niter):
-
         W=sparse.diags(w,0)
         Z=W+lam*D.T@D
         z=spsolve(Z,w*y)
@@ -118,7 +115,6 @@ def detect_peaks(x,y):
     table=[]
 
     for p in peaks:
-
         pos=float(x[p])
 
         table.append({
@@ -185,14 +181,12 @@ def plot_heatmap(df):
 def run_pca(spectra):
 
     X=[s["intensity"] for s in spectra]
-
     X=np.array(X)
 
     pca=PCA(n_components=2)
     scores=pca.fit_transform(X)
 
     fig,ax=plt.subplots()
-
     ax.scatter(scores[:,0],scores[:,1])
 
     ax.set_xlabel("PC1")
@@ -203,9 +197,9 @@ def run_pca(spectra):
 
 
 # =========================================================
-# GRUPOS L1–L4 (ESTILO ARTIGO)
+# GRUPOS COM IDENTIFICAÇÃO
 # =========================================================
-def plot_raman_groups(spectra):
+def plot_raman_groups_annotated(spectra):
 
     groups={
         "L1 (0–200)":(0,200),
@@ -214,9 +208,13 @@ def plot_raman_groups(spectra):
         "L4 (0–800)":(0,800),
     }
 
-    fig,axes=plt.subplots(4,1,figsize=(6,10),sharex=True)
+    fig,axes=plt.subplots(4,1,figsize=(7,12),sharex=True)
+
+    tables={}
 
     for ax,(label,(ymin,ymax)) in zip(axes,groups.items()):
+
+        all_peaks=[]
 
         for spec in spectra:
 
@@ -230,7 +228,42 @@ def plot_raman_groups(spectra):
                 if len(x)==0:
                     continue
 
-                ax.plot(x,y,lw=1)
+                ax.plot(x,y,lw=1,alpha=0.6)
+
+                peaks,_=find_peaks(y,prominence=0.05,distance=15)
+
+                for p in peaks:
+                    pos=float(x[p])
+                    mol=identify_molecule(pos)
+
+                    if mol!="Unknown":
+                        all_peaks.append((pos,mol))
+
+        # agrupar picos
+        unique={}
+        for pos,mol in all_peaks:
+            key=round(pos,-1)
+            if key not in unique:
+                unique[key]=mol
+
+        # plotar identificação
+        for pos,mol in unique.items():
+
+            ax.axvline(pos,color="red",linestyle="--",alpha=0.5)
+
+            ax.text(
+                pos,
+                ax.get_ylim()[1]*0.85,
+                mol.split()[0],
+                rotation=90,
+                fontsize=8,
+                color="red"
+            )
+
+        tables[label]=pd.DataFrame([
+            {"Peak (cm⁻¹)":k,"Molécula":v}
+            for k,v in unique.items()
+        ])
 
         ax.set_title(label)
         ax.grid(alpha=0.3)
@@ -240,7 +273,7 @@ def plot_raman_groups(spectra):
 
     plt.tight_layout()
 
-    return fig
+    return fig,tables
 
 
 # =========================================================
@@ -325,4 +358,15 @@ def render_mapeamento_molecular_tab(supabase):
 
 # GRUPOS
     with subtabs[3]:
-        st.pyplot(plot_raman_groups(spectra))
+
+        st.subheader("Espectros com identificação molecular")
+
+        fig,tables=plot_raman_groups_annotated(spectra)
+
+        st.pyplot(fig)
+
+        st.subheader("Tabela de bandas identificadas")
+
+        for g,t in tables.items():
+            st.markdown(f"### {g}")
+            st.dataframe(t,use_container_width=True)
