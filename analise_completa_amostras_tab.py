@@ -8,6 +8,15 @@ import matplotlib.pyplot as plt
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
 
+# 🔬 MAPEAMENTO RAMAN (reuso direto do seu módulo)
+from mapeamento_molecular_tab import (
+    read_mapping,
+    process_spectrum,
+    plot_heatmap,
+    run_pca as run_pca_raman,
+    plot_raman_groups_annotated
+)
+
 
 # =========================================================
 # PCA GLOBAL
@@ -17,15 +26,13 @@ def run_pca_global(df):
     df = df.copy()
 
     if "Amostra" not in df.columns:
-        st.error("Coluna 'Amostra' não encontrada.")
-        return
+        df["Amostra"] = df.index.astype(str)
 
-    # apenas numéricas
     X = df.select_dtypes(include=[np.number])
 
     if X.shape[1] < 2:
-        st.warning("Poucas variáveis numéricas para PCA.")
-        return
+        st.warning("Poucas variáveis para PCA.")
+        return None
 
     X_scaled = StandardScaler().fit_transform(X)
 
@@ -74,52 +81,28 @@ def run_pca_global(df):
 
 
 # =========================================================
-# INTEGRAÇÃO DOS MÓDULOS
+# DATASET GLOBAL
 # =========================================================
 def build_global_dataset():
 
     dfs = []
 
-    # =====================================================
     # TENSIOMETRIA
-    # =====================================================
     if "tensiometry_samples" in st.session_state:
+        df_t = pd.DataFrame(st.session_state.tensiometry_samples.values())
+        df_t["Amostra"] = list(st.session_state.tensiometry_samples.keys())
+        dfs.append(df_t)
 
-        df_tens = pd.DataFrame(
-            st.session_state.tensiometry_samples.values()
-        )
-
-        df_tens["Amostra"] = list(st.session_state.tensiometry_samples.keys())
-
-        dfs.append(df_tens)
-
-    # =====================================================
     # RESISTIVIDADE
-    # =====================================================
     if "electrical_features" in st.session_state:
+        dfs.append(st.session_state.electrical_features)
 
-        df_elec = st.session_state.electrical_features.copy()
-
-        dfs.append(df_elec)
-
-    # =====================================================
-    # RAMAN (fingerprint)
-    # =====================================================
+    # RAMAN
     if "raman_peaks" in st.session_state:
+        df_r = pd.DataFrame(st.session_state.raman_peaks).T.fillna(0)
+        df_r["Amostra"] = df_r.index
+        dfs.append(df_r)
 
-        df_raman = (
-            pd.DataFrame(st.session_state.raman_peaks)
-            .T
-            .fillna(0)
-        )
-
-        df_raman["Amostra"] = df_raman.index
-
-        dfs.append(df_raman)
-
-    # =====================================================
-    # MERGE
-    # =====================================================
     if len(dfs) < 2:
         return None
 
@@ -132,62 +115,107 @@ def build_global_dataset():
 
 
 # =========================================================
-# STREAMLIT TAB
+# TAB PRINCIPAL
 # =========================================================
 def render_analise_completa_amostras_tab(supabase=None):
 
     st.header("🧠 Análise Completa de Amostras")
 
-    st.markdown("""
-    Integração automática de:
+    subtabs = st.tabs([
+        "📊 Integração & PCA",
+        "🧬 Mapeamento Raman"
+    ])
 
-    - ⚡ Resistividade elétrica  
-    - 💧 Tensiometria (OWRK)  
-    - 🔬 Raman (fingerprint molecular)  
+# =========================================================
+# 📊 PCA GLOBAL
+# =========================================================
+    with subtabs[0]:
 
-    + PCA global para análise científica
-    """)
+        df_global = build_global_dataset()
 
-    # =====================================================
-    # DATASET GLOBAL
-    # =====================================================
-    df_global = build_global_dataset()
+        if df_global is None:
+            st.warning("Execute pelo menos dois módulos (Raman, Elétrica, Tensiometria).")
+            return
 
-    if df_global is None:
-        st.warning("Execute pelo menos duas análises (Raman, Elétrica, Tensiometria).")
-        return
+        st.subheader("Dataset Integrado")
+        st.dataframe(df_global, use_container_width=True)
 
-    st.subheader("Dataset integrado")
+        st.subheader("PCA Global")
 
-    st.dataframe(df_global, use_container_width=True)
+        if df_global.shape[0] >= 2:
 
-    # salvar para ML
-    st.session_state.global_features = df_global
+            fig = run_pca_global(df_global)
 
-    # =====================================================
-    # PCA GLOBAL
-    # =====================================================
-    st.subheader("PCA Global")
+            if fig:
+                st.pyplot(fig)
 
-    if df_global.shape[0] < 2:
-        st.info("Necessário ao menos duas amostras.")
-        return
+# =========================================================
+# 🧬 MAPEAMENTO RAMAN COMPLETO
+# =========================================================
+    with subtabs[1]:
 
-    fig = run_pca_global(df_global)
+        st.subheader("Upload do Mapeamento Raman")
 
-    if fig:
-        st.pyplot(fig)
+        file = st.file_uploader(
+            "Arquivo (CSV / TXT)",
+            type=["csv","txt"]
+        )
 
-    # =====================================================
-    # EXPORTAÇÃO
-    # =====================================================
-    st.subheader("Exportar")
+        if not file:
+            st.info("Envie o arquivo de mapeamento.")
+            return
 
-    csv = df_global.to_csv(index=False).encode("utf-8")
+        try:
 
-    st.download_button(
-        "📥 Baixar dataset completo",
-        csv,
-        "analise_completa_amostras.csv",
-        "text/csv"
-    )
+            df = read_mapping(file)
+
+            # =========================
+            # HEATMAP
+            # =========================
+            st.subheader("Mapa Raman")
+            st.pyplot(plot_heatmap(df))
+
+            # =========================
+            # PROCESSAMENTO ESPECTRAL
+            # =========================
+            spectra = []
+
+            for y_val, group in df.groupby("y"):
+
+                group = group.sort_values("wave")
+
+                x, y = process_spectrum(
+                    group["wave"].values,
+                    group["intensity"].values
+                )
+
+                spectra.append({
+                    "y": y_val,
+                    "wave": x,
+                    "intensity": y
+                })
+
+            # =========================
+            # PCA RAMAN
+            # =========================
+            st.subheader("PCA Raman (mapping)")
+            st.pyplot(run_pca_raman(spectra))
+
+            # =========================
+            # GRUPOS L1–L4 (NÍVEL ARTIGO)
+            # =========================
+            st.subheader("Espectros com identificação molecular")
+
+            fig, tables = plot_raman_groups_annotated(spectra)
+
+            st.pyplot(fig)
+
+            st.subheader("Tabela de bandas por região")
+
+            for g, t in tables.items():
+                st.markdown(f"### {g}")
+                st.dataframe(t, use_container_width=True)
+
+        except Exception as e:
+            st.error("Erro no processamento do mapeamento")
+            st.exception(e)
