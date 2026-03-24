@@ -8,7 +8,12 @@ import matplotlib.pyplot as plt
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
 
-# 🔬 MAPEAMENTO RAMAN (reuso direto do seu módulo)
+# PROCESSAMENTOS
+from tensiometria_processing import process_tensiometry
+from resistividade_processing import process_resistivity
+from raman_processing import process_raman_spectrum_with_groups
+
+# MAPEAMENTO RAMAN
 from mapeamento_molecular_tab import (
     read_mapping,
     process_spectrum,
@@ -16,6 +21,51 @@ from mapeamento_molecular_tab import (
     run_pca as run_pca_raman,
     plot_raman_groups_annotated
 )
+
+
+# =========================================================
+# CLASSIFICADOR INTELIGENTE
+# =========================================================
+def classify_file(file):
+
+    name = file.name.lower()
+
+    # por nome
+    if "tensio" in name:
+        return "tensiometria"
+
+    if "resist" in name or "iv" in name:
+        return "eletrico"
+
+    if "perfil" in name:
+        return "perfilometria"
+
+    if "raman" in name:
+        return "raman"
+
+    # fallback por conteúdo
+    try:
+
+        if name.endswith(".csv"):
+            df = pd.read_csv(file)
+        else:
+            df = pd.read_excel(file)
+
+        cols = [c.lower() for c in df.columns]
+
+        if any("voltage" in c or "v" == c for c in cols):
+            return "eletrico"
+
+        if any("theta" in c or "angle" in c for c in cols):
+            return "tensiometria"
+
+        if any("height" in c or "z" in c for c in cols):
+            return "perfilometria"
+
+    except:
+        pass
+
+    return "desconhecido"
 
 
 # =========================================================
@@ -67,15 +117,13 @@ def run_pca_global(df):
             fontsize=9
         )
 
-    ax.axhline(0, color="gray", lw=0.5)
-    ax.axvline(0, color="gray", lw=0.5)
+    ax.axhline(0,color="gray",lw=0.5)
+    ax.axvline(0,color="gray",lw=0.5)
 
     ax.set_xlabel(f"PC1 ({explained[0]:.1f}%)")
     ax.set_ylabel(f"PC2 ({explained[1]:.1f}%)")
 
-    ax.set_title("PCA Global — Integração Multimodal")
-
-    ax.grid(alpha=0.3)
+    ax.set_title("PCA Global — Multimodal")
 
     return fig
 
@@ -87,31 +135,28 @@ def build_global_dataset():
 
     dfs = []
 
-    # TENSIOMETRIA
     if "tensiometry_samples" in st.session_state:
-        df_t = pd.DataFrame(st.session_state.tensiometry_samples.values())
-        df_t["Amostra"] = list(st.session_state.tensiometry_samples.keys())
-        dfs.append(df_t)
+        df = pd.DataFrame(st.session_state.tensiometry_samples.values())
+        df["Amostra"] = list(st.session_state.tensiometry_samples.keys())
+        dfs.append(df)
 
-    # RESISTIVIDADE
     if "electrical_features" in st.session_state:
         dfs.append(st.session_state.electrical_features)
 
-    # RAMAN
     if "raman_peaks" in st.session_state:
         df_r = pd.DataFrame(st.session_state.raman_peaks).T.fillna(0)
         df_r["Amostra"] = df_r.index
         dfs.append(df_r)
 
-    if len(dfs) < 2:
+    if len(dfs) == 0:
         return None
 
-    df_merged = dfs[0]
+    df_final = dfs[0]
 
     for df in dfs[1:]:
-        df_merged = pd.merge(df_merged, df, on="Amostra", how="outer")
+        df_final = pd.merge(df_final, df, on="Amostra", how="outer")
 
-    return df_merged
+    return df_final
 
 
 # =========================================================
@@ -121,101 +166,193 @@ def render_analise_completa_amostras_tab(supabase=None):
 
     st.header("🧠 Análise Completa de Amostras")
 
+    st.info("""
+    Upload universal:
+    - Resistividade (I–V)
+    - Tensiometria (OWRK)
+    - Perfilometria
+    - Raman
+    """)
+
     subtabs = st.tabs([
-        "📊 Integração & PCA",
+        "📥 Upload & Processamento",
+        "📊 PCA Global",
         "🧬 Mapeamento Raman"
     ])
+
+
+# =========================================================
+# 📥 UPLOAD
+# =========================================================
+    with subtabs[0]:
+
+        uploaded_files = st.file_uploader(
+            "Upload múltiplo",
+            type=["csv","txt","xls","xlsx","log"],
+            accept_multiple_files=True
+        )
+
+        if uploaded_files:
+
+            for file in uploaded_files:
+
+                tipo = classify_file(file)
+
+                st.markdown(f"### {file.name} → {tipo}")
+
+                try:
+
+                    # ==========================
+                    # TENSIOMETRIA
+                    # ==========================
+                    if tipo == "tensiometria":
+
+                        result = process_tensiometry(
+                            file,
+                            {"water":70,"diiodomethane":50,"formamide":60},
+                            0.5,
+                            0.3
+                        )
+
+                        summary = result["summary"]
+                        summary["Amostra"] = file.name
+
+                        if "tensiometry_samples" not in st.session_state:
+                            st.session_state.tensiometry_samples = {}
+
+                        st.session_state.tensiometry_samples[file.name] = summary
+
+                        st.pyplot(result["figure"])
+
+
+                    # ==========================
+                    # ELÉTRICO
+                    # ==========================
+                    elif tipo == "eletrico":
+
+                        result = process_resistivity(
+                            file,
+                            1e-6,
+                            "four_point_film"
+                        )
+
+                        summary = result["summary"]
+                        summary["Amostra"] = file.name
+
+                        if "electrical_features" not in st.session_state:
+                            st.session_state.electrical_features = pd.DataFrame()
+
+                        st.session_state.electrical_features = pd.concat([
+                            st.session_state.electrical_features,
+                            pd.DataFrame([summary])
+                        ])
+
+                        st.pyplot(result["figure"])
+
+
+                    # ==========================
+                    # RAMAN
+                    # ==========================
+                    elif tipo == "raman":
+
+                        result = process_raman_spectrum_with_groups(file)
+
+                        peaks = result["peaks_df"]
+
+                        fingerprint = (
+                            peaks.groupby("chemical_group")["amplitude"]
+                            .mean()
+                        )
+
+                        if "raman_peaks" not in st.session_state:
+                            st.session_state.raman_peaks = {}
+
+                        st.session_state.raman_peaks[file.name] = fingerprint
+
+                        st.success("Raman processado")
+
+
+                    # ==========================
+                    # PERFILOMETRIA
+                    # ==========================
+                    elif tipo == "perfilometria":
+
+                        df = pd.read_excel(file) if file.name.endswith("xlsx") else pd.read_csv(file)
+
+                        st.dataframe(df)
+
+                        if "profilometry" not in st.session_state:
+                            st.session_state.profilometry = {}
+
+                        st.session_state.profilometry[file.name] = df
+
+                        st.success("Perfilometria carregada")
+
+
+                    else:
+                        st.warning("Tipo não identificado")
+
+                except Exception as e:
+                    st.error("Erro no processamento")
+                    st.exception(e)
+
 
 # =========================================================
 # 📊 PCA GLOBAL
 # =========================================================
-    with subtabs[0]:
+    with subtabs[1]:
 
-        df_global = build_global_dataset()
+        df = build_global_dataset()
 
-        if df_global is None:
-            st.warning("Execute pelo menos dois módulos (Raman, Elétrica, Tensiometria).")
+        if df is None:
+            st.warning("Nenhum dado processado ainda.")
             return
 
-        st.subheader("Dataset Integrado")
-        st.dataframe(df_global, use_container_width=True)
+        st.dataframe(df, use_container_width=True)
 
-        st.subheader("PCA Global")
+        if df.shape[0] >= 2:
 
-        if df_global.shape[0] >= 2:
-
-            fig = run_pca_global(df_global)
+            fig = run_pca_global(df)
 
             if fig:
                 st.pyplot(fig)
 
-# =========================================================
-# 🧬 MAPEAMENTO RAMAN COMPLETO
-# =========================================================
-    with subtabs[1]:
 
-        st.subheader("Upload do Mapeamento Raman")
+# =========================================================
+# 🧬 MAPEAMENTO
+# =========================================================
+    with subtabs[2]:
 
-        file = st.file_uploader(
-            "Arquivo (CSV / TXT)",
-            type=["csv","txt"]
-        )
+        file = st.file_uploader("Upload mapping", type=["csv","txt"])
 
         if not file:
-            st.info("Envie o arquivo de mapeamento.")
             return
 
-        try:
+        df = read_mapping(file)
 
-            df = read_mapping(file)
+        st.pyplot(plot_heatmap(df))
 
-            # =========================
-            # HEATMAP
-            # =========================
-            st.subheader("Mapa Raman")
-            st.pyplot(plot_heatmap(df))
+        spectra = []
 
-            # =========================
-            # PROCESSAMENTO ESPECTRAL
-            # =========================
-            spectra = []
+        for y_val, group in df.groupby("y"):
 
-            for y_val, group in df.groupby("y"):
+            x,y = process_spectrum(
+                group["wave"].values,
+                group["intensity"].values
+            )
 
-                group = group.sort_values("wave")
+            spectra.append({
+                "y":y_val,
+                "wave":x,
+                "intensity":y
+            })
 
-                x, y = process_spectrum(
-                    group["wave"].values,
-                    group["intensity"].values
-                )
+        st.pyplot(run_pca_raman(spectra))
 
-                spectra.append({
-                    "y": y_val,
-                    "wave": x,
-                    "intensity": y
-                })
+        fig,tables = plot_raman_groups_annotated(spectra)
 
-            # =========================
-            # PCA RAMAN
-            # =========================
-            st.subheader("PCA Raman (mapping)")
-            st.pyplot(run_pca_raman(spectra))
+        st.pyplot(fig)
 
-            # =========================
-            # GRUPOS L1–L4 (NÍVEL ARTIGO)
-            # =========================
-            st.subheader("Espectros com identificação molecular")
-
-            fig, tables = plot_raman_groups_annotated(spectra)
-
-            st.pyplot(fig)
-
-            st.subheader("Tabela de bandas por região")
-
-            for g, t in tables.items():
-                st.markdown(f"### {g}")
-                st.dataframe(t, use_container_width=True)
-
-        except Exception as e:
-            st.error("Erro no processamento do mapeamento")
-            st.exception(e)
+        for g,t in tables.items():
+            st.markdown(f"### {g}")
+            st.dataframe(t)
