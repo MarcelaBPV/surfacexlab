@@ -154,15 +154,53 @@ def detect_peaks(x,y):
 # =========================================================
 def read_mapping(file):
 
-    df=pd.read_csv(file,sep=r"\s+|,|;",engine="python",header=None)
+    # 🔁 garante leitura correta no Streamlit
+    file.seek(0)
 
-    df=df.iloc[:,:4]
-    df.columns=["y","x","wave","intensity"]
+    try:
+        # =====================================================
+        # LEITURA FLEXÍVEL (qualquer separador + arquivos sujos)
+        # =====================================================
+        df = pd.read_csv(
+            file,
+            sep=None,                # detecta automaticamente
+            engine="python",
+            header=None,
+            encoding="latin1",
+            on_bad_lines="skip"      # evita ParserError
+        )
 
-    df=df.apply(pd.to_numeric,errors="coerce")
-    df=df.dropna()
+    except Exception:
 
-    return df
+        # fallback Excel
+        file.seek(0)
+
+        df = pd.read_excel(
+            file,
+            header=None
+        )
+
+    # =====================================================
+    # GARANTE ESTRUTURA PADRÃO
+    # =====================================================
+    df = df.iloc[:, :4]  # pega só as 4 primeiras colunas
+
+    df.columns = ["y", "x", "wave", "intensity"]
+
+    # =====================================================
+    # LIMPEZA ROBUSTA
+    # =====================================================
+    df = df.apply(pd.to_numeric, errors="coerce")
+
+    df = df.dropna()
+
+    # remove valores inválidos comuns
+    df = df[
+        (df["wave"] > 0) &
+        (df["intensity"] != 0)
+    ]
+
+    return df.reset_index(drop=True)
 
 
 # =========================================================
