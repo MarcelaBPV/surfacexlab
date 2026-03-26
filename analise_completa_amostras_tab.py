@@ -1,4 +1,3 @@
-# analise_completa_amostras_tab.py
 # -*- coding: utf-8 -*-
 
 import streamlit as st
@@ -9,17 +8,17 @@ import matplotlib.pyplot as plt
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
 
-# módulos existentes
-from tensiometria_processing import process_tensiometry
+from tensiometria_processing import process_tensiometry, owkr_surface_energy
+
 
 # =========================================================
-# LEITURA UNIVERSAL (resolve ParserError)
+# LEITURA UNIVERSAL
 # =========================================================
 def read_any_file(file):
 
-    try:
-        name = file.name.lower()
+    name = file.name.lower()
 
+    try:
         if name.endswith(".csv"):
             try:
                 return pd.read_csv(file)
@@ -31,15 +30,7 @@ def read_any_file(file):
             return pd.read_excel(file)
 
         elif name.endswith((".txt", ".log")):
-            try:
-                return pd.read_csv(file, sep=r"\s+|,|;", engine="python")
-            except:
-                file.seek(0)
-                return pd.read_csv(file, sep="\t")
-
-        else:
-            st.warning(f"Formato não suportado: {file.name}")
-            return None
+            return pd.read_csv(file, sep=r"\s+|,|;", engine="python")
 
     except Exception as e:
         st.error(f"Erro ao ler {file.name}")
@@ -48,32 +39,53 @@ def read_any_file(file):
 
 
 # =========================================================
-# PROCESSAMENTO ELÉTRICO
+# EXTRAÇÃO INTELIGENTE (TENSIOMETRIA)
+# =========================================================
+def extract_tensiometry_angles(df):
+
+    cols = [c.lower() for c in df.columns]
+
+    water = None
+    diiodo = None
+    formamide = None
+
+    for i, col in enumerate(cols):
+
+        if "water" in col or "agua" in col:
+            water = df.iloc[0, i]
+
+        elif "diiodo" in col:
+            diiodo = df.iloc[0, i]
+
+        elif "formamide" in col or "formamida" in col:
+            formamide = df.iloc[0, i]
+
+    if water is None or diiodo is None or formamide is None:
+        row = df.iloc[0]
+        water = row.iloc[0]
+        diiodo = row.iloc[1]
+        formamide = row.iloc[2]
+
+    return float(water), float(diiodo), float(formamide)
+
+
+# =========================================================
+# PROCESSAMENTO IV
 # =========================================================
 def process_iv(df):
 
     df = df.apply(pd.to_numeric, errors="coerce").dropna()
 
-    if df.shape[1] < 2:
-        return {}
-
     V = df.iloc[:, 0].values
     I = df.iloc[:, 1].values
 
-    if len(V) < 2:
-        return {}
-
     slope = np.polyfit(V, I, 1)[0]
 
-    resistivity = 1 / slope if slope != 0 else np.nan
-
-    return {
-        "Resistividade": resistivity
-    }
+    return {"Resistividade": 1 / slope if slope != 0 else np.nan}
 
 
 # =========================================================
-# PROCESSAMENTO PERFILOMETRIA
+# PERFILOMETRIA
 # =========================================================
 def process_profilometry(df):
 
@@ -82,21 +94,13 @@ def process_profilometry(df):
     z = df.values.flatten()
     z = z[~np.isnan(z)]
 
-    if len(z) == 0:
-        return {}
-
-    return {
-        "Rugosidade (std)": float(np.std(z))
-    }
+    return {"Rugosidade (std)": float(np.std(z))}
 
 
 # =========================================================
-# BUILD DATASET (com triplicata)
+# BUILD DATASET
 # =========================================================
 def build_dataset():
-
-    if "samples_unified" not in st.session_state:
-        return None
 
     data = []
 
@@ -106,10 +110,7 @@ def build_dataset():
 
         for key, val in content.items():
 
-            # =========================
-            # TENSIOMETRIA (triplicata)
-            # =========================
-            if key == "tensiometria" and isinstance(val, list):
+            if key == "tensiometria":
 
                 df_rep = pd.DataFrame(val)
 
@@ -120,9 +121,6 @@ def build_dataset():
                     row[f"{col} (mean)"] = mean_vals[col]
                     row[f"{col} (std)"] = std_vals[col]
 
-            # =========================
-            # OUTROS
-            # =========================
             elif isinstance(val, dict):
                 row.update(val)
 
@@ -132,45 +130,71 @@ def build_dataset():
 
 
 # =========================================================
-# PCA GLOBAL
+# OWRK PLOT
 # =========================================================
-def run_pca(df):
+def plot_owrk(df):
 
-    df = df.copy()
-
-    if "Amostra" not in df.columns:
+    if "Componente polar (mJ/m²) (mean)" not in df.columns:
         return
 
-    features = df.drop(columns=["Amostra"])
+    fig, ax = plt.subplots(figsize=(6,5), dpi=300)
 
-    features = features.apply(pd.to_numeric, errors="coerce").fillna(0)
-
-    if features.shape[1] < 2:
-        st.warning("Dados insuficientes para PCA")
-        return
-
-    X = StandardScaler().fit_transform(features)
-
-    pca = PCA(n_components=2)
-    scores = pca.fit_transform(X)
-
-    fig, ax = plt.subplots(figsize=(7,7))
-
-    ax.scatter(scores[:,0], scores[:,1], s=100, edgecolor="black")
+    ax.scatter(
+        df["Componente dispersiva (mJ/m²) (mean)"],
+        df["Componente polar (mJ/m²) (mean)"],
+        s=120,
+        edgecolor="black"
+    )
 
     for i, label in enumerate(df["Amostra"]):
-        ax.text(scores[i,0], scores[i,1], label)
+        ax.text(
+            df.iloc[i]["Componente dispersiva (mJ/m²) (mean)"],
+            df.iloc[i]["Componente polar (mJ/m²) (mean)"],
+            label,
+            fontsize=9
+        )
 
-    ax.set_title("PCA Global — Análise Completa")
-    ax.set_xlabel("PC1")
-    ax.set_ylabel("PC2")
+    ax.set_xlabel("γᵈ (mJ/m²)")
+    ax.set_ylabel("γᵖ (mJ/m²)")
+    ax.set_title("OWRK — Energia de Superfície")
     ax.grid(alpha=0.3)
 
     st.pyplot(fig)
 
 
 # =========================================================
-# MAIN TAB
+# PCA CLUSTER
+# =========================================================
+def run_pca_cluster(df):
+
+    df["Grupo"] = df["Amostra"].str.extract(r"([AB])")
+
+    features = df.drop(columns=["Amostra", "Grupo"], errors="ignore")
+    features = features.apply(pd.to_numeric, errors="coerce").fillna(0)
+
+    X = StandardScaler().fit_transform(features)
+
+    pca = PCA(n_components=2)
+    scores = pca.fit_transform(X)
+
+    fig, ax = plt.subplots(figsize=(7,7), dpi=300)
+
+    for g in df["Grupo"].unique():
+        mask = df["Grupo"] == g
+        ax.scatter(scores[mask,0], scores[mask,1], label=g, s=100)
+
+    for i, label in enumerate(df["Amostra"]):
+        ax.text(scores[i,0], scores[i,1], label)
+
+    ax.legend()
+    ax.set_title("PCA — Cluster por tratamento")
+    ax.grid(alpha=0.3)
+
+    st.pyplot(fig)
+
+
+# =========================================================
+# MAIN
 # =========================================================
 def render_analise_completa_amostras_tab(supabase=None):
 
@@ -179,27 +203,24 @@ def render_analise_completa_amostras_tab(supabase=None):
     if "samples_unified" not in st.session_state:
         st.session_state.samples_unified = {}
 
-    subtabs = st.tabs([
-        "📥 Upload & Processamento",
-        "📊 PCA Global"
-    ])
+    tabs = st.tabs(["Upload", "PCA"])
 
 # =========================================================
-# SUBABA 1
+# UPLOAD
 # =========================================================
-    with subtabs[0]:
+    with tabs[0]:
 
-        sample_id = st.text_input("ID da amostra (ex: A1.5)")
+        sample_id = st.text_input("Amostra (ex: A1.5)")
 
         technique = st.selectbox(
-            "Tipo de análise",
-            ["Raman", "Resistividade", "Tensiometria", "Perfilometria"]
+            "Técnica",
+            ["Resistividade", "Tensiometria", "Perfilometria"]
         )
 
         files = st.file_uploader(
-            "Upload arquivos",
-            type=["csv","xlsx","xls","txt","log"],
-            accept_multiple_files=True
+            "Upload",
+            accept_multiple_files=True,
+            type=["csv","xlsx","xls","txt","log"]
         )
 
         if files and sample_id:
@@ -209,41 +230,22 @@ def render_analise_completa_amostras_tab(supabase=None):
 
             for file in files:
 
-                st.write(f"Processando: {file.name}")
-
                 df = read_any_file(file)
 
                 if df is None:
                     continue
 
-                try:
+                if technique == "Resistividade":
+                    st.session_state.samples_unified[sample_id]["resistividade"] = process_iv(df)
 
-                    # =====================================================
-                    # RESISTIVIDADE
-                    # =====================================================
-                    if technique == "Resistividade":
+                elif technique == "Perfilometria":
+                    st.session_state.samples_unified[sample_id]["perfilometria"] = process_profilometry(df)
 
-                        result = process_iv(df)
+                elif technique == "Tensiometria":
 
-                        st.session_state.samples_unified[sample_id]["resistividade"] = result
+                    name = file.name.lower()
 
-                        st.success("✔ Resistividade processada")
-
-                    # =====================================================
-                    # PERFILOMETRIA
-                    # =====================================================
-                    elif technique == "Perfilometria":
-
-                        result = process_profilometry(df)
-
-                        st.session_state.samples_unified[sample_id]["perfilometria"] = result
-
-                        st.success("✔ Perfilometria processada")
-
-                    # =====================================================
-                    # TENSIOMETRIA (TRIPLICATA)
-                    # =====================================================
-                    elif technique == "Tensiometria":
+                    if name.endswith((".log", ".txt")):
 
                         result = process_tensiometry(
                             file,
@@ -252,44 +254,48 @@ def render_analise_completa_amostras_tab(supabase=None):
                             0.3
                         )
 
-                        st.pyplot(result["figure"])
-
                         summary = result["summary"]
 
-                        if "tensiometria" not in st.session_state.samples_unified[sample_id]:
-                            st.session_state.samples_unified[sample_id]["tensiometria"] = []
+                    else:
 
-                        st.session_state.samples_unified[sample_id]["tensiometria"].append(summary)
+                        df = df.apply(pd.to_numeric, errors="coerce")
+                        theta_water, theta_diiodo, theta_formamide = extract_tensiometry_angles(df)
 
-                        st.success(f"✔ Replicata adicionada ({len(st.session_state.samples_unified[sample_id]['tensiometria'])})")
+                        owkr = owkr_surface_energy({
+                            "water": theta_water,
+                            "diiodomethane": theta_diiodo,
+                            "formamide": theta_formamide
+                        })
 
-                except Exception as e:
+                        summary = {
+                            "Ângulo água": theta_water,
+                            "Ângulo diiodo": theta_diiodo,
+                            "Ângulo formamida": theta_formamide,
+                            **owkr
+                        }
 
-                    st.error("Erro no processamento")
-                    st.exception(e)
+                    if "tensiometria" not in st.session_state.samples_unified[sample_id]:
+                        st.session_state.samples_unified[sample_id]["tensiometria"] = []
 
-        if st.session_state.samples_unified:
+                    st.session_state.samples_unified[sample_id]["tensiometria"].append(summary)
 
-            st.subheader("Dados consolidados")
-
-            st.write(st.session_state.samples_unified)
-
-            df_all = build_dataset()
-
-            if df_all is not None:
-                st.dataframe(df_all, use_container_width=True)
+        st.write(st.session_state.samples_unified)
 
 # =========================================================
-# SUBABA 2 PCA
+# PCA
 # =========================================================
-    with subtabs[1]:
+    with tabs[1]:
 
-        df_all = build_dataset()
+        df = build_dataset()
 
-        if df_all is None or len(df_all) < 2:
-            st.info("Necessário ao menos 2 amostras")
+        if df is None or len(df) < 2:
+            st.info("Carregue ao menos duas amostras")
             return
 
-        st.dataframe(df_all)
+        st.dataframe(df)
 
-        run_pca(df_all)
+        st.subheader("OWRK")
+        plot_owrk(df)
+
+        st.subheader("PCA")
+        run_pca_cluster(df)
