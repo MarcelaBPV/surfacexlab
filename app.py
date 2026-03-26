@@ -10,7 +10,7 @@ from PIL import Image
 
 
 # =========================================================
-# CONFIGURAÇÃO DE DIRETÓRIOS
+# CONFIGURAÇÃO
 # =========================================================
 
 BASE_DIR = Path(__file__).parent
@@ -19,14 +19,14 @@ LOGO_PATH = ASSETS_DIR / "surfacexlab_logo.png"
 
 
 # =========================================================
-# CARREGAMENTO DA LOGO
+# LOGO
 # =========================================================
 
 def load_logo():
     if LOGO_PATH.exists():
         try:
             return Image.open(LOGO_PATH)
-        except Exception:
+        except:
             return None
     return None
 
@@ -35,12 +35,12 @@ logo_image = load_logo()
 
 
 # =========================================================
-# CONFIGURAÇÃO DA PÁGINA
+# PAGE CONFIG
 # =========================================================
 
 st.set_page_config(
     page_title="SurfaceXLab",
-    page_icon=logo_image if logo_image else "X",
+    page_icon=logo_image if logo_image else "🧪",
     layout="wide"
 )
 
@@ -48,7 +48,7 @@ st.title("SurfaceXLab — Plataforma de Caracterização e Otimização de Super
 
 
 # =========================================================
-# CONEXÃO COM SUPABASE
+# SUPABASE
 # =========================================================
 
 @st.cache_resource
@@ -63,36 +63,34 @@ supabase = init_supabase()
 
 
 # =========================================================
-# IMPORTAÇÃO SEGURA
+# SAFE IMPORT (ROBUSTO)
 # =========================================================
 
-def safe_import(module_name: str, func_name: str, optional: bool = False):
+def safe_import(module_name, func_name, optional=False):
 
     try:
         module = __import__(module_name, fromlist=[func_name])
 
-        if not hasattr(module, func_name):
-            raise AttributeError
+        func = getattr(module, func_name)
 
-        return getattr(module, func_name)
+        return func
 
-    except Exception:
+    except Exception as e:
 
         if optional:
+            st.warning(f"⚠ Módulo opcional não carregado: {module_name}")
             return None
 
-        st.error(f"❌ Função `{func_name}` não encontrada em `{module_name}.py`")
+        st.error(f"❌ Erro ao carregar `{module_name}.{func_name}`")
+        st.exception(e)
         st.stop()
 
 
 # =========================================================
-# IMPORTAÇÃO DOS MÓDULOS ANALÍTICOS
+# IMPORTAÇÃO DOS MÓDULOS
 # =========================================================
 
-render_raman_tab = safe_import(
-    "raman_tab",
-    "render_raman_tab"
-)
+render_raman_tab = safe_import("raman_tab", "render_raman_tab")
 
 render_resistividade_tab = safe_import(
     "resistividade_tab",
@@ -112,7 +110,6 @@ render_mapeamento_molecular_tab = safe_import(
     optional=True
 )
 
-# 🔥 NOVA ABA — ANÁLISE COMPLETA
 render_analise_completa_amostras_tab = safe_import(
     "analise_completa_amostras_tab",
     "render_analise_completa_amostras_tab",
@@ -121,7 +118,7 @@ render_analise_completa_amostras_tab = safe_import(
 
 
 # =========================================================
-# SIDEBAR — CADASTRO DE AMOSTRAS
+# SIDEBAR (CRM)
 # =========================================================
 
 with st.sidebar:
@@ -136,12 +133,12 @@ with st.sidebar:
     material_type = st.text_input("Tipo de Material")
     substrate = st.text_input("Substrato")
     surface_treatment = st.text_input("Tratamento de Superfície")
-    description = st.text_area("Descrição da Amostra")
+    description = st.text_area("Descrição")
 
     if st.button("Salvar Amostra"):
 
         if not sample_code:
-            st.warning("⚠ Código da amostra é obrigatório.")
+            st.warning("⚠ Código obrigatório")
         else:
             try:
 
@@ -153,35 +150,37 @@ with st.sidebar:
                     "description": description,
                 }).execute()
 
-                st.success("✔ Amostra cadastrada com sucesso!")
+                st.success("✔ Salvo com sucesso")
 
             except Exception as e:
-                st.error(f"Erro ao salvar no banco: {e}")
+                st.error("Erro ao salvar")
+                st.exception(e)
 
 
 # =========================================================
-# ABAS PRINCIPAIS
+# ABAS
 # =========================================================
 
 tabs = st.tabs([
-    "🧬 Molecular - Raman",
-    "⚡ Elétrica - Resistividade",
-    "💧 Físico-Mecânica - Tensiometria",
-    "🧪 Mapeamento Molecular",
-    "🧠 Análise Completa de Amostras"
+    "1 Raman",
+    "2 Resistividade",
+    "3 Tensiometria",
+    "4 Mapeamento",
+    "5 Análise Completa"
 ])
 
 
 # =========================================================
-# ABA 1 — RAMAN
+# RAMAN
 # =========================================================
 
 with tabs[0]:
-    render_raman_tab(supabase)
+    if render_raman_tab:
+        render_raman_tab(supabase)
 
 
 # =========================================================
-# ABA 2 — RESISTIVIDADE
+# RESISTIVIDADE
 # =========================================================
 
 with tabs[1]:
@@ -189,11 +188,11 @@ with tabs[1]:
     if render_resistividade_tab:
         render_resistividade_tab(supabase)
     else:
-        st.info("Módulo de resistividade ainda não implementado.")
+        st.info("Módulo não disponível")
 
 
 # =========================================================
-# ABA 3 — TENSIOMETRIA
+# TENSIOMETRIA
 # =========================================================
 
 with tabs[2]:
@@ -201,11 +200,11 @@ with tabs[2]:
     if render_tensiometria_tab:
         render_tensiometria_tab(supabase)
     else:
-        st.info("Módulo de tensiometria ainda não implementado.")
+        st.info("Módulo não disponível")
 
 
 # =========================================================
-# ABA 4 — MAPEAMENTO MOLECULAR
+# MAPEAMENTO
 # =========================================================
 
 with tabs[3]:
@@ -213,11 +212,11 @@ with tabs[3]:
     if render_mapeamento_molecular_tab:
         render_mapeamento_molecular_tab(supabase)
     else:
-        st.info("Módulo de mapeamento molecular ainda não implementado.")
+        st.info("Módulo não disponível")
 
 
 # =========================================================
-# ABA 5 — ANÁLISE COMPLETA (NOVA)
+# ANÁLISE COMPLETA
 # =========================================================
 
 with tabs[4]:
@@ -225,4 +224,4 @@ with tabs[4]:
     if render_analise_completa_amostras_tab:
         render_analise_completa_amostras_tab(supabase)
     else:
-        st.info("Módulo de análise completa ainda não implementado.")
+        st.warning("⚠ Aba de análise completa não carregada")
