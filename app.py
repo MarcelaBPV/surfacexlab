@@ -1,13 +1,15 @@
 # =========================================================
 
-# SurfaceXLab — APP FINAL COMPLETO
+# SurfaceXLab
+
+# Plataforma CRM para Caracterização e Otimização de Superfícies
 
 # =========================================================
 
 import streamlit as st
+from supabase import create_client, Client
 from pathlib import Path
 from PIL import Image
-from supabase import create_client, Client
 
 # =========================================================
 
@@ -66,20 +68,67 @@ supabase = init_supabase()
 
 # =========================================================
 
-# IMPORTAÇÃO DA ANÁLISE COMPLETA
+# SAFE IMPORT
 
 # =========================================================
+
+def safe_import(module_name, func_name, optional=False):
+
+```
+try:
+    module = __import__(module_name, fromlist=[func_name])
+    func = getattr(module, func_name)
+    return func
+
+except Exception as e:
+
+    if optional:
+        st.warning(f"⚠ Módulo opcional não carregado: {module_name}")
+        return None
+
+    st.error(f"❌ Erro ao carregar `{module_name}.{func_name}`")
+    st.exception(e)
+    st.stop()
+```
+
+# =========================================================
+
+# IMPORTAÇÃO DOS MÓDULOS
+
+# =========================================================
+
+render_raman_tab = safe_import("raman_tab", "render_raman_tab")
+
+render_resistividade_tab = safe_import(
+"resistividade_tab",
+"render_resistividade_tab",
+optional=True
+)
+
+render_tensiometria_tab = safe_import(
+"tensiometria_tab",
+"render_tensiometria_tab",
+optional=True
+)
+
+render_mapeamento_molecular_tab = safe_import(
+"mapeamento_molecular_tab",
+"render_mapeamento_molecular_tab",
+optional=True
+)
+
+# 🔥 IMPORTAÇÃO CORRIGIDA (SEM ERRO SILENCIOSO)
 
 try:
 from analise_completa_amostras_tab import render_analise_completa_amostras_tab
 except Exception as e:
 render_analise_completa_amostras_tab = None
-st.error("❌ Erro ao carregar módulo de análise completa")
+st.error("❌ Erro ao carregar análise completa")
 st.exception(e)
 
 # =========================================================
 
-# SIDEBAR — CADASTRO
+# SIDEBAR (CRM)
 
 # =========================================================
 
@@ -104,6 +153,7 @@ if st.button("Salvar Amostra"):
         st.warning("⚠ Código obrigatório")
     else:
         try:
+
             supabase.table("samples").insert({
                 "sample_code": sample_code,
                 "material_type": material_type,
@@ -112,7 +162,7 @@ if st.button("Salvar Amostra"):
                 "description": description,
             }).execute()
 
-            st.success("✔ Amostra salva com sucesso")
+            st.success("✔ Salvo com sucesso")
 
         except Exception as e:
             st.error("Erro ao salvar")
@@ -121,13 +171,72 @@ if st.button("Salvar Amostra"):
 
 # =========================================================
 
-# ABAS PRINCIPAIS
+# ABAS
 
 # =========================================================
 
 tabs = st.tabs([
-"🔬 Análise Completa"
+"1 Raman",
+"2 Resistividade",
+"3 Tensiometria",
+"4 Mapeamento",
+"5 Análise Completa"
 ])
+
+# =========================================================
+
+# RAMAN
+
+# =========================================================
+
+with tabs[0]:
+if render_raman_tab:
+render_raman_tab(supabase)
+
+# =========================================================
+
+# RESISTIVIDADE
+
+# =========================================================
+
+with tabs[1]:
+
+```
+if render_resistividade_tab:
+    render_resistividade_tab(supabase)
+else:
+    st.info("Módulo não disponível")
+```
+
+# =========================================================
+
+# TENSIOMETRIA
+
+# =========================================================
+
+with tabs[2]:
+
+```
+if render_tensiometria_tab:
+    render_tensiometria_tab(supabase)
+else:
+    st.info("Módulo não disponível")
+```
+
+# =========================================================
+
+# MAPEAMENTO
+
+# =========================================================
+
+with tabs[3]:
+
+```
+if render_mapeamento_molecular_tab:
+    render_mapeamento_molecular_tab(supabase)
+else:
+    st.info("Módulo não disponível")
+```
 
 # =========================================================
 
@@ -135,7 +244,7 @@ tabs = st.tabs([
 
 # =========================================================
 
-with tabs[0]:
+with tabs[4]:
 
 ```
 if render_analise_completa_amostras_tab is None:
