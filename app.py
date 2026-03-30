@@ -11,7 +11,7 @@ from PIL import Image
 # CONFIGURAÇÃO
 # =========================================================
 
-BASE_DIR = Path(**file**).parent
+BASE_DIR = Path(__file__).parent
 ASSETS_DIR = BASE_DIR / "assets"
 LOGO_PATH = ASSETS_DIR / "surfacexlab_logo.png"
 
