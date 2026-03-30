@@ -1,359 +1,291 @@
+# -- coding: utf-8 --
+
 import streamlit as st
 import pandas as pd
 import numpy as np
-import re
+import matplotlib.pyplot as plt
 
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
-from sklearn.cluster import KMeans
 
-import plotly.express as px
+from tensiometria_processing import process_tensiometry
+from resistividade_processing import process_resistivity
+from raman_processing import process_raman_spectrum_with_groups
 
-# =========================================================
-
-# LEITURA UNIVERSAL ROBUSTA
 
 # =========================================================
+# PCA GLOBAL
+# =========================================================
+def run_pca_global(df):
 
-def read_any_file(file):
+    df = df.copy()
 
-```
-name = file.name.lower()
+    # garante coluna de identificação
+    if "Amostra" not in df.columns:
+        df["Amostra"] = df.index.astype(str)
 
-try:
-    if name.endswith(".csv"):
-        try:
-            df = pd.read_csv(file, sep=None, engine="python")
-        except:
-            file.seek(0)
-            df = pd.read_csv(file, sep=";")
+    # seleciona apenas dados numéricos
+    X = df.select_dtypes(include=[np.number])
 
-    elif name.endswith((".xls", ".xlsx")):
-        df = pd.read_excel(file)
-
-    else:
+    if X.shape[1] < 2:
+        st.warning("Dados insuficientes para PCA.")
         return None
 
+    X = X.fillna(0)
+
+    X_scaled = StandardScaler().fit_transform(X)
+
+    pca = PCA(n_components=2)
+    scores = pca.fit_transform(X_scaled)
+    loadings = pca.components_.T
+    explained = pca.explained_variance_ratio_ * 100
+
+    fig, ax = plt.subplots(figsize=(7,7), dpi=300)
+
+    ax.scatter(scores[:,0], scores[:,1], s=100, edgecolor="black")
+
+    labels = df["Amostra"].astype(str).values
+
+    for i, label in enumerate(labels):
+        ax.text(scores[i,0], scores[i,1], label)
+
+    scale = np.max(np.abs(scores)) * 0.8
+
+    for i, var in enumerate(X.columns):
+
+        ax.arrow(
+            0, 0,
+            loadings[i,0]*scale,
+            loadings[i,1]*scale,
+            head_width=0.05,
+            color="black"
+        )
+
+        ax.text(
+            loadings[i,0]*scale*1.1,
+            loadings[i,1]*scale*1.1,
+            var,
+            fontsize=9
+        )
+
+    ax.axhline(0, color="gray", lw=0.5)
+    ax.axvline(0, color="gray", lw=0.5)
+
+    ax.set_xlabel(f"PC1 ({explained[0]:.1f}%)")
+    ax.set_ylabel(f"PC2 ({explained[1]:.1f}%)")
+    ax.set_title("PCA Global — Integração Multimodal")
+
+    ax.grid(alpha=0.3)
+
+    return fig
+
+
+# =========================================================
+# CONSTRUIR DATASET GLOBAL
+# =========================================================
+def build_dataset():
+
+    if "samples_unified" not in st.session_state:
+        return None
+
+    data = []
+
+    for sample, content in st.session_state.samples_unified.items():
+
+        row = {"Amostra": sample}
+
+        for tech, values in content.items():
+
+            if isinstance(values, dict):
+                row.update(values)
+
+        data.append(row)
+
+    if len(data) == 0:
+        return None
+
+    return pd.DataFrame(data)
+
+
+# =========================================================
+# PROCESSAMENTO PERFILOMETRIA (ROBUSTO)
+# =========================================================
+def process_profilometry(file):
+
+    file.seek(0)
+
+    try:
+        df = pd.read_excel(file)
+    except:
+        file.seek(0)
+        df = pd.read_csv(file)
+
     # limpeza
-    df = df.applymap(lambda x: str(x).replace(" ", "") if isinstance(x, str) else x)
-    df = df.replace(",", ".", regex=True)
+    df_numeric = df.apply(pd.to_numeric, errors="coerce")
+    df_numeric = df_numeric.dropna(how="all")
 
-    return df
+    # seleção inteligente
+    if "height" in df_numeric.columns:
+        values = df_numeric["height"].dropna().values
+    else:
+        values = df_numeric.select_dtypes(include=[np.number]).values.flatten()
+        values = values[~np.isnan(values)]
 
-except Exception as e:
-    st.error(f"Erro ao ler {file.name}")
-    st.exception(e)
-    return None
-```
+    if len(values) < 5:
+        raise ValueError("Dados insuficientes para cálculo de rugosidade")
 
-# =========================================================
+    return {
+        "Rugosidade (std)": float(np.std(values))
+    }
 
-# IDENTIFICAR AMOSTRA
-
-# =========================================================
-
-def detect_sample_and_type(filename):
-
-```
-name = filename.lower()
-
-match = re.search(r'([ab]\d+\.?\d*)', name)
-sample = match.group(1).upper() if match else "UNKNOWN"
-
-if "resistividade" in name:
-    return sample, "resistividade"
-elif "tensiometria" in name:
-    return sample, "tensiometria"
-elif "perfilometria" in name:
-    return sample, "perfilometria"
-
-return sample, "unknown"
-```
 
 # =========================================================
-
-# RESISTIVIDADE
-
+# TAB PRINCIPAL
 # =========================================================
-
-def process_iv(df):
-
-```
-df = df.apply(pd.to_numeric, errors="coerce")
-df = df.dropna(how="all")
-
-df_num = df.select_dtypes(include=np.number)
-
-if df_num.shape[1] < 2:
-    raise ValueError("Arquivo inválido para I-V")
-
-V = df_num.iloc[:, 0]
-I = df_num.iloc[:, 1]
-
-mask = (~V.isna()) & (~I.isna())
-V = V[mask].values
-I = I[mask].values
-
-if len(V) < 2:
-    raise ValueError("Poucos dados")
-
-slope = np.polyfit(V, I, 1)[0]
-
-return {
-    "Resistividade": float(1/slope)
-}
-```
-
-# =========================================================
-
-# PERFILOMETRIA
-
-# =========================================================
-
-def process_profilometry(df):
-
-```
-df = df.apply(pd.to_numeric, errors="coerce")
-df = df.dropna(how="all")
-
-z = df.values.flatten()
-z = z[~np.isnan(z)]
-
-return {
-    "Rugosidade (Rq)": float(np.std(z))
-}
-```
-
-# =========================================================
-
-# TENSIOMETRIA (SIMPLIFICADA)
-
-# =========================================================
-
-def process_tensiometry_excel(df):
-
-```
-df = df.apply(pd.to_numeric, errors="coerce")
-nums = df.select_dtypes(include=np.number).dropna()
-
-if nums.shape[1] < 3:
-    raise ValueError("Dados insuficientes")
-
-water, diiodo, formamide = nums.iloc[0, :3]
-
-total = float(water + diiodo + formamide)
-
-return {
-    "Energia Superficial Total (mJ/m²)": total,
-    "Componente polar (mJ/m²)": float(water),
-    "Componente dispersiva (mJ/m²)": float(diiodo)
-}
-```
-
-# =========================================================
-
-# PCA INTERATIVO
-
-# =========================================================
-
-def run_pca_plotly(df, title):
-
-```
-if df.empty or len(df) < 2:
-    return
-
-X = df.drop(columns=["Amostra"], errors="ignore")
-X = X.apply(pd.to_numeric, errors="coerce")
-X = X.dropna(axis=1, how="all").dropna()
-
-if X.shape[0] < 2 or X.shape[1] < 2:
-    return
-
-X_scaled = StandardScaler().fit_transform(X)
-
-pca = PCA(n_components=2)
-scores = pca.fit_transform(X_scaled)
-
-df_plot = pd.DataFrame({
-    "PC1": scores[:,0],
-    "PC2": scores[:,1],
-    "Amostra": df["Amostra"].iloc[:len(scores)]
-})
-
-fig = px.scatter(df_plot, x="PC1", y="PC2", text="Amostra", title=title)
-st.plotly_chart(fig, use_container_width=True)
-```
-
-# =========================================================
-
-# CLUSTERING
-
-# =========================================================
-
-def run_clustering(df):
-
-```
-if df.empty or len(df) < 3:
-    return df
-
-X = df.drop(columns=["Amostra"], errors="ignore")
-X = X.apply(pd.to_numeric, errors="coerce")
-X = X.dropna(axis=1, how="all").dropna()
-
-if X.shape[0] < 3:
-    return df
-
-X_scaled = StandardScaler().fit_transform(X)
-
-kmeans = KMeans(n_clusters=2, random_state=42)
-clusters = kmeans.fit_predict(X_scaled)
-
-df = df.iloc[:len(clusters)].copy()
-df["Cluster"] = clusters
-
-fig = px.scatter(df, x=df.columns[1], y=df.columns[2],
-                 color="Cluster", text="Amostra",
-                 title="Clustering")
-
-st.plotly_chart(fig, use_container_width=True)
-
-return df
-```
-
-# =========================================================
-
-# CORRELAÇÃO
-
-# =========================================================
-
-def run_correlation(df):
-
-```
-if "Resistividade" not in df.columns:
-    return
-
-if "Energia Superficial Total (mJ/m²)" not in df.columns:
-    return
-
-x = df["Resistividade"]
-y = df["Energia Superficial Total (mJ/m²)"]
-
-mask = (~x.isna()) & (~y.isna())
-x = x[mask]
-y = y[mask]
-
-if len(x) < 2:
-    return
-
-r2 = np.corrcoef(x, y)[0,1]**2
-
-fig = px.scatter(x=x, y=y, trendline="ols",
-                 title=f"Correlação (R²={r2:.3f})")
-
-st.plotly_chart(fig, use_container_width=True)
-```
-
-# =========================================================
-
-# SUPABASE
-
-# =========================================================
-
-def save_to_supabase(df, supabase):
-
-```
-if supabase is None:
-    return
-
-data = []
-
-for _, row in df.iterrows():
-    data.append({
-        "sample": row.get("Amostra"),
-        "resistividade": row.get("Resistividade"),
-        "rugosidade": row.get("Rugosidade (Rq)"),
-        "energia_total": row.get("Energia Superficial Total (mJ/m²)")
-    })
-
-supabase.table("samples_data").insert(data).execute()
-st.success("Salvo no banco 🚀")
-```
-
-# =========================================================
-
-# MAIN
-
-# =========================================================
-
 def render_analise_completa_amostras_tab(supabase=None):
 
-```
-st.header("🧠 Análise Completa")
+    st.header("🧠 Análise Completa de Amostras")
 
-if "samples" not in st.session_state:
-    st.session_state.samples = {}
+    if "samples_unified" not in st.session_state:
+        st.session_state.samples_unified = {}
 
-files = st.file_uploader("Upload das amostras", accept_multiple_files=True)
+    subtabs = st.tabs([
+        "📥 Upload & Processamento",
+        "📊 PCA Global"
+    ])
 
-if files:
+# =========================================================
+# 📥 SUBABA 1
+# =========================================================
+    with subtabs[0]:
 
-    for file in files:
+        st.subheader("Cadastro e Upload por Técnica")
 
-        sample, tech = detect_sample_and_type(file.name)
-        df = read_any_file(file)
+        sample_id = st.text_input("ID da Amostra (ex: A1.5, B1.5)")
 
-        if df is None:
-            continue
+        technique = st.selectbox(
+            "Selecione a técnica",
+            ["Raman", "Resistividade", "Tensiometria", "Perfilometria"]
+        )
 
-        if sample not in st.session_state.samples:
-            st.session_state.samples[sample] = {}
+        file = st.file_uploader(
+            "Upload do arquivo",
+            type=["csv","txt","xls","xlsx","log"]
+        )
 
-        try:
+        if st.button("Processar"):
 
-            if tech == "resistividade":
-                st.session_state.samples[sample]["resistividade"] = process_iv(df)
+            if not sample_id or not file:
+                st.warning("Preencha todos os campos.")
+                return
 
-            elif tech == "perfilometria":
-                st.session_state.samples[sample]["perfilometria"] = process_profilometry(df)
+            # garante estrutura
+            if sample_id not in st.session_state.samples_unified:
+                st.session_state.samples_unified[sample_id] = {}
 
-            elif tech == "tensiometria":
-                st.session_state.samples[sample]["tensiometria"] = process_tensiometry_excel(df)
+            try:
 
-        except Exception as e:
-            st.error(f"Erro em {file.name}")
-            st.exception(e)
+                # =========================
+                # RAMAN
+                # =========================
+                if technique == "Raman":
 
-# =========================
-# DATAFRAME FINAL
-# =========================
+                    result = process_raman_spectrum_with_groups(file)
 
-rows = []
+                    peaks = result["peaks_df"]
 
-for sample, data in st.session_state.samples.items():
-    row = {"Amostra": sample}
+                    fingerprint = peaks.groupby("chemical_group")["amplitude"].mean()
 
-    for tech in data:
-        row.update(data[tech])
+                    st.session_state.samples_unified[sample_id]["raman"] = fingerprint.to_dict()
 
-    rows.append(row)
+                    st.success("Raman processado")
 
-df = pd.DataFrame(rows)
+                # =========================
+                # ELÉTRICO
+                # =========================
+                elif technique == "Resistividade":
 
-st.dataframe(df)
+                    result = process_resistivity(file, 1e-6, "four_point_film")
 
-# =========================
-# ANÁLISE AVANÇADA
-# =========================
+                    st.pyplot(result["figure"])
 
-st.subheader("📊 PCA")
-run_pca_plotly(df, "PCA")
+                    st.session_state.samples_unified[sample_id]["eletrico"] = result["summary"]
 
-st.subheader("🧠 Clustering")
-df = run_clustering(df)
+                    st.success("Resistividade processada")
 
-st.subheader("📈 Correlação")
-run_correlation(df)
+                # =========================
+                # TENSIOMETRIA
+                # =========================
+                elif technique == "Tensiometria":
 
-if st.button("💾 Salvar no banco"):
-    save_to_supabase(df, supabase)
-```
+                    result = process_tensiometry(
+                        file,
+                        {"water":70,"diiodomethane":50,"formamide":60},
+                        0.5,
+                        0.3
+                    )
+
+                    st.pyplot(result["figure"])
+
+                    st.session_state.samples_unified[sample_id]["tensiometria"] = result["summary"]
+
+                    st.success("Tensiometria processada")
+
+                # =========================
+                # PERFILOMETRIA
+                # =========================
+                elif technique == "Perfilometria":
+
+                    result = process_profilometry(file)
+
+                    st.session_state.samples_unified[sample_id]["perfilometria"] = result
+
+                    st.success(f"Rugosidade = {result['Rugosidade (std)']:.4f}")
+
+                # =========================
+                # SUPABASE
+                # =========================
+                if supabase:
+                    supabase.table("samples_unified").insert({
+                        "sample_code": sample_id,
+                        "technique": technique
+                    }).execute()
+
+            except Exception as e:
+
+                st.error("Erro no processamento")
+                st.exception(e)
+
+                # remove amostra vazia
+                if st.session_state.samples_unified[sample_id] == {}:
+                    del st.session_state.samples_unified[sample_id]
+
+        # =========================
+        # VISUALIZAÇÃO
+        # =========================
+        if st.session_state.samples_unified:
+
+            st.subheader("Amostras carregadas")
+
+            st.json(st.session_state.samples_unified)
+
+
+# =========================================================
+# 📊 SUBABA 2 — PCA
+# =========================================================
+    with subtabs[1]:
+
+        df = build_dataset()
+
+        if df is None or df.empty:
+            st.warning("Nenhuma amostra completa ainda.")
+            return
+
+        st.dataframe(df, use_container_width=True)
+
+        if df.shape[0] >= 2:
+
+            fig = run_pca_global(df)
+
+            if fig:
+                st.pyplot(fig)
