@@ -1,193 +1,184 @@
 # =========================================================
-# PERFILOMETRIA TAB — SurfaceXLab (VERSÃO AVANÇADA)
+# PERFILOMETRIA TAB — SurfaceXLab (PA + PQ + ESTATÍSTICA)
 # =========================================================
 
 import streamlit as st
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
 
 
 # =========================================================
-# FUNÇÕES DE PROCESSAMENTO
+# FUNÇÃO ESTATÍSTICA
 # =========================================================
+def analisar_estatistica(dados):
 
-def remover_tendencia(x, z):
-    """Remove inclinação linear (form removal)"""
-    coef = np.polyfit(x, z, 1)
-    tendencia = np.polyval(coef, x)
-    return z - tendencia
+    media = np.mean(dados)
+    desvio = np.std(dados, ddof=1)
+    erro = desvio / np.sqrt(len(dados))
 
+    erro_arred = round(erro, 2)
+    valor_arred = round(media, 2)
 
-def calcular_parametros(z):
-    """Calcula parâmetros clássicos de rugosidade"""
+    valor_real = f"{valor_arred} ± {erro_arred}"
 
-    z_mean = np.mean(z)
-
-    Ra = np.mean(np.abs(z - z_mean))
-    Rq = np.sqrt(np.mean((z - z_mean)**2))
-
-    Rp = np.max(z - z_mean)
-    Rv = np.abs(np.min(z - z_mean))
-    Rt = np.max(z) - np.min(z)
-
-    # Rz simplificado (ISO aproximado)
-    z_sorted = np.sort(z)
-    top5 = np.mean(z_sorted[-5:])
-    bottom5 = np.mean(z_sorted[:5])
-    Rz = top5 - bottom5
-
-    return {
-        "Ra": Ra,
-        "Rq": Rq,
-        "Rz": Rz,
-        "Rt": Rt,
-        "Rp": Rp,
-        "Rv": Rv
-    }
+    return media, desvio, erro, erro_arred, valor_arred, valor_real
 
 
 # =========================================================
-# PLOT CIENTÍFICO
+# LEITURA INTELIGENTE DE ARQUIVO
 # =========================================================
+def ler_arquivo(file):
 
-def plot_perfil(x, z, z_filtrado=None):
-    fig, ax = plt.subplots(figsize=(10, 4))
+    if file.name.endswith((".xlsx", ".xls")):
+        return pd.read_excel(file)
 
-    ax.plot(x, z, label="Perfil bruto", linewidth=1)
+    try:
+        return pd.read_csv(file)
+    except:
+        return pd.read_csv(file, delimiter="\t")
 
-    if z_filtrado is not None:
-        ax.plot(x, z_filtrado, label="Perfil sem forma", linewidth=1.5)
 
-    ax.set_xlabel("Posição (µm)")
-    ax.set_ylabel("Altura (µm)")
-    ax.set_title("Perfil de Rugosidade")
+# =========================================================
+# DETECÇÃO AUTOMÁTICA DE COLUNAS
+# =========================================================
+def detectar_colunas(df):
 
-    ax.legend()
-    ax.grid(True, linestyle="--", alpha=0.4)
+    pa_col = None
+    pq_col = None
 
-    return fig
+    for c in df.columns:
+        c_lower = c.lower()
+
+        if "pa" in c_lower:
+            pa_col = c
+
+        if "pq" in c_lower:
+            pq_col = c
+
+    return pa_col, pq_col
 
 
 # =========================================================
 # TAB PRINCIPAL
 # =========================================================
-
 def render_perfilometria_tab():
 
     st.subheader("📏 Perfilometria de Superfície")
-    st.caption("Análise de rugosidade com tratamento de forma e parâmetros ISO")
+    st.caption("Análise estatística de rugosidade (Pa e Pq)")
 
     st.divider()
 
     # =====================================================
     # UPLOAD
     # =====================================================
-    file = st.file_uploader(
-        "📂 Envie arquivos de perfilometria",
-        type=["csv", "txt", "xlsx"],
+    files = st.file_uploader(
+        "📂 Envie arquivos (csv, txt, log, xls, xlsx)",
+        type=["csv", "txt", "log", "xlsx", "xls"],
         accept_multiple_files=True
     )
 
-    if not file:
+    if not files:
         st.info("Envie um ou mais arquivos para iniciar.")
         return
 
-    # =====================================================
-    # LOOP DE ARQUIVOS
-    # =====================================================
     resultados = []
 
-    for f in file:
+    # =====================================================
+    # LOOP DOS ARQUIVOS
+    # =====================================================
+    for f in files:
 
         st.markdown(f"### 📄 {f.name}")
 
         try:
-            # ==============================
-            # LEITURA INTELIGENTE
-            # ==============================
-            if f.name.endswith(".xlsx"):
-                df = pd.read_excel(f)
-            else:
-                df = pd.read_csv(f)
+            # ============================
+            # LEITURA
+            # ============================
+            df = ler_arquivo(f)
 
             st.dataframe(df.head())
 
-            # ==============================
-            # SELEÇÃO DE COLUNAS
-            # ==============================
-            col_x = st.selectbox(
-                f"Coluna X ({f.name})",
-                df.columns,
-                key=f"x_{f.name}"
-            )
+            # ============================
+            # DETECÇÃO DE COLUNAS
+            # ============================
+            pa_col, pq_col = detectar_colunas(df)
 
-            col_z = st.selectbox(
-                f"Coluna Z ({f.name})",
-                df.columns,
-                key=f"z_{f.name}"
-            )
+            if pa_col is None:
+                pa_col = st.selectbox(
+                    f"Selecione coluna Pa ({f.name})",
+                    df.columns,
+                    key=f"pa_{f.name}"
+                )
 
-            x = df[col_x].values
-            z = df[col_z].values
+            if pq_col is None:
+                pq_col = st.selectbox(
+                    f"Selecione coluna Pq ({f.name})",
+                    df.columns,
+                    key=f"pq_{f.name}"
+                )
 
-            # ==============================
-            # TRATAMENTO
-            # ==============================
-            aplicar_remocao = st.checkbox(
-                f"Remover tendência (forma) — {f.name}",
-                value=True,
-                key=f"trend_{f.name}"
-            )
+            # ============================
+            # EXTRAIR DADOS
+            # ============================
+            Pa = pd.to_numeric(df[pa_col], errors="coerce").dropna().values
+            Pq = pd.to_numeric(df[pq_col], errors="coerce").dropna().values
 
-            if aplicar_remocao:
-                z_processado = remover_tendencia(x, z)
-            else:
-                z_processado = z
+            # ============================
+            # CÁLCULO
+            # ============================
+            pa_res = analisar_estatistica(Pa)
+            pq_res = analisar_estatistica(Pq)
 
-            # ==============================
-            # PARÂMETROS
-            # ==============================
-            params = calcular_parametros(z_processado)
+            # ============================
+            # TABELA RESULTADO
+            # ============================
+            tabela = pd.DataFrame({
+                "Parâmetro": [
+                    "Média",
+                    "Desvio P",
+                    "Erro Aleatório",
+                    "Erro (Arred.)",
+                    "Valor (Arred.)",
+                    "Valor (Real)"
+                ],
+                "Pa": pa_res,
+                "Pq": pq_res
+            })
 
-            c1, c2, c3 = st.columns(3)
-            c4, c5, c6 = st.columns(3)
+            st.markdown("### 📊 Estatística (Pa / Pq)")
+            st.dataframe(tabela)
 
-            c1.metric("Ra", f"{params['Ra']:.4f}")
-            c2.metric("Rq", f"{params['Rq']:.4f}")
-            c3.metric("Rz", f"{params['Rz']:.4f}")
+            # ============================
+            # RESULTADO FINAL DESTACADO
+            # ============================
+            col1, col2 = st.columns(2)
 
-            c4.metric("Rt", f"{params['Rt']:.4f}")
-            c5.metric("Rp", f"{params['Rp']:.4f}")
-            c6.metric("Rv", f"{params['Rv']:.4f}")
+            col1.metric("📏 Pa Final", pa_res[5])
+            col2.metric("📏 Pq Final", pq_res[5])
 
-            # ==============================
-            # GRÁFICO
-            # ==============================
-            st.pyplot(plot_perfil(x, z, z_processado))
-
-            # ==============================
-            # ARMAZENAMENTO
-            # ==============================
+            # ============================
+            # SALVAR RESULTADO
+            # ============================
             resultados.append({
                 "arquivo": f.name,
-                **params
+                "Pa": pa_res[5],
+                "Pq": pq_res[5]
             })
 
         except Exception as e:
             st.error(f"Erro no arquivo {f.name}: {e}")
 
     # =====================================================
-    # TABELA FINAL
+    # COMPARAÇÃO FINAL
     # =====================================================
     if resultados:
+
         st.divider()
         st.markdown("### 📊 Comparação entre amostras")
 
-        df_resultados = pd.DataFrame(resultados)
-        st.dataframe(df_resultados)
+        df_final = pd.DataFrame(resultados)
+        st.dataframe(df_final)
 
-        # salvar no session_state
         if "perfilometria_samples" not in st.session_state:
             st.session_state["perfilometria_samples"] = {}
 
