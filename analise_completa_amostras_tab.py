@@ -1,7 +1,3 @@
-# =========================================================
-# ANALISE COMPLETA — VERSÃO SEGURA (SEM DEPENDÊNCIAS EXTERNAS)
-# =========================================================
-
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -14,7 +10,9 @@ from sklearn.cluster import KMeans
 import plotly.express as px
 
 # =========================================================
-# LEITURA UNIVERSAL
+
+# LEITURA UNIVERSAL ROBUSTA
+
 # =========================================================
 
 def read_any_file(file):
@@ -33,13 +31,10 @@ try:
     elif name.endswith((".xls", ".xlsx")):
         df = pd.read_excel(file)
 
-    elif name.endswith((".txt", ".log")):
-        df = pd.read_csv(file, sep=r"\s+|,|;", engine="python")
-
     else:
         return None
 
-    # limpeza pesada
+    # limpeza
     df = df.applymap(lambda x: str(x).replace(" ", "") if isinstance(x, str) else x)
     df = df.replace(",", ".", regex=True)
 
@@ -52,7 +47,9 @@ except Exception as e:
 ```
 
 # =========================================================
+
 # IDENTIFICAR AMOSTRA
+
 # =========================================================
 
 def detect_sample_and_type(filename):
@@ -74,17 +71,15 @@ return sample, "unknown"
 ```
 
 # =========================================================
+
 # RESISTIVIDADE
+
 # =========================================================
 
 def process_iv(df):
 
 ```
-df.columns = [str(c).lower() for c in df.columns]
-
-for col in df.columns:
-    df[col] = pd.to_numeric(df[col], errors="coerce")
-
+df = df.apply(pd.to_numeric, errors="coerce")
 df = df.dropna(how="all")
 
 df_num = df.select_dtypes(include=np.number)
@@ -105,12 +100,14 @@ if len(V) < 2:
 slope = np.polyfit(V, I, 1)[0]
 
 return {
-    "Resistividade": float(1/slope) if slope != 0 else np.nan
+    "Resistividade": float(1/slope)
 }
 ```
 
 # =========================================================
+
 # PERFILOMETRIA
+
 # =========================================================
 
 def process_profilometry(df):
@@ -122,23 +119,21 @@ df = df.dropna(how="all")
 z = df.values.flatten()
 z = z[~np.isnan(z)]
 
-if len(z) < 5:
-    raise ValueError("Poucos pontos")
-
 return {
     "Rugosidade (Rq)": float(np.std(z))
 }
 ```
 
 # =========================================================
+
 # TENSIOMETRIA (SIMPLIFICADA)
+
 # =========================================================
 
 def process_tensiometry_excel(df):
 
 ```
 df = df.apply(pd.to_numeric, errors="coerce")
-
 nums = df.select_dtypes(include=np.number).dropna()
 
 if nums.shape[1] < 3:
@@ -146,7 +141,6 @@ if nums.shape[1] < 3:
 
 water, diiodo, formamide = nums.iloc[0, :3]
 
-# modelo simplificado (placeholder robusto)
 total = float(water + diiodo + formamide)
 
 return {
@@ -157,14 +151,15 @@ return {
 ```
 
 # =========================================================
-# PCA
+
+# PCA INTERATIVO
+
 # =========================================================
 
 def run_pca_plotly(df, title):
 
 ```
 if df.empty or len(df) < 2:
-    st.warning("Dados insuficientes")
     return
 
 X = df.drop(columns=["Amostra"], errors="ignore")
@@ -172,7 +167,6 @@ X = X.apply(pd.to_numeric, errors="coerce")
 X = X.dropna(axis=1, how="all").dropna()
 
 if X.shape[0] < 2 or X.shape[1] < 2:
-    st.warning("PCA inválido")
     return
 
 X_scaled = StandardScaler().fit_transform(X)
@@ -191,7 +185,9 @@ st.plotly_chart(fig, use_container_width=True)
 ```
 
 # =========================================================
+
 # CLUSTERING
+
 # =========================================================
 
 def run_clustering(df):
@@ -216,7 +212,8 @@ df = df.iloc[:len(clusters)].copy()
 df["Cluster"] = clusters
 
 fig = px.scatter(df, x=df.columns[1], y=df.columns[2],
-                 color="Cluster", text="Amostra")
+                 color="Cluster", text="Amostra",
+                 title="Clustering")
 
 st.plotly_chart(fig, use_container_width=True)
 
@@ -224,7 +221,9 @@ return df
 ```
 
 # =========================================================
+
 # CORRELAÇÃO
+
 # =========================================================
 
 def run_correlation(df):
@@ -246,7 +245,6 @@ y = y[mask]
 if len(x) < 2:
     return
 
-coef = np.polyfit(x, y, 1)
 r2 = np.corrcoef(x, y)[0,1]**2
 
 fig = px.scatter(x=x, y=y, trendline="ols",
@@ -256,7 +254,9 @@ st.plotly_chart(fig, use_container_width=True)
 ```
 
 # =========================================================
+
 # SUPABASE
+
 # =========================================================
 
 def save_to_supabase(df, supabase):
@@ -275,22 +275,20 @@ for _, row in df.iterrows():
         "energia_total": row.get("Energia Superficial Total (mJ/m²)")
     })
 
-try:
-    supabase.table("samples_data").insert(data).execute()
-    st.success("Salvo no Supabase 🚀")
-except Exception as e:
-    st.error("Erro ao salvar")
-    st.exception(e)
+supabase.table("samples_data").insert(data).execute()
+st.success("Salvo no banco 🚀")
 ```
 
 # =========================================================
+
 # MAIN
+
 # =========================================================
 
 def render_analise_completa_amostras_tab(supabase=None):
 
 ```
-st.header("🧠 Análise Completa de Amostras")
+st.header("🧠 Análise Completa")
 
 if "samples" not in st.session_state:
     st.session_state.samples = {}
@@ -328,10 +326,10 @@ if files:
 # =========================
 # DATAFRAME FINAL
 # =========================
+
 rows = []
 
 for sample, data in st.session_state.samples.items():
-
     row = {"Amostra": sample}
 
     for tech in data:
@@ -344,8 +342,9 @@ df = pd.DataFrame(rows)
 st.dataframe(df)
 
 # =========================
-# ANÁLISE
+# ANÁLISE AVANÇADA
 # =========================
+
 st.subheader("📊 PCA")
 run_pca_plotly(df, "PCA")
 
