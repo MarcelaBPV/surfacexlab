@@ -20,14 +20,12 @@ LOGO_PATH = ASSETS_DIR / "surfacexlab_logo.png"
 # =========================================================
 
 def load_logo():
-if LOGO_PATH.exists():
-try:
-return Image.open(LOGO_PATH)
-except:
-return None
-return None
-
-logo_image = load_logo()
+    if LOGO_PATH.exists():
+        try:
+            return Image.open(LOGO_PATH)
+        except:
+            return None
+    return None
 
 # =========================================================
 # CONFIG
