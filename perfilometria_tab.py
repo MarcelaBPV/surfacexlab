@@ -1,5 +1,5 @@
 # =========================================================
-# PERFILOMETRIA TAB — SurfaceXLab (PA/PQ + PCA)
+# PERFILOMETRIA TAB — SurfaceXLab (CORRIGIDO + PCA)
 # =========================================================
 
 import streamlit as st
@@ -15,6 +15,8 @@ from sklearn.preprocessing import StandardScaler
 # =========================================================
 def analisar_estatistica(dados):
 
+    dados = np.array(dados)
+
     media = np.mean(dados)
     desvio = np.std(dados, ddof=1)
     erro = desvio / np.sqrt(len(dados))
@@ -28,21 +30,34 @@ def analisar_estatistica(dados):
 
 
 # =========================================================
-# LEITURA INTELIGENTE
+# LEITURA ROBUSTA
 # =========================================================
 def ler_arquivo(file):
 
-    if file.name.endswith((".xlsx", ".xls")):
-        return pd.read_excel(file)
-
     try:
-        return pd.read_csv(file)
-    except:
-        return pd.read_csv(file, delimiter="\t")
+        if file.name.endswith((".xlsx", ".xls")):
+            # tenta leitura padrão
+            df = pd.read_excel(file)
+
+            # se vier bugado, tenta outro header
+            if "Unnamed" in str(df.columns):
+                df = pd.read_excel(file, header=1)
+
+        else:
+            try:
+                df = pd.read_csv(file)
+            except:
+                df = pd.read_csv(file, delimiter="\t")
+
+        return df
+
+    except Exception as e:
+        st.error(f"Erro na leitura: {e}")
+        return None
 
 
 # =========================================================
-# DETECÇÃO DE COLUNAS
+# DETECÇÃO SEGURA DE COLUNAS
 # =========================================================
 def detectar_colunas(df):
 
@@ -50,12 +65,12 @@ def detectar_colunas(df):
     pq_col = None
 
     for c in df.columns:
-        c_lower = c.lower()
+        c_clean = str(c).strip().lower()
 
-        if "pa" in c_lower:
+        if c_clean == "pa":
             pa_col = c
 
-        if "pq" in c_lower:
+        elif c_clean == "pq":
             pq_col = c
 
     return pa_col, pq_col
@@ -92,7 +107,7 @@ def plot_pca(df_pca, labels):
 
     ax.set_xlabel("PC1")
     ax.set_ylabel("PC2")
-    ax.set_title("Análise de Componentes Principais (PCA)")
+    ax.set_title("PCA — Perfilometria")
 
     ax.grid(True)
 
@@ -109,13 +124,7 @@ def render_perfilometria_tab():
 
     st.divider()
 
-    # =====================================================
-    # SUBABAS
-    # =====================================================
-    subtabs = st.tabs([
-        "📊 Estatística",
-        "🧠 PCA"
-    ])
+    subtabs = st.tabs(["📊 Estatística", "🧠 PCA"])
 
     # =====================================================
     # SUBABA 1 — ESTATÍSTICA
@@ -123,125 +132,125 @@ def render_perfilometria_tab():
     with subtabs[0]:
 
         files = st.file_uploader(
-            "📂 Envie arquivos (csv, txt, log, xls, xlsx)",
+            "📂 Envie arquivos",
             type=["csv", "txt", "log", "xlsx", "xls"],
             accept_multiple_files=True
         )
 
         if not files:
-            st.info("Envie um ou mais arquivos para iniciar.")
-        else:
+            st.info("Envie arquivos para iniciar.")
+            return
 
-            resultados = {}
+        resultados = {}
 
-            for f in files:
+        for f in files:
 
-                st.markdown(f"### 📄 {f.name}")
+            st.markdown(f"## 📄 {f.name}")
 
-                try:
-                    df = ler_arquivo(f)
-                    st.dataframe(df.head())
+            df = ler_arquivo(f)
 
-                    # detectar colunas
-                    pa_col, pq_col = detectar_colunas(df)
+            if df is None:
+                continue
 
-                    if pa_col is None:
-                        pa_col = st.selectbox(
-                            f"Selecione coluna Pa ({f.name})",
-                            df.columns,
-                            key=f"pa_{f.name}"
-                        )
+            st.write("Colunas detectadas:", df.columns)
+            st.dataframe(df.head())
 
-                    if pq_col is None:
-                        pq_col = st.selectbox(
-                            f"Selecione coluna Pq ({f.name})",
-                            df.columns,
-                            key=f"pq_{f.name}"
-                        )
+            # detectar colunas
+            pa_col, pq_col = detectar_colunas(df)
 
-                    # dados
-                    Pa = pd.to_numeric(df[pa_col], errors="coerce").dropna().values
-                    Pq = pd.to_numeric(df[pq_col], errors="coerce").dropna().values
+            # fallback manual
+            if pa_col is None:
+                pa_col = st.selectbox(
+                    f"Selecione coluna Pa ({f.name})",
+                    df.columns,
+                    key=f"pa_{f.name}"
+                )
 
-                    # cálculo
-                    pa_res = analisar_estatistica(Pa)
-                    pq_res = analisar_estatistica(Pq)
+            if pq_col is None:
+                pq_col = st.selectbox(
+                    f"Selecione coluna Pq ({f.name})",
+                    df.columns,
+                    key=f"pq_{f.name}"
+                )
 
-                    # tabela
-                    tabela = pd.DataFrame({
-                        "Parâmetro": [
-                            "Média",
-                            "Desvio P",
-                            "Erro Aleatório",
-                            "Erro (Arred.)",
-                            "Valor (Arred.)",
-                            "Valor (Real)"
-                        ],
-                        "Pa": pa_res,
-                        "Pq": pq_res
-                    })
+            # dados numéricos
+            Pa = pd.to_numeric(df[pa_col], errors="coerce").dropna()
+            Pq = pd.to_numeric(df[pq_col], errors="coerce").dropna()
 
-                    st.markdown("### 📊 Estatística (Pa / Pq)")
-                    st.dataframe(tabela)
+            # DEBUG (ESSENCIAL)
+            st.write("🔍 DEBUG Pa:", Pa.head())
+            st.write("🔍 DEBUG Pq:", Pq.head())
 
-                    # métricas
-                    col1, col2 = st.columns(2)
-                    col1.metric("📏 Pa Final", pa_res[5])
-                    col2.metric("📏 Pq Final", pq_res[5])
+            if len(Pa) == 0 or len(Pq) == 0:
+                st.error("Dados inválidos — verifique colunas.")
+                continue
 
-                    # salvar para PCA
-                    resultados[f.name] = {
-                        "Pa_media": pa_res[0],
-                        "Pq_media": pq_res[0],
-                        "Pa_std": pa_res[1],
-                        "Pq_std": pq_res[1],
-                    }
+            # cálculo
+            pa_res = analisar_estatistica(Pa)
+            pq_res = analisar_estatistica(Pq)
 
-                except Exception as e:
-                    st.error(f"Erro no arquivo {f.name}: {e}")
+            # tabela
+            tabela = pd.DataFrame({
+                "Parâmetro": [
+                    "Média",
+                    "Desvio P",
+                    "Erro Aleatório",
+                    "Erro (Arred.)",
+                    "Valor (Arred.)",
+                    "Valor (Real)"
+                ],
+                "Pa": pa_res,
+                "Pq": pq_res
+            })
 
-            # salvar no session_state
-            if resultados:
-                st.session_state["perfilometria_samples"] = resultados
+            st.markdown("### 📊 Estatística (Pa / Pq)")
+            st.dataframe(tabela)
 
-                st.divider()
-                st.markdown("### 📊 Resumo das amostras")
+            col1, col2 = st.columns(2)
+            col1.metric("📏 Pa Final", pa_res[5])
+            col2.metric("📏 Pq Final", pq_res[5])
 
-                df_final = pd.DataFrame(resultados).T
-                st.dataframe(df_final)
+            # salvar corretamente
+            resultados[f.name] = {
+                "Pa_media": pa_res[0],
+                "Pq_media": pq_res[0],
+                "Pa_std": pa_res[1],
+                "Pq_std": pq_res[1],
+            }
+
+        # salvar session
+        if resultados:
+            st.session_state["perfilometria_samples"] = resultados
+
+            st.divider()
+            st.markdown("### 📊 Resumo")
+
+            df_final = pd.DataFrame(resultados).T
+            st.dataframe(df_final)
 
     # =====================================================
     # SUBABA 2 — PCA
     # =====================================================
     with subtabs[1]:
 
-        st.subheader("🧠 Análise de Componentes Principais (PCA)")
-        st.caption("Identificação de padrões entre amostras")
+        st.subheader("🧠 PCA — Perfilometria")
 
         if "perfilometria_samples" not in st.session_state:
-            st.warning("Execute a análise na aba Estatística primeiro.")
-        else:
+            st.warning("Execute a análise primeiro.")
+            return
 
-            dados = st.session_state["perfilometria_samples"]
+        df = pd.DataFrame(st.session_state["perfilometria_samples"]).T
 
-            if not dados:
-                st.warning("Sem dados disponíveis.")
-            else:
+        st.write("Dados usados no PCA:")
+        st.dataframe(df)
 
-                df = pd.DataFrame(dados).T
+        try:
+            df_pca, var_exp = executar_pca(df)
 
-                st.markdown("### 📊 Dados utilizados")
-                st.dataframe(df)
+            st.write(f"PC1: {var_exp[0]*100:.2f}%")
+            st.write(f"PC2: {var_exp[1]*100:.2f}%")
 
-                try:
-                    df_pca, var_exp = executar_pca(df)
+            st.pyplot(plot_pca(df_pca, df.index))
 
-                    st.markdown("### 📉 Variância explicada")
-                    st.write(f"PC1: {var_exp[0]*100:.2f}%")
-                    st.write(f"PC2: {var_exp[1]*100:.2f}%")
-
-                    fig = plot_pca(df_pca, df.index)
-                    st.pyplot(fig)
-
-                except Exception as e:
-                    st.error(f"Erro no PCA: {e}")
+        except Exception as e:
+            st.error(f"Erro no PCA: {e}")
