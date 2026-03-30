@@ -44,7 +44,7 @@ else:
 
 def safe_import(module, func):
     try:
-        mod = import(module, fromlist=[func])
+        mod = _import_(module, fromlist=[func])
         return getattr(mod, func)
     except:
         return None
