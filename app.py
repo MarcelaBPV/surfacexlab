@@ -10,6 +10,7 @@ import streamlit as st
 from raman_tab import render_raman_tab
 from resistividade_tab import render_resistividade_tab
 from tensiometria_tab import render_tensiometria_tab
+from perfilometria_tab import render_perfilometria_tab
 from analise_completa_amostras_tab import render_analise_completa_amostras_tab
 
 
@@ -48,15 +49,17 @@ st.divider()
 # =========================================================
 # DASHBOARD INICIAL (VISÃO GERAL)
 # =========================================================
-col1, col2, col3 = st.columns(3)
+col1, col2, col3, col4 = st.columns(4)
 
 raman_count = len(st.session_state.get("raman_peaks", {}))
 electrical_count = len(st.session_state.get("electrical_samples", {}))
 tensiometry_count = len(st.session_state.get("tensiometry_samples", {}))
+perfilometria_count = len(st.session_state.get("perfilometria_samples", {}))
 
 col1.metric("🧬 Ensaios Raman", raman_count)
 col2.metric("⚡ Ensaios Elétricos", electrical_count)
 col3.metric("💧 Ensaios Tensiometria", tensiometry_count)
+col4.metric("📏 Perfilometria", perfilometria_count)
 
 st.divider()
 
@@ -68,6 +71,7 @@ tabs = st.tabs([
     "🧬 Raman",
     "⚡ Resistividade",
     "💧 Tensiometria",
+    "📏 Perfilometria",
     "🧠 Análise Integrada"
 ])
 
@@ -92,13 +96,18 @@ with tabs[1]:
 with tabs[2]:
     render_tensiometria_tab()
 
-
 # =========================================================
-# ABA 4 — ANÁLISE COMPLETA
+# ABA 4 — PERFILOMETRIA
 # =========================================================
 with tabs[3]:
-    render_analise_completa_amostras_tab()
+    render_perfilometria_tab()
 
+
+# =========================================================
+# ABA 5 — ANÁLISE COMPLETA
+# =========================================================
+with tabs[4]:
+    render_analise_completa_amostras_tab()
 
 # =========================================================
 # RODAPÉ
