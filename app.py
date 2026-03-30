@@ -117,13 +117,13 @@ render_mapeamento_molecular_tab = safe_import(
 optional=True
 )
 
-# 🔥 IMPORTAÇÃO CORRIGIDA (SEM ERRO SILENCIOSO)
+# 🔥 IMPORTAÇÃO DA ANÁLISE COMPLETA (COM DEBUG REAL)
 
 try:
 from analise_completa_amostras_tab import render_analise_completa_amostras_tab
 except Exception as e:
 render_analise_completa_amostras_tab = None
-st.error("❌ Erro ao carregar análise completa")
+st.error("❌ Erro ao carregar módulo de análise completa")
 st.exception(e)
 
 # =========================================================
