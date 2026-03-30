@@ -1,9 +1,5 @@
 # =========================================================
-
 # SurfaceXLab
-
-# Plataforma CRM para Caracterização e Otimização de Superfícies
-
 # =========================================================
 
 import streamlit as st
@@ -12,9 +8,7 @@ from pathlib import Path
 from PIL import Image
 
 # =========================================================
-
 # CONFIGURAÇÃO
-
 # =========================================================
 
 BASE_DIR = Path(**file**).parent
@@ -22,9 +16,7 @@ ASSETS_DIR = BASE_DIR / "assets"
 LOGO_PATH = ASSETS_DIR / "surfacexlab_logo.png"
 
 # =========================================================
-
 # LOGO
-
 # =========================================================
 
 def load_logo():
@@ -38,9 +30,7 @@ return None
 logo_image = load_logo()
 
 # =========================================================
-
-# PAGE CONFIG
-
+# CONFIG
 # =========================================================
 
 st.set_page_config(
@@ -49,12 +39,10 @@ page_icon=logo_image if logo_image else "🧪",
 layout="wide"
 )
 
-st.title("SurfaceXLab — Plataforma de Caracterização e Otimização de Superfícies")
+st.title("SurfaceXLab — Plataforma de Caracterização de Superfícies")
 
 # =========================================================
-
-# SUPABASE
-
+# SUPABASE - banco de dados
 # =========================================================
 
 @st.cache_resource
@@ -67,9 +55,7 @@ st.secrets["SUPABASE_ANON_KEY"]
 supabase = init_supabase()
 
 # =========================================================
-
 # SAFE IMPORT
-
 # =========================================================
 
 def safe_import(module_name, func_name, optional=False):
@@ -86,15 +72,13 @@ except Exception as e:
         st.warning(f"⚠ Módulo opcional não carregado: {module_name}")
         return None
 
-    st.error(f"❌ Erro ao carregar `{module_name}.{func_name}`")
+    st.error(f"❌ Erro ao carregar {module_name}.{func_name}")
     st.exception(e)
     st.stop()
 ```
 
 # =========================================================
-
 # IMPORTAÇÃO DOS MÓDULOS
-
 # =========================================================
 
 render_raman_tab = safe_import("raman_tab", "render_raman_tab")
@@ -117,19 +101,17 @@ render_mapeamento_molecular_tab = safe_import(
 optional=True
 )
 
-# 🔥 IMPORTAÇÃO DA ANÁLISE COMPLETA (COM DEBUG REAL)
+# análise completa (com debug real)
 
 try:
 from analise_completa_amostras_tab import render_analise_completa_amostras_tab
 except Exception as e:
 render_analise_completa_amostras_tab = None
-st.error("❌ Erro ao carregar módulo de análise completa")
+st.error("❌ Erro ao carregar análise completa")
 st.exception(e)
 
 # =========================================================
-
-# SIDEBAR (CRM)
-
+# BARRA LATERAL
 # =========================================================
 
 with st.sidebar:
@@ -170,9 +152,7 @@ if st.button("Salvar Amostra"):
 ```
 
 # =========================================================
-
 # ABAS
-
 # =========================================================
 
 tabs = st.tabs([
@@ -184,9 +164,7 @@ tabs = st.tabs([
 ])
 
 # =========================================================
-
 # RAMAN
-
 # =========================================================
 
 with tabs[0]:
@@ -194,9 +172,7 @@ if render_raman_tab:
 render_raman_tab(supabase)
 
 # =========================================================
-
 # RESISTIVIDADE
-
 # =========================================================
 
 with tabs[1]:
@@ -209,9 +185,7 @@ else:
 ```
 
 # =========================================================
-
 # TENSIOMETRIA
-
 # =========================================================
 
 with tabs[2]:
@@ -224,9 +198,7 @@ else:
 ```
 
 # =========================================================
-
 # MAPEAMENTO
-
 # =========================================================
 
 with tabs[3]:
@@ -239,16 +211,14 @@ else:
 ```
 
 # =========================================================
-
 # ANÁLISE COMPLETA
-
 # =========================================================
 
 with tabs[4]:
 
 ```
 if render_analise_completa_amostras_tab is None:
-    st.error("❌ Módulo de análise completa não carregado")
+    st.error("❌ Módulo não carregado")
 else:
     render_analise_completa_amostras_tab(supabase)
 ```
