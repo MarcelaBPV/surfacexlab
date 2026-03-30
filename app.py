@@ -1,44 +1,23 @@
-import streamlit as st
-from pathlib import Path
-from PIL import Image
+def show_sample_history(sample, supabase):
 
-# =========================================================
+    st.subheader(f"📂 Histórico — {sample}")
 
-# CONFIG
+    df_hist = load_sample_history(sample, supabase)
 
-# =========================================================
+    if df_hist.empty:
+        st.info("Sem histórico ainda")
+        return
 
-BASE_DIR = Path(**file**).parent
-ASSETS_DIR = BASE_DIR / "assets"
-LOGO_PATH = ASSETS_DIR / "surfacexlab_logo.png"
+    st.dataframe(df_hist)
 
-# =========================================================
+    # gráfico evolução
+    if "resistividade" in df_hist.columns:
 
-# LOGO
+        fig = px.line(
+            df_hist,
+            x="created_at",
+            y="resistividade",
+            title="Evolução da Resistividade"
+        )
 
-# =========================================================
-
-def load_logo():
-if LOGO_PATH.exists():
-try:
-return Image.open(LOGO_PATH)
-except:
-return None
-return None
-
-logo_image = load_logo()
-
-# =========================================================
-
-# PAGE
-
-# =========================================================
-
-st.set_page_config(
-page_title="SurfaceXLab",
-page_icon=logo_image if logo_image else "🧪",
-layout="wide"
-)
-
-st.title("SurfaceXLab funcionando 🚀")
-st.write("Se você está vendo isso, a indentação está correta ✅")
+        st.plotly_chart(fig, use_container_width=True)
