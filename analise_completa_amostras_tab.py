@@ -120,39 +120,35 @@ def process_profilometry(file):
         file.seek(0)
         df = pd.read_csv(file)
 
-    # limpeza
-    df_numeric = df.apply(pd.to_numeric, errors="coerce")
-    df_numeric = df_numeric.dropna(how="all")
+    # remover linhas tipo "Média", "Desvio", etc
+    df = df[df.iloc[:,0].astype(str).str.replace(',', '').str.isnumeric()]
 
-    # seleção inteligente
-    if "height" in df_numeric.columns:
-        values = df_numeric["height"].dropna().values
-    else:
-        values = df_numeric.select_dtypes(include=[np.number]).values.flatten()
-        values = values[~np.isnan(values)]
+    # converter colunas
+    df["Pa"] = pd.to_numeric(df["Pa"], errors="coerce")
+    df["Pq"] = pd.to_numeric(df["Pq"], errors="coerce")
 
-    if len(values) < 5:
-        raise ValueError("Dados insuficientes para cálculo de rugosidade")
+    pa = df["Pa"].dropna()
+    pq = df["Pq"].dropna()
+
+    if len(pa) < 3 or len(pq) < 3:
+        raise ValueError("Dados insuficientes de Pa/Pq")
+
+    # estatística correta
+    def calc(x):
+        media = np.mean(x)
+        desvio = np.std(x, ddof=1)
+        erro = desvio / np.sqrt(len(x))
+        return media, erro
+
+    pa_media, pa_erro = calc(pa)
+    pq_media, pq_erro = calc(pq)
 
     return {
-        "Rugosidade (std)": float(np.std(values))
+        "Pa": float(pa_media),
+        "Pq": float(pq_media),
+        "Pa_erro": float(pa_erro),
+        "Pq_erro": float(pq_erro)
     }
-
-
-# =========================================================
-# TAB PRINCIPAL
-# =========================================================
-def render_analise_completa_amostras_tab(supabase=None):
-
-    st.header("🧠 Análise Completa de Amostras")
-
-    if "samples_unified" not in st.session_state:
-        st.session_state.samples_unified = {}
-
-    subtabs = st.tabs([
-        "📥 Upload & Processamento",
-        "📊 PCA Global"
-    ])
 
 # =========================================================
 # 📥 SUBABA 1
@@ -289,3 +285,7 @@ def render_analise_completa_amostras_tab(supabase=None):
 
             if fig:
                 st.pyplot(fig)
+X = df.select_dtypes(include=[np.number])
+
+# remover colunas de erro (opcional)
+X = X.drop(columns=[col for col in X.columns if "erro" in col], errors="ignore")                
