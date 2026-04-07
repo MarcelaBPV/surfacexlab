@@ -1,4 +1,6 @@
-# -- coding: utf-8 --
+# =========================================================
+# SurfaceXLab — Análise Integrada FINAL
+# =========================================================
 
 import streamlit as st
 import pandas as pd
@@ -14,18 +16,19 @@ from raman_processing import process_raman_spectrum_with_groups
 
 
 # =========================================================
-# PCA GLOBAL
+# PCA GLOBAL (CORRIGIDO)
 # =========================================================
 def run_pca_global(df):
 
     df = df.copy()
 
-    # garante coluna de identificação
     if "Amostra" not in df.columns:
         df["Amostra"] = df.index.astype(str)
 
-    # seleciona apenas dados numéricos
     X = df.select_dtypes(include=[np.number])
+
+    # remove colunas de erro (melhora PCA)
+    X = X.drop(columns=[c for c in X.columns if "erro" in c.lower()], errors="ignore")
 
     if X.shape[1] < 2:
         st.warning("Dados insuficientes para PCA.")
@@ -81,7 +84,7 @@ def run_pca_global(df):
 
 
 # =========================================================
-# CONSTRUIR DATASET GLOBAL
+# DATASET GLOBAL (PADRONIZADO)
 # =========================================================
 def build_dataset():
 
@@ -108,7 +111,7 @@ def build_dataset():
 
 
 # =========================================================
-# PROCESSAMENTO PERFILOMETRIA (ROBUSTO)
+# PERFILOMETRIA (CORRIGIDO REAL)
 # =========================================================
 def process_profilometry(file):
 
@@ -120,164 +123,168 @@ def process_profilometry(file):
         file.seek(0)
         df = pd.read_csv(file)
 
-    # remover linhas tipo "Média", "Desvio", etc
-    df = df[df.iloc[:,0].astype(str).str.replace(',', '').str.isnumeric()]
+    # manter apenas linhas numéricas
+    df = df[df.iloc[:,0].astype(str).str.replace(",", "").str.isnumeric()]
 
-    # converter colunas
     df["Pa"] = pd.to_numeric(df["Pa"], errors="coerce")
     df["Pq"] = pd.to_numeric(df["Pq"], errors="coerce")
 
     pa = df["Pa"].dropna()
     pq = df["Pq"].dropna()
 
-    if len(pa) < 3 or len(pq) < 3:
-        raise ValueError("Dados insuficientes de Pa/Pq")
+    if len(pa) < 3:
+        raise ValueError("Dados insuficientes")
 
-    # estatística correta
     def calc(x):
         media = np.mean(x)
         desvio = np.std(x, ddof=1)
         erro = desvio / np.sqrt(len(x))
         return media, erro
 
-    pa_media, pa_erro = calc(pa)
-    pq_media, pq_erro = calc(pq)
+    pa_m, pa_e = calc(pa)
+    pq_m, pq_e = calc(pq)
 
     return {
-        "Pa": float(pa_media),
-        "Pq": float(pq_media),
-        "Pa_erro": float(pa_erro),
-        "Pq_erro": float(pq_erro)
+        "Pa": float(pa_m),
+        "Pq": float(pq_m),
+        "Pa_erro": float(pa_e),
+        "Pq_erro": float(pq_e)
     }
 
+
 # =========================================================
-# 📥 SUBABA 1
+# RESISTIVIDADE (CORRIGIDO)
+# =========================================================
+def process_resistivity_fixed(file):
+
+    df = pd.read_csv(file, sep=";")
+
+    df = df.apply(lambda col: col.astype(str).str.replace(",", "."))
+    df = df.apply(pd.to_numeric, errors="coerce")
+
+    df = df.dropna()
+
+    V = df["CH1 Voltage"]
+    I = df["CH1 Current"]
+
+    # regressão linear (melhor que média)
+    coef = np.polyfit(V, I, 1)
+    slope = coef[0]
+
+    resistencia = 1 / slope if slope != 0 else np.nan
+
+    return {
+        "Resistencia": float(resistencia)
+    }
+
+
+# =========================================================
+# TENSIOMETRIA (CORRIGIDO)
+# =========================================================
+def process_tensiometry_fixed(file):
+
+    df = pd.read_excel(file)
+
+    ang = pd.to_numeric(df["angulo"], errors="coerce").dropna()
+
+    media = np.mean(ang)
+    desvio = np.std(ang, ddof=1)
+    erro = desvio / np.sqrt(len(ang))
+
+    return {
+        "Angulo": float(media),
+        "Angulo_erro": float(erro)
+    }
+
+
+# =========================================================
+# TAB PRINCIPAL
+# =========================================================
+def render_analise_completa_amostras_tab(supabase=None):
+
+    st.header("🧠 Análise Completa de Amostras")
+
+    if "samples_unified" not in st.session_state:
+        st.session_state.samples_unified = {}
+
+    subtabs = st.tabs([
+        "📥 Upload & Processamento",
+        "📊 PCA Global"
+    ])
+
+# =========================================================
+# UPLOAD
 # =========================================================
     with subtabs[0]:
 
-        st.subheader("Cadastro e Upload por Técnica")
-
-        sample_id = st.text_input("ID da Amostra (ex: A1.5, B1.5)")
+        sample_id = st.text_input("ID da Amostra")
 
         technique = st.selectbox(
-            "Selecione a técnica",
+            "Técnica",
             ["Raman", "Resistividade", "Tensiometria", "Perfilometria"]
         )
 
         file = st.file_uploader(
-            "Upload do arquivo",
+            "Arquivo",
             type=["csv","txt","xls","xlsx","log"]
         )
 
         if st.button("Processar"):
 
             if not sample_id or not file:
-                st.warning("Preencha todos os campos.")
+                st.warning("Preencha tudo")
                 return
 
-            # garante estrutura
             if sample_id not in st.session_state.samples_unified:
                 st.session_state.samples_unified[sample_id] = {}
 
             try:
 
-                # =========================
-                # RAMAN
-                # =========================
                 if technique == "Raman":
 
                     result = process_raman_spectrum_with_groups(file)
 
                     peaks = result["peaks_df"]
-
                     fingerprint = peaks.groupby("chemical_group")["amplitude"].mean()
 
                     st.session_state.samples_unified[sample_id]["raman"] = fingerprint.to_dict()
 
-                    st.success("Raman processado")
-
-                # =========================
-                # ELÉTRICO
-                # =========================
                 elif technique == "Resistividade":
 
-                    result = process_resistivity(file, 1e-6, "four_point_film")
+                    result = process_resistivity_fixed(file)
+                    st.session_state.samples_unified[sample_id]["eletrico"] = result
 
-                    st.pyplot(result["figure"])
-
-                    st.session_state.samples_unified[sample_id]["eletrico"] = result["summary"]
-
-                    st.success("Resistividade processada")
-
-                # =========================
-                # TENSIOMETRIA
-                # =========================
                 elif technique == "Tensiometria":
 
-                    result = process_tensiometry(
-                        file,
-                        {"water":70,"diiodomethane":50,"formamide":60},
-                        0.5,
-                        0.3
-                    )
+                    result = process_tensiometry_fixed(file)
+                    st.session_state.samples_unified[sample_id]["tensiometria"] = result
 
-                    st.pyplot(result["figure"])
-
-                    st.session_state.samples_unified[sample_id]["tensiometria"] = result["summary"]
-
-                    st.success("Tensiometria processada")
-
-                # =========================
-                # PERFILOMETRIA
-                # =========================
                 elif technique == "Perfilometria":
 
                     result = process_profilometry(file)
-
                     st.session_state.samples_unified[sample_id]["perfilometria"] = result
 
-                    st.success(f"Rugosidade = {result['Rugosidade (std)']:.4f}")
-
-                # =========================
-                # SUPABASE
-                # =========================
-                if supabase:
-                    supabase.table("samples_unified").insert({
-                        "sample_code": sample_id,
-                        "technique": technique
-                    }).execute()
+                st.success("Processado com sucesso!")
 
             except Exception as e:
-
-                st.error("Erro no processamento")
+                st.error("Erro")
                 st.exception(e)
 
-                # remove amostra vazia
-                if st.session_state.samples_unified[sample_id] == {}:
-                    del st.session_state.samples_unified[sample_id]
-
-        # =========================
-        # VISUALIZAÇÃO
-        # =========================
         if st.session_state.samples_unified:
-
-            st.subheader("Amostras carregadas")
-
             st.json(st.session_state.samples_unified)
 
-
 # =========================================================
-# 📊 SUBABA 2 — PCA
+# PCA
 # =========================================================
     with subtabs[1]:
 
         df = build_dataset()
 
         if df is None or df.empty:
-            st.warning("Nenhuma amostra completa ainda.")
+            st.warning("Sem dados")
             return
 
-        st.dataframe(df, use_container_width=True)
+        st.dataframe(df)
 
         if df.shape[0] >= 2:
 
@@ -285,7 +292,3 @@ def process_profilometry(file):
 
             if fig:
                 st.pyplot(fig)
-X = df.select_dtypes(include=[np.number])
-
-# remover colunas de erro (opcional)
-X = X.drop(columns=[col for col in X.columns if "erro" in col], errors="ignore")                
