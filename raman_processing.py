@@ -1,178 +1,174 @@
-# =========================================================
-# Raman Mapping — SurfaceXLab (VERSÃO FINAL FUNCIONAL)
-# =========================================================
-
-import streamlit as st
-import pandas as pd
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
+from scipy.optimize import curve_fit
+from scipy.signal import find_peaks
 
 
 # =========================================================
-# LEITURA DO ARQUIVO
+# FUNÇÃO LORENTZIANA
 # =========================================================
-def read_mapping(file):
-
-    df = pd.read_csv(file, sep=r"\s+|\t+", engine="python")
-
-    if df.shape[1] < 4:
-        raise ValueError("Arquivo inválido — precisa de 4 colunas")
-
-    df = df.iloc[:, :4]
-    df.columns = ["y", "x", "wave", "intensity"]
-
-    # garante numérico
-    df = df.apply(pd.to_numeric, errors="coerce")
-
-    return df.dropna()
+def lorentz(x, a, x0, g):
+    return a * (g**2 / ((x - x0)**2 + g**2))
 
 
 # =========================================================
-# ORGANIZAÇÃO DOS ESPECTROS
+# BASELINE ALS (REAL)
 # =========================================================
-def extract_spectra(df):
+def baseline_als(y, lam=1e5, p=0.01, niter=10):
 
-    spectra = []
+    L = len(y)
+    D = np.diff(np.eye(L), 2)
+    D = D.T @ D
 
-    for (y_val, x_val), g in df.groupby(["y", "x"]):
+    w = np.ones(L)
 
-        g = g.sort_values("wave")
+    for _ in range(niter):
+        W = np.diag(w)
+        Z = np.linalg.inv(W + lam * D) @ (w * y)
+        w = p * (y > Z) + (1 - p) * (y < Z)
 
-        spectra.append({
-            "y": float(y_val),
-            "x": float(x_val),
-            "wave": g["wave"].values,
-            "intensity": g["intensity"].values
+    return Z
+
+
+# =========================================================
+# LEITURA
+# =========================================================
+def read_raman_file(file_like):
+
+    df = pd.read_csv(file_like, sep=None, engine="python")
+
+    x = pd.to_numeric(df.iloc[:, 0], errors="coerce")
+    y = pd.to_numeric(df.iloc[:, 1], errors="coerce")
+
+    df = pd.DataFrame({"shift": x, "intensity": y}).dropna()
+
+    return df
+
+
+# =========================================================
+# AJUSTE MULTIPEAK
+# =========================================================
+def multi_lorentz(x, *params):
+
+    y = np.zeros_like(x)
+
+    for i in range(0, len(params), 3):
+        a = params[i]
+        x0 = params[i+1]
+        g = params[i+2]
+
+        y += lorentz(x, a, x0, g)
+
+    return y
+
+
+# =========================================================
+# PIPELINE
+# =========================================================
+def process_raman_spectrum_with_groups(file_like):
+
+    df = read_raman_file(file_like)
+
+    x = df["shift"].values
+    y = df["intensity"].values
+
+    # =========================
+    # BASELINE REAL
+    # =========================
+    baseline = baseline_als(y)
+    y_corr = y - baseline
+
+    y_norm = y_corr / np.max(y_corr)
+
+    df["intensity_norm"] = y_norm
+
+    # =========================
+    # DETECÇÃO DE PICOS
+    # =========================
+    peaks, _ = find_peaks(y_norm, height=0.2, distance=20)
+
+    if len(peaks) < 2:
+        peaks = np.argsort(y_norm)[-3:]  # fallback
+
+    # =========================
+    # PARAMETROS INICIAIS
+    # =========================
+    p0 = []
+
+    for p in peaks:
+        p0.extend([y_norm[p], x[p], 10])
+
+    # =========================
+    # FIT
+    # =========================
+    try:
+        popt, _ = curve_fit(multi_lorentz, x, y_norm, p0=p0)
+        y_fit = multi_lorentz(x, *popt)
+    except:
+        popt = p0
+        y_fit = multi_lorentz(x, *popt)
+
+    # =========================
+    # R²
+    # =========================
+    ss_res = np.sum((y_norm - y_fit) ** 2)
+    ss_tot = np.sum((y_norm - np.mean(y_norm)) ** 2)
+
+    r2 = 1 - ss_res / ss_tot
+
+    # =========================
+    # PEAKS DF
+    # =========================
+    peaks_data = []
+
+    for i in range(0, len(popt), 3):
+        peaks_data.append({
+            "center_fit": popt[i+1],
+            "amplitude": popt[i],
+            "fwhm": popt[i+2],
+            "chemical_group": classify_peak(popt[i+1])
         })
 
-    # ordena por Y → padrão do artigo
-    spectra = sorted(spectra, key=lambda s: s["y"])
+    peaks_df = pd.DataFrame(peaks_data)
 
-    return spectra
+    # =========================
+    # PLOTS
+    # =========================
+    fig1, ax1 = plt.subplots()
 
+    ax1.plot(x, y, label="Raw")
+    ax1.plot(x, baseline, label="Baseline")
 
-# =========================================================
-# GRID 18 ESPECTROS (PADRÃO ARTIGO)
-# =========================================================
-def plot_grid_spectra(spectra):
+    ax1.set_title("Raw Raman Spectrum")
 
-    fig, axes = plt.subplots(6, 3, figsize=(12, 14), dpi=300)
-    axes = axes.flatten()
+    fig2, ax2 = plt.subplots()
 
-    for i, spec in enumerate(spectra[:18]):
+    ax2.plot(x, y_norm, label="Experimental")
+    ax2.plot(x, y_fit, label=f"Fit (R²={r2:.4f})")
 
-        ax = axes[i]
+    ax2.legend()
 
-        ax.plot(spec["wave"], spec["intensity"], color="black", linewidth=1)
-
-        # padrão Raman
-        ax.invert_xaxis()
-
-        ax.set_title(f"Y = {int(spec['y'])} µm", fontsize=8)
-
-    # limpa espaços vazios
-    for j in range(len(spectra), len(axes)):
-        axes[j].axis("off")
-
-    plt.tight_layout()
-
-    return fig
+    return {
+        "spectrum_df": df,
+        "peaks_df": peaks_df,
+        "figures": {
+            "raw": fig1,
+            "baseline": fig2
+        }
+    }
 
 
 # =========================================================
-# MAPA DE INTENSIDADE
+# CLASSIFICAÇÃO
 # =========================================================
-def plot_intensity_map(df):
+def classify_peak(pos):
 
-    pivot = df.pivot_table(
-        values="intensity",
-        index="y",
-        columns="x",
-        aggfunc="mean"
-    )
-
-    fig, ax = plt.subplots(figsize=(6, 5), dpi=300)
-
-    im = ax.imshow(
-        pivot.values,
-        origin="lower",
-        aspect="auto",
-        cmap="inferno"
-    )
-
-    ax.set_title("Raman Intensity Map")
-    ax.set_xlabel("X position")
-    ax.set_ylabel("Y position")
-
-    plt.colorbar(im, ax=ax)
-
-    return fig
-
-
-# =========================================================
-# FUNÇÃO PRINCIPAL
-# =========================================================
-def render_mapeamento_molecular_tab(supabase=None):
-
-    st.subheader("🗺️ Raman Mapping — Análise Espacial")
-
-    # =====================================================
-    # UPLOAD
-    # =====================================================
-    uploaded_file = st.file_uploader(
-        "📂 Upload do arquivo Raman Mapping",
-        type=["txt", "csv"],
-        key="raman_mapping_upload"
-    )
-
-    if uploaded_file is None:
-        st.info("Faça upload do arquivo para visualizar os espectros.")
-        return
-
-    # =====================================================
-    # LEITURA
-    # =====================================================
-    try:
-        df = read_mapping(uploaded_file)
-    except Exception as e:
-        st.error("Erro ao ler o arquivo")
-        st.exception(e)
-        return
-
-    st.success("Arquivo carregado com sucesso")
-
-    # =====================================================
-    # PREVIEW
-    # =====================================================
-    st.markdown("### 🔍 Preview dos dados")
-    st.dataframe(df.head())
-
-    # =====================================================
-    # BOTÃO (CONTROLE CIENTÍFICO)
-    # =====================================================
-    if not st.button("🚀 Gerar Espectros e Mapa"):
-        st.warning("Clique no botão para processar os dados")
-        return
-
-    # =====================================================
-    # EXTRAÇÃO
-    # =====================================================
-    spectra = extract_spectra(df)
-
-    st.success(f"{len(spectra)} espectros identificados")
-
-    # =====================================================
-    # PLOT — 18 ESPECTROS
-    # =====================================================
-    st.markdown("### 📊 Espectros Raman (18 posições)")
-
-    fig1 = plot_grid_spectra(spectra)
-    st.pyplot(fig1)
-
-    # =====================================================
-    # MAPA
-    # =====================================================
-    st.markdown("### 🔥 Mapa de Intensidade Raman")
-
-    fig2 = plot_intensity_map(df)
-    st.pyplot(fig2)
+    if 1500 < pos < 1650:
+        return "C=C (G band)"
+    elif 1300 < pos < 1400:
+        return "D band"
+    elif 2600 < pos < 2800:
+        return "2D band"
+    else:
+        return "Unassigned"
