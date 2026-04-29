@@ -1,5 +1,5 @@
 # =========================================================
-# Raman Tab — SurfaceXLab (VERSÃO FINAL CORRETA)
+# Raman Tab — SurfaceXLab (VERSÃO FINAL CORRIGIDA)
 # =========================================================
 
 import streamlit as st
@@ -16,13 +16,9 @@ from scipy.ndimage import gaussian_filter1d
 from raman_processing import process_raman_spectrum_with_groups
 
 # =========================================================
-# IMPORT DO MAPEAMENTO (COM PROTEÇÃO)
+# IMPORT DO MAPEAMENTO (SEM TRY/EXCEPT)
 # =========================================================
-try:
-    from raman_mapping_tab import render_mapeamento_molecular_tab
-except:
-    def render_mapeamento_molecular_tab(*args, **kwargs):
-        st.warning("⚠️ Módulo de mapeamento não encontrado.")
+from raman_mapping_tab import render_mapeamento_molecular_tab
 
 
 # =========================================================
@@ -73,9 +69,7 @@ def plot_raman_paper_style(x, y_exp, peaks_df):
         sharex=True
     )
 
-    # -------------------------
-    # ESPECTRO
-    # -------------------------
+    # Espectro
     ax1.plot(x, y_exp_s, color="black", linewidth=1.0, label="Experimental")
 
     colors = ["#1f77b4", "#9467bd", "#2ca02c", "#ff7f0e", "#8c564b"]
@@ -115,9 +109,7 @@ def plot_raman_paper_style(x, y_exp, peaks_df):
     ax1.set_ylabel("Intensity (a.u.)")
     ax1.legend(frameon=False, fontsize=8)
 
-    # -------------------------
-    # RESÍDUO
-    # -------------------------
+    # Resíduo
     ax2.plot(x, residual, color="black", linewidth=0.9)
     ax2.axhline(0, linestyle="--", linewidth=0.7)
 
