@@ -17,18 +17,18 @@ from resistividade_processing import process_resistivity
 # =========================================================
 def render_resistividade_tab(supabase=None):
 
-    st.header("⚡ Análises Elétricas")
+    st.header("⚡ Propriedades Elétricas — Resistividade (4 Pontas)")
 
-    st.markdown(
-        """
-        **Subaba 1**  
-        Medição elétrica via método de **4 pontas (Smits, 1958)**  
-        Ajuste **V × I**, cálculo de resistividade, sheet resistance e diagnóstico físico.
-
-        **Subaba 2**  
-        PCA multivariada com base em parâmetros físicos consolidados.
-        """
-    )
+    st.markdown("""
+    Medição elétrica via método de quatro pontas (Smits, 1958).
+    
+    O sistema realiza:
+    - Ajuste linear V × I
+    - Cálculo de resistividade
+    - Sheet resistance
+    - Diagnóstico físico automático
+    - Classificação do material
+    """)
 
     # =====================================================
     # SESSION STATE
@@ -47,7 +47,7 @@ def render_resistividade_tab(supabase=None):
     with subtabs[0]:
 
         uploaded_files = st.file_uploader(
-            "Upload dos arquivos elétricos (CSV / TXT / XLS / XLSX)",
+            "Upload dos arquivos elétricos",
             type=["csv", "txt", "xls", "xlsx"],
             accept_multiple_files=True
         )
@@ -59,17 +59,18 @@ def render_resistividade_tab(supabase=None):
             step=0.1
         )
 
-        # 🔥 FIXO — MÉTODO 4 PONTAS
         geometry = "four_point_film"
 
-        process_clicked = st.button("▶ Processar amostras")
+        if st.button("▶ Processar amostras"):
 
-        if uploaded_files and process_clicked:
+            if not uploaded_files:
+                st.warning("Nenhum arquivo selecionado.")
+                return
 
             for file in uploaded_files:
 
                 if file.name in st.session_state.electrical_samples:
-                    st.warning(f"{file.name} já foi processado.")
+                    st.warning(f"{file.name} já processado.")
                     continue
 
                 st.markdown(f"---\n### 📄 Amostra: `{file.name}`")
@@ -82,13 +83,10 @@ def render_resistividade_tab(supabase=None):
                     )
 
                     # -----------------------------
-                    # Gráfico I × V
+                    # GRÁFICO
                     # -----------------------------
                     st.pyplot(result["figure"])
 
-                    # -----------------------------
-                    # Summary físico
-                    # -----------------------------
                     summary = result["summary"].copy()
 
                     summary["Amostra"] = file.name
@@ -97,15 +95,15 @@ def render_resistividade_tab(supabase=None):
                     st.session_state.electrical_samples[file.name] = summary
 
                     # -----------------------------
-                    # DIAGNÓSTICO FÍSICO
+                    # DIAGNÓSTICO
                     # -----------------------------
                     st.markdown("### 🧠 Diagnóstico físico")
 
-                    st.write(f"**Regime elétrico:** {summary['Regime']}")
-                    st.write(f"**Classe do material:** {summary['Classe']}")
+                    st.write(f"**Regime:** {summary['Regime']}")
+                    st.write(f"**Classe:** {summary['Classe']}")
 
                     # -----------------------------
-                    # MÉTRICAS PRINCIPAIS
+                    # MÉTRICAS
                     # -----------------------------
                     st.markdown("### 📊 Parâmetros elétricos")
 
@@ -127,40 +125,52 @@ def render_resistividade_tab(supabase=None):
                     )
 
                     # -----------------------------
-                    # TABELA COMPLETA
+                    # TABELA
                     # -----------------------------
-                    st.markdown("### 📋 Variáveis elétricas completas")
-
                     st.dataframe(
                         pd.DataFrame([summary]).set_index("Amostra"),
                         use_container_width=True
                     )
 
-                    st.success("✔ Amostra processada com sucesso")
+                    st.success("✔ Processado com sucesso")
 
                 except Exception as e:
-                    st.error("Erro ao processar a amostra")
+                    st.error("Erro ao processar")
                     st.exception(e)
 
         # =====================================================
-        # TABELA GLOBAL
+        # RESUMO GLOBAL
         # =====================================================
         if st.session_state.electrical_samples:
 
             st.markdown("---")
-            st.subheader("📋 Resumo elétrico consolidado")
+            st.subheader("📋 Resumo consolidado")
 
             df_all = pd.DataFrame(st.session_state.electrical_samples.values())
 
             st.dataframe(df_all, use_container_width=True)
 
-            # EXPORTAÇÃO PARA ML
+            # =====================================================
+            # EXPORTAÇÃO PARA ML / PCA (CORRIGIDO)
+            # =====================================================
             df_ml = df_all.copy()
-            df_ml = df_ml.apply(pd.to_numeric, errors="ignore")
+
+            # Conversão segura (PANDAS FIX)
+            df_ml = df_ml.apply(lambda col: pd.to_numeric(col, errors="coerce"))
+
+            # Remove colunas totalmente inválidas
+            df_ml = df_ml.dropna(axis=1, how="all")
+
+            # Define índice
+            if "Amostra" in df_ml.columns:
+                df_ml = df_ml.set_index("Amostra")
+
+            # Preenche NaN para PCA
+            df_ml = df_ml.fillna(0)
 
             st.session_state.electrical_features = df_ml
 
-            if st.button("🗑 Limpar amostras elétricas"):
+            if st.button("🗑 Limpar dados"):
                 st.session_state.electrical_samples = {}
                 st.session_state.electrical_features = None
                 st.experimental_rerun()
@@ -170,79 +180,56 @@ def render_resistividade_tab(supabase=None):
     # =====================================================
     with subtabs[1]:
 
-        if len(st.session_state.electrical_samples) < 2:
-            st.info("Carregue ao menos duas amostras na subaba de processamento.")
+        if "electrical_features" not in st.session_state or st.session_state.electrical_features is None:
+            st.info("Sem dados para PCA.")
             return
 
-        df_pca = pd.DataFrame(st.session_state.electrical_samples.values())
+        df_pca = st.session_state.electrical_features.copy()
 
-        st.subheader("Dados de entrada da PCA")
-        st.dataframe(df_pca, use_container_width=True)
-
-        numeric_cols = df_pca.select_dtypes(include=[np.number]).columns.tolist()
-
-        feature_cols = st.multiselect(
-            "Variáveis elétricas para PCA",
-            options=numeric_cols,
-            default=[
-                "Resistividade (Ω·m)",
-                "Condutividade (S/m)",
-                "Sheet Resistance (Ω/sq)",
-                "R²",
-            ]
-        )
-
-        if len(feature_cols) < 2:
-            st.warning("Selecione ao menos duas variáveis.")
+        if df_pca.shape[0] < 2:
+            st.info("Mínimo de 2 amostras.")
             return
 
-        X = df_pca[feature_cols].values
-        labels = df_pca["Amostra"].values
+        st.subheader("Dataset PCA")
+        st.dataframe(df_pca)
 
-        X_scaled = StandardScaler().fit_transform(X)
+        X = StandardScaler().fit_transform(df_pca.values)
 
         pca = PCA(n_components=2)
-        scores = pca.fit_transform(X_scaled)
+        scores = pca.fit_transform(X)
         loadings = pca.components_.T
         explained = pca.explained_variance_ratio_ * 100
 
-        # ---------------------------
-        # BIPLOT
-        # ---------------------------
-        fig, ax = plt.subplots(figsize=(7, 7), dpi=300)
+        fig, ax = plt.subplots(figsize=(7,7), dpi=300)
 
-        ax.scatter(scores[:, 0], scores[:, 1], s=90, edgecolor="black")
+        ax.scatter(scores[:,0], scores[:,1], s=100, edgecolor="black")
 
-        for i, label in enumerate(labels):
-            ax.text(scores[i, 0] + 0.03, scores[i, 1] + 0.03, label, fontsize=9)
+        for i, label in enumerate(df_pca.index):
+            ax.text(scores[i,0], scores[i,1], label)
 
-        scale = np.max(np.abs(scores)) * 0.85
+        scale = np.max(np.abs(scores)) * 0.8
 
-        for i, var in enumerate(feature_cols):
+        for i, var in enumerate(df_pca.columns):
+
             ax.arrow(
                 0, 0,
-                loadings[i, 0] * scale,
-                loadings[i, 1] * scale,
-                color="black",
-                alpha=0.7,
-                head_width=0.08,
-                length_includes_head=True
+                loadings[i,0]*scale,
+                loadings[i,1]*scale,
+                head_width=0.05,
+                color="black"
             )
 
             ax.text(
-                loadings[i, 0] * scale * 1.1,
-                loadings[i, 1] * scale * 1.1,
+                loadings[i,0]*scale*1.1,
+                loadings[i,1]*scale*1.1,
                 var,
                 fontsize=9
             )
 
-        ax.axhline(0, color="gray", lw=0.6)
-        ax.axvline(0, color="gray", lw=0.6)
-
         ax.set_xlabel(f"PC1 ({explained[0]:.1f}%)")
         ax.set_ylabel(f"PC2 ({explained[1]:.1f}%)")
         ax.set_title("PCA — Propriedades Elétricas")
-        ax.set_aspect("equal", adjustable="box")
+
         ax.grid(alpha=0.3)
 
         st.pyplot(fig)
