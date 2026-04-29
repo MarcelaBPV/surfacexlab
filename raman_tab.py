@@ -1,5 +1,6 @@
-# raman_tab.py
-# -*- coding: utf-8 -*-
+# =========================================================
+# Raman Tab — SurfaceXLab (VERSÃO FINAL CORRETA)
+# =========================================================
 
 import streamlit as st
 import pandas as pd
@@ -14,14 +15,19 @@ from scipy.ndimage import gaussian_filter1d
 
 from raman_processing import process_raman_spectrum_with_groups
 
-# 🔥 NOVO IMPORT
-from raman_mapping_tab import render_mapeamento_molecular_tab
+# =========================================================
+# IMPORT DO MAPEAMENTO (COM PROTEÇÃO)
+# =========================================================
+try:
+    from raman_mapping_tab import render_mapeamento_molecular_tab
+except:
+    def render_mapeamento_molecular_tab(*args, **kwargs):
+        st.warning("⚠️ Módulo de mapeamento não encontrado.")
 
 
 # =========================================================
-# FUNÇÃO — PLOT PAPER STYLE + R² + RESIDUAL + PEAK MARKERS
+# PLOT PAPER STYLE (LORENTZ + RESÍDUO + R²)
 # =========================================================
-
 def plot_raman_paper_style(x, y_exp, peaks_df):
 
     def lorentz_plot(x, amp, cen, fwhm):
@@ -35,14 +41,12 @@ def plot_raman_paper_style(x, y_exp, peaks_df):
     peak_centers = []
 
     for _, row in peaks_df.iterrows():
-
         curve = lorentz_plot(
             x,
             row["amplitude"],
             row["center_fit"],
             row["fwhm"]
         )
-
         peak_curves.append(curve)
         peak_sum += curve
         peak_centers.append(row["center_fit"])
@@ -59,7 +63,6 @@ def plot_raman_paper_style(x, y_exp, peaks_df):
     ]
 
     residual = y_exp_s - peak_sum_s
-
     r2 = r2_score(y_exp_s, peak_sum_s)
 
     fig, (ax1, ax2) = plt.subplots(
@@ -70,10 +73,9 @@ def plot_raman_paper_style(x, y_exp, peaks_df):
         sharex=True
     )
 
-    # ==========================
-    # PAINEL SUPERIOR
-    # ==========================
-
+    # -------------------------
+    # ESPECTRO
+    # -------------------------
     ax1.plot(x, y_exp_s, color="black", linewidth=1.0, label="Experimental")
 
     colors = ["#1f77b4", "#9467bd", "#2ca02c", "#ff7f0e", "#8c564b"]
@@ -91,9 +93,7 @@ def plot_raman_paper_style(x, y_exp, peaks_df):
     ax1.plot(x, peak_sum_s, color="crimson", linewidth=1.6, label="PeakSum")
 
     for cen in peak_centers:
-
         idx = np.argmin(np.abs(x - cen))
-
         ax1.scatter(
             x[idx],
             peak_sum_s[idx],
@@ -103,7 +103,6 @@ def plot_raman_paper_style(x, y_exp, peaks_df):
             linewidths=0.8,
             zorder=5
         )
-
         ax1.axvline(cen, linestyle="--", linewidth=0.7, alpha=0.5)
 
     ax1.text(
@@ -116,14 +115,13 @@ def plot_raman_paper_style(x, y_exp, peaks_df):
     ax1.set_ylabel("Intensity (a.u.)")
     ax1.legend(frameon=False, fontsize=8)
 
-    # ==========================
-    # RESIDUAL
-    # ==========================
-
+    # -------------------------
+    # RESÍDUO
+    # -------------------------
     ax2.plot(x, residual, color="black", linewidth=0.9)
     ax2.axhline(0, linestyle="--", linewidth=0.7)
 
-    ax2.set_xlabel("Raman Shift (cm$^{-1}$)")
+    ax2.set_xlabel("Raman Shift (cm⁻¹)")
     ax2.set_ylabel("Residual")
 
     plt.tight_layout(pad=0.4)
@@ -132,32 +130,28 @@ def plot_raman_paper_style(x, y_exp, peaks_df):
 
 
 # =========================================================
-# ABA RAMAN
+# TAB PRINCIPAL
 # =========================================================
-
 def render_raman_tab(supabase=None):
 
-    st.header("🧬 Análises Moleculares — Espectroscopia Raman")
+    st.header("🧬 Análises Moleculares")
 
     st.markdown("""
-    Plataforma integrada para análise espectral Raman:
-    - Ajuste Lorentziano multipeak
-    - Validação estatística (R²)
-    - PCA multivariada
-    - Mapeamento espacial Raman
+    - Ajuste Lorentziano multipeak  
+    - Validação estatística (R²)  
+    - PCA multivariada  
+    - Mapeamento espacial Raman  
     """)
 
     # =====================================================
     # SESSION STATE
     # =====================================================
-
     if "raman_peaks" not in st.session_state:
         st.session_state.raman_peaks = {}
 
     # =====================================================
     # SUBABAS
     # =====================================================
-
     subtabs = st.tabs([
         "📐 Upload & Processamento",
         "📊 PCA — Raman",
@@ -167,7 +161,6 @@ def render_raman_tab(supabase=None):
     # =====================================================
     # SUBABA 1 — PROCESSAMENTO
     # =====================================================
-
     with subtabs[0]:
 
         uploaded_files = st.file_uploader(
@@ -258,7 +251,6 @@ def render_raman_tab(supabase=None):
 
                 st.success("✔ Processado")
 
-        # Preview geral
         if st.session_state.raman_peaks:
 
             st.subheader("Fingerprints")
@@ -269,7 +261,6 @@ def render_raman_tab(supabase=None):
     # =====================================================
     # SUBABA 2 — PCA
     # =====================================================
-
     with subtabs[1]:
 
         if len(st.session_state.raman_peaks) < 2:
@@ -298,7 +289,6 @@ def render_raman_tab(supabase=None):
     # =====================================================
     # SUBABA 3 — MAPEAMENTO
     # =====================================================
-
     with subtabs[2]:
 
         render_mapeamento_molecular_tab(supabase)
