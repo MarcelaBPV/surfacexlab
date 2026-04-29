@@ -1,3 +1,7 @@
+# =========================================================
+# Raman Processing — SurfaceXLab (FINAL ROBUSTO)
+# =========================================================
+
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -6,10 +10,42 @@ from scipy.signal import find_peaks
 
 
 # =========================================================
-# FUNÇÃO LORENTZIANA
+# LEITURA UNIVERSAL (RESOLVE SEU ERRO)
 # =========================================================
-def lorentz(x, a, x0, g):
-    return a * (g**2 / ((x - x0)**2 + g**2))
+def read_raman_file(file_like):
+
+    name = file_like.name.lower()
+
+    # =========================
+    # EXCEL
+    # =========================
+    if name.endswith(".xlsx") or name.endswith(".xls"):
+        df = pd.read_excel(file_like)
+
+    # =========================
+    # CSV / TXT / LOG
+    # =========================
+    else:
+        try:
+            df = pd.read_csv(file_like, sep=None, engine="python", encoding="utf-8")
+        except:
+            try:
+                df = pd.read_csv(file_like, sep=None, engine="python", encoding="latin1")
+            except:
+                df = pd.read_csv(file_like, sep=None, engine="python", encoding="cp1252")
+
+    # =========================
+    # LIMPEZA
+    # =========================
+    df = df.apply(pd.to_numeric, errors="coerce").dropna()
+
+    if df.shape[1] < 2:
+        raise ValueError("Arquivo inválido para Raman")
+
+    df = df.iloc[:, :2]
+    df.columns = ["shift", "intensity"]
+
+    return df
 
 
 # =========================================================
@@ -32,39 +68,39 @@ def baseline_als(y, lam=1e5, p=0.01, niter=10):
 
 
 # =========================================================
-# LEITURA
+# FUNÇÃO LORENTZIANA
 # =========================================================
-def read_raman_file(file_like):
-
-    df = pd.read_csv(file_like, sep=None, engine="python")
-
-    x = pd.to_numeric(df.iloc[:, 0], errors="coerce")
-    y = pd.to_numeric(df.iloc[:, 1], errors="coerce")
-
-    df = pd.DataFrame({"shift": x, "intensity": y}).dropna()
-
-    return df
+def lorentz(x, a, x0, g):
+    return a * (g**2 / ((x - x0)**2 + g**2))
 
 
-# =========================================================
-# AJUSTE MULTIPEAK
-# =========================================================
 def multi_lorentz(x, *params):
 
     y = np.zeros_like(x)
 
     for i in range(0, len(params), 3):
-        a = params[i]
-        x0 = params[i+1]
-        g = params[i+2]
-
-        y += lorentz(x, a, x0, g)
+        y += lorentz(x, params[i], params[i+1], params[i+2])
 
     return y
 
 
 # =========================================================
-# PIPELINE
+# CLASSIFICAÇÃO QUÍMICA
+# =========================================================
+def classify_peak(pos):
+
+    if 1500 < pos < 1650:
+        return "G band (C=C)"
+    elif 1300 < pos < 1400:
+        return "D band"
+    elif 2600 < pos < 2800:
+        return "2D band"
+    else:
+        return "Unassigned"
+
+
+# =========================================================
+# PIPELINE PRINCIPAL
 # =========================================================
 def process_raman_spectrum_with_groups(file_like):
 
@@ -74,11 +110,14 @@ def process_raman_spectrum_with_groups(file_like):
     y = df["intensity"].values
 
     # =========================
-    # BASELINE REAL
+    # BASELINE
     # =========================
     baseline = baseline_als(y)
     y_corr = y - baseline
 
+    # =========================
+    # NORMALIZAÇÃO
+    # =========================
     y_norm = y_corr / np.max(y_corr)
 
     df["intensity_norm"] = y_norm
@@ -89,7 +128,7 @@ def process_raman_spectrum_with_groups(file_like):
     peaks, _ = find_peaks(y_norm, height=0.2, distance=20)
 
     if len(peaks) < 2:
-        peaks = np.argsort(y_norm)[-3:]  # fallback
+        peaks = np.argsort(y_norm)[-3:]
 
     # =========================
     # PARAMETROS INICIAIS
@@ -103,7 +142,7 @@ def process_raman_spectrum_with_groups(file_like):
     # FIT
     # =========================
     try:
-        popt, _ = curve_fit(multi_lorentz, x, y_norm, p0=p0)
+        popt, _ = curve_fit(multi_lorentz, x, y_norm, p0=p0, maxfev=10000)
         y_fit = multi_lorentz(x, *popt)
     except:
         popt = p0
@@ -118,7 +157,7 @@ def process_raman_spectrum_with_groups(file_like):
     r2 = 1 - ss_res / ss_tot
 
     # =========================
-    # PEAKS DF
+    # PEAKS DATAFRAME
     # =========================
     peaks_data = []
 
@@ -133,21 +172,45 @@ def process_raman_spectrum_with_groups(file_like):
     peaks_df = pd.DataFrame(peaks_data)
 
     # =========================
-    # PLOTS
+    # FIGURA 1 — RAW + BASELINE
     # =========================
-    fig1, ax1 = plt.subplots()
+    fig1, ax1 = plt.subplots(figsize=(6,4), dpi=300)
 
     ax1.plot(x, y, label="Raw")
-    ax1.plot(x, baseline, label="Baseline")
+    ax1.plot(x, baseline, '--', label="Baseline")
 
     ax1.set_title("Raw Raman Spectrum")
+    ax1.set_xlabel("Raman shift (cm⁻¹)")
+    ax1.set_ylabel("Intensity")
 
-    fig2, ax2 = plt.subplots()
+    ax1.legend()
+    ax1.grid(alpha=0.3)
 
-    ax2.plot(x, y_norm, label="Experimental")
-    ax2.plot(x, y_fit, label=f"Fit (R²={r2:.4f})")
+    # =========================
+    # FIGURA 2 — FIT + RESÍDUO
+    # =========================
+    fig2, (ax2, ax3) = plt.subplots(
+        2, 1,
+        figsize=(6,5),
+        dpi=300,
+        sharex=True,
+        gridspec_kw={"height_ratios": [3,1]}
+    )
 
+    ax2.plot(x, y_norm, label="Experimental", color="black")
+    ax2.plot(x, y_fit, label=f"Fit (R²={r2:.4f})", color="red")
+
+    ax2.set_ylabel("Intensity (a.u.)")
     ax2.legend()
+    ax2.grid(alpha=0.3)
+
+    # resíduo
+    residual = y_norm - y_fit
+    ax3.plot(x, residual, color="black")
+    ax3.axhline(0, linestyle="--")
+
+    ax3.set_xlabel("Raman shift (cm⁻¹)")
+    ax3.set_ylabel("Residual")
 
     return {
         "spectrum_df": df,
@@ -157,18 +220,3 @@ def process_raman_spectrum_with_groups(file_like):
             "baseline": fig2
         }
     }
-
-
-# =========================================================
-# CLASSIFICAÇÃO
-# =========================================================
-def classify_peak(pos):
-
-    if 1500 < pos < 1650:
-        return "C=C (G band)"
-    elif 1300 < pos < 1400:
-        return "D band"
-    elif 2600 < pos < 2800:
-        return "2D band"
-    else:
-        return "Unassigned"
