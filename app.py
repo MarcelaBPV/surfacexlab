@@ -4,6 +4,7 @@
 
 import streamlit as st
 
+
 # =========================================================
 # IMPORTAÇÃO DOS MÓDULOS
 # =========================================================
@@ -19,21 +20,33 @@ from analise_completa_amostras_tab import render_analise_completa_amostras_tab
 # =========================================================
 st.set_page_config(
     page_title="SurfaceXLab",
-    page_icon="🔬",
-    layout="wide"
+    page_icon="***",
+    layout="wide",
+    initial_sidebar_state="collapsed"
 )
 
+
 # =========================================================
-# ESTILO (visual mais limpo e profissional)
+# ESTILO (clean + científico)
 # =========================================================
 st.markdown("""
 <style>
 .block-container {
     padding-top: 1.2rem;
 }
+
 h1, h2, h3 {
     font-weight: 600;
 }
+
+[data-testid="stMetricValue"] {
+    font-size: 22px;
+}
+
+[data-testid="stMetricLabel"] {
+    font-size: 14px;
+}
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -41,25 +54,39 @@ h1, h2, h3 {
 # =========================================================
 # HEADER
 # =========================================================
-st.markdown("# 🔬 SurfaceXLab")
-st.caption("Plataforma integrada para caracterização de superfícies")
+st.markdown("# *** SurfaceXLab")
+st.caption("Plataforma integrada para caracterização avançada de superfícies")
+
 st.divider()
 
 
 # =========================================================
-# DASHBOARD INICIAL (VISÃO GERAL)
+# SESSION STATE INIT (EVITA BUGS)
 # =========================================================
+if "raman_peaks" not in st.session_state:
+    st.session_state.raman_peaks = {}
+
+if "electrical_samples" not in st.session_state:
+    st.session_state.electrical_samples = {}
+
+if "tensiometry_samples" not in st.session_state:
+    st.session_state.tensiometry_samples = {}
+
+if "perfilometria_samples" not in st.session_state:
+    st.session_state.perfilometria_samples = {}
+
+
+# =========================================================
+# DASHBOARD — VISÃO GERAL
+# =========================================================
+st.subheader("📊 Visão Geral dos Ensaios")
+
 col1, col2, col3, col4 = st.columns(4)
 
-raman_count = len(st.session_state.get("raman_peaks", {}))
-electrical_count = len(st.session_state.get("electrical_samples", {}))
-tensiometry_count = len(st.session_state.get("tensiometry_samples", {}))
-perfilometria_count = len(st.session_state.get("perfilometria_samples", {}))
-
-col1.metric("🧬 Ensaios Raman", raman_count)
-col2.metric("⚡ Ensaios Elétricos", electrical_count)
-col3.metric("💧 Ensaios Tensiometria", tensiometry_count)
-col4.metric("📏 Perfilometria", perfilometria_count)
+col1.metric("🧬 Raman", len(st.session_state.raman_peaks))
+col2.metric("⚡ Elétrico", len(st.session_state.electrical_samples))
+col3.metric("💧 Tensiometria", len(st.session_state.tensiometry_samples))
+col4.metric("📏 Perfilometria", len(st.session_state.perfilometria_samples))
 
 st.divider()
 
@@ -69,7 +96,7 @@ st.divider()
 # =========================================================
 tabs = st.tabs([
     "🧬 Raman",
-    "⚡ Resistividade",
+    "⚡ Resistividade (4 Pontas)",
     "💧 Tensiometria",
     "📏 Perfilometria",
     "🧠 Análise Integrada"
@@ -96,6 +123,7 @@ with tabs[1]:
 with tabs[2]:
     render_tensiometria_tab()
 
+
 # =========================================================
 # ABA 4 — PERFILOMETRIA
 # =========================================================
@@ -104,13 +132,14 @@ with tabs[3]:
 
 
 # =========================================================
-# ABA 5 — ANÁLISE COMPLETA
+# ABA 5 — ANÁLISE INTEGRADA
 # =========================================================
 with tabs[4]:
     render_analise_completa_amostras_tab()
+
 
 # =========================================================
 # RODAPÉ
 # =========================================================
 st.divider()
-st.caption("SurfaceXLab © Plataforma científica para análise de superfícies")
+st.caption("SurfaceXLab © Plataforma científica integrada para análise de superfícies")
