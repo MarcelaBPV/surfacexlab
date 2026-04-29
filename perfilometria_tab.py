@@ -1,17 +1,18 @@
 # =========================================================
-# PERFILOMETRIA TAB — SurfaceXLab (CORRIGIDO + PCA)
+# PERFILOMETRIA — SurfaceXLab (VERSÃO FINAL CIENTÍFICA)
 # =========================================================
 
 import streamlit as st
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
 
-from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
+from sklearn.decomposition import PCA
 
 
 # =========================================================
-# FUNÇÃO ESTATÍSTICA
+# ESTATÍSTICA
 # =========================================================
 def analisar_estatistica(dados):
 
@@ -21,31 +22,22 @@ def analisar_estatistica(dados):
     desvio = np.std(dados, ddof=1)
     erro = desvio / np.sqrt(len(dados))
 
-    erro_arred = round(erro, 2)
-    valor_arred = round(media, 2)
-
-    valor_real = f"{valor_arred} ± {erro_arred}"
-
-    return media, desvio, erro, erro_arred, valor_arred, valor_real
+    return media, desvio, erro
 
 
 # =========================================================
-# LEITURA ROBUSTA
+# LEITURA
 # =========================================================
 def ler_arquivo(file):
 
     if file.name.endswith((".xlsx", ".xls")):
         df = pd.read_excel(file)
 
-        # tenta corrigir header se vier bugado
         if any("Unnamed" in str(c) for c in df.columns):
             df = pd.read_excel(file, header=1)
 
     else:
-        try:
-            df = pd.read_csv(file)
-        except:
-            df = pd.read_csv(file, delimiter="\t")
+        df = pd.read_csv(file)
 
     return df
 
@@ -71,28 +63,16 @@ def detectar_colunas(df):
 
 
 # =========================================================
-# EXTRAIR APENAS MEDIDAS (CORREÇÃO PRINCIPAL)
+# EXTRAÇÃO
 # =========================================================
 def extrair_medidas(df, pa_col, pq_col):
 
-    col_medidas = None
-
-    # detectar coluna "Medidas"
-    for c in df.columns:
-        if "med" in str(c).lower():
-            col_medidas = c
-
-    if col_medidas:
-        # filtra apenas linhas numéricas (1–10)
-        df = df[df[col_medidas].astype(str).str.isdigit()]
-
-    # converter para número e limpar
     Pa = pd.to_numeric(df[pa_col], errors="coerce").dropna().values
     Pq = pd.to_numeric(df[pq_col], errors="coerce").dropna().values
 
-    # fallback: limitar a 10 medições se vier bagunçado
     if len(Pa) > 10:
         Pa = Pa[:10]
+
     if len(Pq) > 10:
         Pq = Pq[:10]
 
@@ -100,39 +80,71 @@ def extrair_medidas(df, pa_col, pq_col):
 
 
 # =========================================================
-# PCA
+# CLASSIFICAÇÃO
 # =========================================================
-def executar_pca(df):
+def classificar_rugosidade(pa):
 
-    df_numeric = df.select_dtypes(include=[np.number]).dropna()
+    if pa < 0.1:
+        return "Lisa"
+    elif pa < 1:
+        return "Moderada"
+    else:
+        return "Rugosa"
 
-    scaler = StandardScaler()
-    X_scaled = scaler.fit_transform(df_numeric)
+
+# =========================================================
+# PCA BIPLOT
+# =========================================================
+def plot_pca_biplot(df):
+
+    X = df.values
+    labels = df.index
+    features = df.columns
+
+    X_scaled = StandardScaler().fit_transform(X)
 
     pca = PCA(n_components=2)
-    components = pca.fit_transform(X_scaled)
+    scores = pca.fit_transform(X_scaled)
+    loadings = pca.components_.T
 
-    df_pca = pd.DataFrame(components, columns=["PC1", "PC2"])
+    var_exp = pca.explained_variance_ratio_ * 100
 
-    return df_pca, pca.explained_variance_ratio_
+    fig, ax = plt.subplots(figsize=(6,6), dpi=300)
 
+    # pontos
+    ax.scatter(scores[:,0], scores[:,1], s=90, edgecolor="black")
 
-def plot_pca(df_pca, labels):
+    for i, label in enumerate(labels):
+        ax.text(scores[i,0], scores[i,1], label)
 
-    import matplotlib.pyplot as plt
+    # vetores
+    scale = np.max(np.abs(scores)) * 0.8
 
-    fig, ax = plt.subplots()
+    for i, var in enumerate(features):
 
-    ax.scatter(df_pca["PC1"], df_pca["PC2"])
+        ax.arrow(
+            0, 0,
+            loadings[i,0]*scale,
+            loadings[i,1]*scale,
+            color="black",
+            head_width=0.08
+        )
 
-    for i, txt in enumerate(labels):
-        ax.annotate(txt, (df_pca["PC1"][i], df_pca["PC2"][i]))
+        ax.text(
+            loadings[i,0]*scale*1.1,
+            loadings[i,1]*scale*1.1,
+            var
+        )
 
-    ax.set_xlabel("PC1")
-    ax.set_ylabel("PC2")
+    ax.axhline(0, color="gray")
+    ax.axvline(0, color="gray")
+
+    ax.set_xlabel(f"PC1 ({var_exp[0]:.1f}%)")
+    ax.set_ylabel(f"PC2 ({var_exp[1]:.1f}%)")
+
     ax.set_title("PCA — Perfilometria")
 
-    ax.grid(True)
+    ax.grid(alpha=0.3)
 
     return fig
 
@@ -142,120 +154,118 @@ def plot_pca(df_pca, labels):
 # =========================================================
 def render_perfilometria_tab():
 
-    st.subheader("📏 Perfilometria de Superfície")
-    st.caption("Análise estatística de rugosidade + PCA")
+    st.header("📏 Perfilometria")
 
-    st.divider()
+    if "perfilometria_samples" not in st.session_state:
+        st.session_state.perfilometria_samples = {}
 
-    subtabs = st.tabs(["📊 Estatística", "🧠 PCA"])
+    tabs = st.tabs(["📊 Upload & Análise", "🧠 PCA"])
 
     # =====================================================
-    # SUBABA 1 — ESTATÍSTICA
+    # SUBABA 1
     # =====================================================
-    with subtabs[0]:
+    with tabs[0]:
 
         files = st.file_uploader(
-            "📂 Envie arquivos",
-            type=["csv", "txt", "log", "xlsx", "xls"],
+            "Upload dos arquivos de perfilometria",
+            type=["xlsx", "xls", "csv"],
             accept_multiple_files=True
         )
 
         if not files:
-            st.info("Envie arquivos para iniciar.")
+            st.info("Envie os arquivos.")
             return
 
         resultados = {}
 
         for f in files:
 
-            st.markdown(f"## 📄 {f.name}")
+            st.markdown(f"### 📄 {f.name}")
 
             df = ler_arquivo(f)
-
-            st.write("Colunas detectadas:", df.columns)
-            st.dataframe(df.head())
 
             pa_col, pq_col = detectar_colunas(df)
 
             if pa_col is None:
-                pa_col = st.selectbox(f"Selecione Pa ({f.name})", df.columns, key=f"pa_{f.name}")
+                pa_col = st.selectbox(f"Pa ({f.name})", df.columns, key=f"pa_{f.name}")
 
             if pq_col is None:
-                pq_col = st.selectbox(f"Selecione Pq ({f.name})", df.columns, key=f"pq_{f.name}")
+                pq_col = st.selectbox(f"Pq ({f.name})", df.columns, key=f"pq_{f.name}")
 
-            # EXTRAÇÃO CORRIGIDA
             Pa, Pq = extrair_medidas(df, pa_col, pq_col)
 
-            # DEBUG (pode remover depois)
-            st.write("🔍 Pa usados:", Pa)
-            st.write("🔍 Pq usados:", Pq)
-
-            if len(Pa) == 0 or len(Pq) == 0:
-                st.error("Dados inválidos.")
+            if len(Pa) == 0:
+                st.error("Erro nos dados")
                 continue
 
-            pa_res = analisar_estatistica(Pa)
-            pq_res = analisar_estatistica(Pq)
+            pa_mean, pa_std, _ = analisar_estatistica(Pa)
+            pq_mean, pq_std, _ = analisar_estatistica(Pq)
 
-            tabela = pd.DataFrame({
-                "Parâmetro": [
-                    "Média",
-                    "Desvio P",
-                    "Erro Aleatório",
-                    "Erro (Arred.)",
-                    "Valor (Arred.)",
-                    "Valor (Real)"
-                ],
-                "Pa": pa_res,
-                "Pq": pq_res
-            })
+            # métricas extras
+            cv_pa = pa_std / pa_mean
+            anisotropia = pa_std / pa_mean
 
-            st.markdown("### 📊 Estatística (Pa / Pq)")
-            st.dataframe(tabela)
+            classe = classificar_rugosidade(pa_mean)
 
+            diagnostico = classe
+
+            if cv_pa > 0.3:
+                diagnostico += " + heterogênea"
+
+            if anisotropia > 0.2:
+                diagnostico += " + anisotrópica"
+
+            # métricas
             col1, col2 = st.columns(2)
-            col1.metric("📏 Pa Final", pa_res[5])
-            col2.metric("📏 Pq Final", pq_res[5])
+
+            col1.metric("Pa (µm)", f"{pa_mean:.3f}")
+            col2.metric("Pq (µm)", f"{pq_mean:.3f}")
+
+            st.markdown("### 🧠 Diagnóstico")
+            st.write(f"**Classe:** {classe}")
+            st.write(f"**Diagnóstico:** {diagnostico}")
 
             resultados[f.name] = {
-                "Pa_media": pa_res[0],
-                "Pq_media": pq_res[0],
-                "Pa_std": pa_res[1],
-                "Pq_std": pq_res[1],
+                "Ra": pa_mean,
+                "Rq": pq_mean,
+                "CV": cv_pa,
+                "Anisotropia": anisotropia
             }
 
         if resultados:
-            st.session_state["perfilometria_samples"] = resultados
-
-            st.divider()
-            st.markdown("### 📊 Resumo")
+            st.session_state.perfilometria_samples = resultados
 
             df_final = pd.DataFrame(resultados).T
+
+            st.markdown("### 📊 Dataset consolidado")
             st.dataframe(df_final)
 
     # =====================================================
     # SUBABA 2 — PCA
     # =====================================================
-    with subtabs[1]:
-
-        st.subheader("🧠 PCA — Perfilometria")
+    with tabs[1]:
 
         if "perfilometria_samples" not in st.session_state:
-            st.warning("Execute a análise primeiro.")
+            st.warning("Execute a análise primeiro")
             return
 
-        df = pd.DataFrame(st.session_state["perfilometria_samples"]).T
+        df = pd.DataFrame(st.session_state.perfilometria_samples).T
 
-        st.write("Dados usados no PCA:")
+        if df.shape[0] < 2:
+            st.info("Mínimo de 2 amostras")
+            return
+
         st.dataframe(df)
 
-        try:
-            df_pca, var_exp = executar_pca(df)
+        fig = plot_pca_biplot(df)
 
-            st.write(f"PC1: {var_exp[0]*100:.2f}%")
-            st.write(f"PC2: {var_exp[1]*100:.2f}%")
+        st.pyplot(fig)
 
-            st.pyplot(plot_pca(df_pca, df.index))
+        st.markdown("### 🔬 Interpretação")
 
-        except Exception as e:
-            st.error(f"Erro no PCA: {e}")
+        st.write("""
+        - PC1 geralmente associado à rugosidade (Ra, Rq)
+        - PC2 associado à heterogeneidade e anisotropia
+        - Vetores próximos → correlação direta
+        - Vetores opostos → relação inversa
+        """)
