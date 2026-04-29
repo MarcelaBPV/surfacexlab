@@ -1,444 +1,144 @@
-# -*- coding: utf-8 -*-
+# =========================================================
+# Raman Mapping — Subaba
+# =========================================================
 
 import streamlit as st
-import numpy as np
 import pandas as pd
+import numpy as np
 import matplotlib.pyplot as plt
 
-from scipy.signal import savgol_filter, find_peaks
-from scipy import sparse
-from scipy.sparse.linalg import spsolve
-from sklearn.decomposition import PCA
-
 
 # =========================================================
-# DATABASE MOLECULAR RAMAN
-# =========================================================
-RAMAN_DB = [
-
-    # =====================================================
-    # REGIÃO BAIXA — DNA / proteínas / metabólitos
-    # =====================================================
-    (720,  "DNA/RNA Adenine"),
-    (754,  "Hemoglobin breathing"),
-    (760,  "Tryptophan"),
-    (785,  "DNA/RNA Cytosine"),
-    (830,  "Tyrosine"),
-    (855,  "Glucose"),
-    (960,  "Phosphate / ATP"),
-    (1003, "Phenylalanine"),
-    (1095, "DNA backbone"),
-    (1127, "Hemoglobin pyrrole"),
-
-    # =====================================================
-    # REGIÃO INTERMEDIÁRIA — lipídios / proteínas
-    # =====================================================
-    (1245, "Amide III proteins"),
-    (1300, "Lipids CH2"),
-    (1335, "Hemoglobin oxidation"),
-    (1445, "Lipids CH2 bending"),
-
-    # =====================================================
-    # REGIÃO ALTA — HEME / PROTEÍNAS (CRÍTICA)
-    # =====================================================
-    (1535, "ν11 heme"),
-    (1543, "Amide II proteins"),
-    (1545, "Amide II"),
-    (1555, "ν19 heme"),
-    (1562, "Hemoglobin ν19"),
-    (1565, "Hemoglobin"),
-    (1575, "ν37 C=C"),
-    (1581, "Aromatic C=C"),
-    (1600, "C=C stretching"),
-    (1602, "C=C stretching"),
-    (1617, "C=C aromatic"),
-    (1620, "Tyrosine proteins"),
-    (1626, "C=C / protein"),
-    (1631, "ν10 heme"),
-    (1632, "Protein side chains"),
-    (1635, "Protein structure"),
-    (1655, "Amide I proteins"),
-    (1660, "Amide I β-sheet"),
-    (1665, "Amide I α-helix"),
-]
-
-# =========================================================
-# IDENTIFICAÇÃO MOLECULAR
-# =========================================================
-def identify_molecule(peak):
-
-    best="Unknown"
-    diff_min=1e9
-
-    for ref,label in RAMAN_DB:
-        diff=abs(peak-ref)
-
-        if diff<diff_min and diff<15:
-            diff_min=diff
-            best=label
-
-    return best
-
-
-# =========================================================
-# BASELINE
-# =========================================================
-def baseline_asls(y, lam=1e7, p=0.01, niter=15):
-
-    y=np.asarray(y)
-    N=len(y)
-
-    D=sparse.diags([1,-2,1],[0,1,2], shape=(N-2,N))
-    w=np.ones(N)
-
-    for _ in range(niter):
-        W=sparse.diags(w,0)
-        Z=W+lam*D.T@D
-        z=spsolve(Z,w*y)
-        w=p*(y>z)+(1-p)*(y<z)
-
-    return z
-
-
-# =========================================================
-# PROCESSAMENTO
-# =========================================================
-def smooth(y):
-    return savgol_filter(y,11,3) if len(y)>=11 else y
-
-
-def normalize(y):
-    m=np.max(np.abs(y))
-    return y if m==0 else y/m
-
-
-def process_spectrum(wave,intensity):
-
-    idx=np.argsort(wave)
-
-    x=wave[idx]
-    y=intensity[idx]
-
-    y=smooth(y)
-    base=baseline_asls(y)
-
-    y_corr=y-base
-    y_norm=normalize(y_corr)
-
-    return x,y_norm
-
-
-# =========================================================
-# DETECÇÃO DE PICOS
-# =========================================================
-def detect_peaks(x,y):
-
-    peaks,_=find_peaks(y,prominence=0.05,distance=20)
-
-    table=[]
-
-    for p in peaks:
-        pos=float(x[p])
-
-        table.append({
-            "Peak (cm⁻¹)":round(pos,1),
-            "Intensity":round(float(y[p]),3),
-            "Molécula provável":identify_molecule(pos)
-        })
-
-    return peaks,pd.DataFrame(table)
-
-
-# =========================================================
-# LEITURA
+# LEITURA DO ARQUIVO
 # =========================================================
 def read_mapping(file):
 
-    # 🔁 garante leitura correta no Streamlit
-    file.seek(0)
-
-    try:
-        # =====================================================
-        # LEITURA FLEXÍVEL (qualquer separador + arquivos sujos)
-        # =====================================================
-        df = pd.read_csv(
-            file,
-            sep=None,                # detecta automaticamente
-            engine="python",
-            header=None,
-            encoding="latin1",
-            on_bad_lines="skip"      # evita ParserError
-        )
-
-    except Exception:
-
-        # fallback Excel
-        file.seek(0)
-
-        df = pd.read_excel(
-            file,
-            header=None
-        )
-
-    # =====================================================
-    # GARANTE ESTRUTURA PADRÃO
-    # =====================================================
-    df = df.iloc[:, :4]  # pega só as 4 primeiras colunas
+    df = pd.read_csv(file, sep=r"\s+|\t+", engine="python")
 
     df.columns = ["y", "x", "wave", "intensity"]
 
-    # =====================================================
-    # LIMPEZA ROBUSTA
-    # =====================================================
     df = df.apply(pd.to_numeric, errors="coerce")
 
-    df = df.dropna()
-
-    # remove valores inválidos comuns
-    df = df[
-        (df["wave"] > 0) &
-        (df["intensity"] != 0)
-    ]
-
-    return df.reset_index(drop=True)
+    return df.dropna()
 
 
 # =========================================================
-# HEATMAP
+# SEPARAR ESPECTROS
 # =========================================================
-def plot_heatmap(df):
+def extract_spectra(df):
 
-    pivot=df.pivot_table(index="y",columns="wave",values="intensity")
-    pivot=pivot.sort_index().sort_index(axis=1)
+    spectra = {}
 
-    fig,ax=plt.subplots(figsize=(6,4))
+    grouped = df.groupby(["x", "y"])
 
-    im=ax.imshow(
-        pivot.values,
-        aspect="auto",
-        cmap="inferno",
-        origin="lower",
-        extent=[
-            pivot.columns.min(),
-            pivot.columns.max(),
-            pivot.index.min(),
-            pivot.index.max()
-        ]
+    for (x, y), g in grouped:
+        spectra[(x, y)] = g.sort_values("wave")
+
+    return spectra
+
+
+# =========================================================
+# PLOT DOS 18 ESPECTROS
+# =========================================================
+def plot_all_spectra(spectra):
+
+    fig, ax = plt.subplots(figsize=(7,5), dpi=300)
+
+    for (x, y), s in spectra.items():
+        ax.plot(s["wave"], s["intensity"], alpha=0.4)
+
+    ax.set_xlabel("Número de onda (cm⁻¹)")
+    ax.set_ylabel("Intensidade")
+    ax.set_title("Espectros Raman — Mapeamento")
+
+    return fig
+
+
+# =========================================================
+# MAPA DE INTENSIDADE
+# =========================================================
+def build_intensity_map(spectra):
+
+    coords = []
+    values = []
+
+    for (x, y), s in spectra.items():
+
+        # intensidade média ou pode trocar por pico específico
+        intensity = s["intensity"].mean()
+
+        coords.append((x, y))
+        values.append(intensity)
+
+    coords = np.array(coords)
+    values = np.array(values)
+
+    x_unique = np.unique(coords[:,0])
+    y_unique = np.unique(coords[:,1])
+
+    grid = np.zeros((len(y_unique), len(x_unique)))
+
+    for (x, y), val in zip(coords, values):
+        xi = np.where(x_unique == x)[0][0]
+        yi = np.where(y_unique == y)[0][0]
+        grid[yi, xi] = val
+
+    return grid, x_unique, y_unique
+
+
+# =========================================================
+# PLOT HEATMAP
+# =========================================================
+def plot_heatmap(grid):
+
+    fig, ax = plt.subplots(figsize=(5,5), dpi=300)
+
+    im = ax.imshow(grid, origin="lower", aspect="auto")
+
+    ax.set_title("Mapa de Intensidade Raman")
+
+    plt.colorbar(im)
+
+    return fig
+
+
+# =========================================================
+# TAB PRINCIPAL
+# =========================================================
+def render_mapeamento_molecular_tab():
+
+    st.subheader("🧬 Raman Mapping — Mapeamento Molecular")
+
+    file = st.file_uploader(
+        "Upload arquivo de mapeamento (.txt)",
+        type=["txt"]
     )
-
-    ax.set_xlabel("Raman shift (cm⁻¹)")
-    ax.set_ylabel("Posição Y")
-    ax.set_title("Raman intensity map")
-
-    cbar=fig.colorbar(im)
-    cbar.set_label("Intensidade")
-
-    return fig
-
-
-# =========================================================
-# PCA
-# =========================================================
-def run_pca(spectra):
-
-    X=[s["intensity"] for s in spectra]
-    X=np.array(X)
-
-    pca=PCA(n_components=2)
-    scores=pca.fit_transform(X)
-
-    fig,ax=plt.subplots()
-    ax.scatter(scores[:,0],scores[:,1])
-
-    ax.set_xlabel("PC1")
-    ax.set_ylabel("PC2")
-    ax.set_title("PCA Raman spectra")
-
-    return fig
-
-
-# =========================================================
-# GRUPOS COM IDENTIFICAÇÃO
-# =========================================================
-def plot_raman_groups_annotated(spectra):
-
-    groups={
-        "L1 (0–200)":(0,200),
-        "L2 (0–400)":(0,400),
-        "L3 (0–600)":(0,600),
-        "L4 (0–800)":(0,800),
-    }
-
-    fig,axes=plt.subplots(4,1,figsize=(7,12),sharex=True)
-
-    tables={}
-
-    for ax,(label,(ymin,ymax)) in zip(axes,groups.items()):
-
-        all_peaks=[]
-        curves=[]
-
-        for spec in spectra:
-
-            if ymin<=spec["y"]<=ymax:
-
-                mask=(spec["wave"]>=1500)&(spec["wave"]<=1750)
-
-                x=spec["wave"][mask]
-                y=spec["intensity"][mask]
-
-                if len(x)==0:
-                    continue
-
-                curves.append(y)
-                ax.plot(x,y,lw=1,alpha=0.5)
-
-        # =====================================================
-        # MÉDIA DO GRUPO (curva principal estilo artigo)
-        # =====================================================
-        if len(curves)>0:
-
-            mean_curve=np.mean(curves,axis=0)
-
-            ax.plot(x,mean_curve,'k',lw=2)
-
-            # detectar picos na média
-            peaks,_=find_peaks(mean_curve,prominence=0.05,distance=15)
-
-            peak_data=[]
-
-            for p in peaks:
-
-                pos=float(x[p])
-                intensity=float(mean_curve[p])
-                mol=identify_molecule(pos)
-
-                if mol!="Unknown":
-
-                    peak_data.append((pos,intensity,mol))
-
-                    # bolinha no pico
-                    ax.scatter(pos,intensity,color="red",s=25,zorder=5)
-
-                    # texto horizontal
-                    ax.text(
-                        pos,
-                        intensity+0.05,
-                        mol.split()[0],
-                        fontsize=8,
-                        ha="center"
-                    )
-
-            tables[label]=pd.DataFrame([
-                {
-                    "Peak (cm⁻¹)":round(p[0],1),
-                    "Intensidade":round(p[1],3),
-                    "Molécula":p[2]
-                }
-                for p in peak_data
-            ])
-
-        ax.set_title(label)
-        ax.grid(alpha=0.2)
-
-    axes[-1].set_xlabel("Raman shift (cm⁻¹)")
-    fig.text(0.02,0.5,"Intensity",rotation=90)
-
-    plt.tight_layout()
-
-    return fig,tables
-
-# =========================================================
-# STREAMLIT
-# =========================================================
-def render_mapeamento_molecular_tab(supabase):
-
-    st.header("🧬 Raman Molecular Mapping")
-
-    file=st.file_uploader("Upload Raman mapping",type=["txt","csv"])
 
     if not file:
         return
 
-    df=read_mapping(file)
+    df = read_mapping(file)
 
-    spectra=[]
+    st.success("Arquivo carregado")
 
-    for y_val,group in df.groupby("y"):
+    spectra = extract_spectra(df)
 
-        group=group.sort_values("wave")
+    st.write(f"Total de espectros: {len(spectra)}")
 
-        x,y=process_spectrum(group["wave"].values,group["intensity"].values)
+    # =====================================================
+    # PLOT ESPECTROS
+    # =====================================================
+    st.markdown("### 📈 Espectros Raman")
 
-        spectra.append({
-            "y":y_val,
-            "wave":x,
-            "intensity":y
-        })
+    fig1 = plot_all_spectra(spectra)
+    st.pyplot(fig1)
 
-    st.write(f"Total espectros: **{len(spectra)}**")
+    # =====================================================
+    # HEATMAP
+    # =====================================================
+    st.markdown("### 🌈 Mapa de Intensidade")
 
-    subtabs=st.tabs([
-        "Espectros",
-        "Mapa Raman",
-        "PCA",
-        "Grupos (1500–1750 cm⁻¹)"
-    ])
+    grid, _, _ = build_intensity_map(spectra)
 
-# ESPECTROS
-    with subtabs[0]:
-
-        cols=st.columns(4)
-
-        for i,spec in enumerate(spectra):
-
-            peaks,table=detect_peaks(spec["wave"],spec["intensity"])
-
-            with cols[i%4]:
-
-                st.caption(f"Y = {spec['y']}")
-
-                fig,ax=plt.subplots(figsize=(3,2))
-
-                ax.plot(spec["wave"],spec["intensity"],"k")
-                ax.invert_xaxis()
-
-                st.pyplot(fig)
-
-                if st.button(f"Expandir {i}"):
-
-                    fig2,ax2=plt.subplots()
-
-                    ax2.plot(spec["wave"],spec["intensity"])
-                    ax2.scatter(spec["wave"][peaks],spec["intensity"][peaks],color="red")
-
-                    ax2.invert_xaxis()
-
-                    st.pyplot(fig2)
-                    st.dataframe(table)
-
-            if i%4==3:
-                cols=st.columns(4)
-
-# HEATMAP
-    with subtabs[1]:
-        st.pyplot(plot_heatmap(df))
-
-# PCA
-    with subtabs[2]:
-        st.pyplot(run_pca(spectra))
-
-# GRUPOS
-    with subtabs[3]:
-
-        st.subheader("Espectros com identificação molecular")
-
-        fig,tables=plot_raman_groups_annotated(spectra)
-
-        st.pyplot(fig)
-
-        st.subheader("Tabela de bandas identificadas")
-
-        for g,t in tables.items():
-            st.markdown(f"### {g}")
-            st.dataframe(t,use_container_width=True)
+    fig2 = plot_heatmap(grid)
+    st.pyplot(fig2)
