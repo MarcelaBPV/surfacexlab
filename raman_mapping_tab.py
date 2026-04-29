@@ -1,5 +1,5 @@
 # =========================================================
-# Raman Mapping — Subaba
+# RAMAN MAPPING — VERSÃO CIENTÍFICA
 # =========================================================
 
 import streamlit as st
@@ -23,81 +23,122 @@ def read_mapping(file):
 
 
 # =========================================================
-# SEPARAR ESPECTROS
+# ORGANIZA ESPECTROS POR POSIÇÃO Y
 # =========================================================
 def extract_spectra(df):
 
-    spectra = {}
+    spectra = []
 
-    grouped = df.groupby(["x", "y"])
+    for y_val, group in df.groupby("y"):
 
-    for (x, y), g in grouped:
-        spectra[(x, y)] = g.sort_values("wave")
+        group = group.sort_values("wave")
+
+        spectra.append({
+            "y": y_val,
+            "wave": group["wave"].values,
+            "intensity": group["intensity"].values
+        })
 
     return spectra
 
 
 # =========================================================
-# PLOT DOS 18 ESPECTROS
+# PLOT INDIVIDUAL (PADRÃO PAPER)
 # =========================================================
-def plot_all_spectra(spectra):
+def plot_single_spectrum(spec):
 
-    fig, ax = plt.subplots(figsize=(7,5), dpi=300)
+    fig, ax = plt.subplots(figsize=(4.5, 3.2), dpi=300)
 
-    for (x, y), s in spectra.items():
-        ax.plot(s["wave"], s["intensity"], alpha=0.4)
+    ax.plot(spec["wave"], spec["intensity"], color="black", linewidth=1.2)
 
-    ax.set_xlabel("Número de onda (cm⁻¹)")
-    ax.set_ylabel("Intensidade")
-    ax.set_title("Espectros Raman — Mapeamento")
+    # picos simples (máximos locais)
+    from scipy.signal import find_peaks
+    peaks, _ = find_peaks(spec["intensity"], distance=20)
+
+    ax.scatter(
+        spec["wave"][peaks],
+        spec["intensity"][peaks],
+        color="red",
+        s=15
+    )
+
+    ax.invert_xaxis()
+
+    ax.set_xlabel("Raman Shift (cm⁻¹)")
+    ax.set_ylabel("Intensity (a.u.)")
+
+    ax.set_title(f"Y = {spec['y']} µm")
 
     return fig
 
 
 # =========================================================
-# MAPA DE INTENSIDADE
+# PLOT GRID (18 ESPECTROS)
 # =========================================================
-def build_intensity_map(spectra):
+def plot_grid_spectra(spectra):
 
-    coords = []
-    values = []
+    n = len(spectra)
+    cols = 3
+    rows = int(np.ceil(n / cols))
 
-    for (x, y), s in spectra.items():
+    fig, axes = plt.subplots(rows, cols, figsize=(10, rows*3), dpi=300)
 
-        # intensidade média ou pode trocar por pico específico
-        intensity = s["intensity"].mean()
+    axes = axes.flatten()
 
-        coords.append((x, y))
-        values.append(intensity)
+    for i, spec in enumerate(spectra):
 
-    coords = np.array(coords)
-    values = np.array(values)
+        ax = axes[i]
 
-    x_unique = np.unique(coords[:,0])
-    y_unique = np.unique(coords[:,1])
+        ax.plot(spec["wave"], spec["intensity"], color="black")
 
-    grid = np.zeros((len(y_unique), len(x_unique)))
+        ax.invert_xaxis()
+        ax.set_title(f"Y={spec['y']}")
 
-    for (x, y), val in zip(coords, values):
-        xi = np.where(x_unique == x)[0][0]
-        yi = np.where(y_unique == y)[0][0]
-        grid[yi, xi] = val
+    # remove eixos vazios
+    for j in range(i+1, len(axes)):
+        axes[j].axis("off")
 
-    return grid, x_unique, y_unique
+    plt.tight_layout()
+
+    return fig
 
 
 # =========================================================
-# PLOT HEATMAP
+# HEATMAP REAL (PADRÃO PAPER)
 # =========================================================
-def plot_heatmap(grid):
+def plot_heatmap(df):
 
-    fig, ax = plt.subplots(figsize=(5,5), dpi=300)
+    pivot = df.pivot_table(
+        index="y",
+        columns="wave",
+        values="intensity",
+        aggfunc="mean"
+    )
 
-    im = ax.imshow(grid, origin="lower", aspect="auto")
+    pivot = pivot.sort_index()
+    pivot = pivot.sort_index(axis=1, ascending=False)
 
-    ax.set_title("Mapa de Intensidade Raman")
+    fig, ax = plt.subplots(figsize=(7,4), dpi=300)
 
-    plt.colorbar(im)
+    im = ax.imshow(
+        pivot.values,
+        aspect="auto",
+        cmap="inferno",
+        origin="lower",
+        extent=[
+            pivot.columns.min(),
+            pivot.columns.max(),
+            pivot.index.min(),
+            pivot.index.max()
+        ]
+    )
+
+    ax.set_title("Raman intensity map")
+    ax.set_xlabel("Raman shift (cm⁻¹)")
+    ax.set_ylabel("Y position")
+
+    cbar = fig.colorbar(im)
+    cbar.set_label("Intensity")
 
     return fig
 
@@ -105,40 +146,43 @@ def plot_heatmap(grid):
 # =========================================================
 # TAB PRINCIPAL
 # =========================================================
-def render_mapeamento_molecular_tab():
+def render_mapeamento_molecular_tab(supabase=None):
 
-    st.subheader("🧬 Raman Mapping — Mapeamento Molecular")
+    st.subheader("🗺️ Raman Mapping — Análise Espacial")
 
     file = st.file_uploader(
-        "Upload arquivo de mapeamento (.txt)",
-        type=["txt"]
+        "Upload arquivo de mapeamento Raman",
+        type=["txt", "csv"]
     )
 
     if not file:
+        st.info("Faça upload do arquivo de mapeamento.")
         return
 
     df = read_mapping(file)
 
-    st.success("Arquivo carregado")
-
     spectra = extract_spectra(df)
 
-    st.write(f"Total de espectros: {len(spectra)}")
+    st.success(f"{len(spectra)} espectros identificados")
 
     # =====================================================
-    # PLOT ESPECTROS
+    # SUBABAS INTERNAS
     # =====================================================
-    st.markdown("### 📈 Espectros Raman")
+    tabs = st.tabs([
+        "📊 Grid de espectros",
+        "📈 Espectros individuais",
+        "🔥 Mapa Raman"
+    ])
 
-    fig1 = plot_all_spectra(spectra)
-    st.pyplot(fig1)
+    # GRID
+    with tabs[0]:
+        st.pyplot(plot_grid_spectra(spectra))
 
-    # =====================================================
+    # INDIVIDUAL
+    with tabs[1]:
+        for spec in spectra:
+            st.pyplot(plot_single_spectrum(spec))
+
     # HEATMAP
-    # =====================================================
-    st.markdown("### 🌈 Mapa de Intensidade")
-
-    grid, _, _ = build_intensity_map(spectra)
-
-    fig2 = plot_heatmap(grid)
-    st.pyplot(fig2)
+    with tabs[2]:
+        st.pyplot(plot_heatmap(df))
