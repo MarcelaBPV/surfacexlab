@@ -1,5 +1,5 @@
 # =========================================================
-# Raman Mapping — SurfaceXLab (VERSÃO FINAL CORRIGIDA)
+# Raman Mapping — SurfaceXLab (FINAL COMPLETO)
 # =========================================================
 
 import streamlit as st
@@ -9,13 +9,12 @@ import matplotlib.pyplot as plt
 
 
 # =========================================================
-# LEITURA ROBUSTA (FUNCIONA COM SEU ARQUIVO REAL)
+# LEITURA ROBUSTA
 # =========================================================
 def read_mapping(file):
 
     df = pd.read_csv(file, sep=r"\s+|\t+", engine="python")
 
-    # tenta corrigir automaticamente
     if len(df.columns) >= 4:
         df = df.iloc[:, :4]
         df.columns = ["y", "x", "wave", "intensity"]
@@ -28,13 +27,12 @@ def read_mapping(file):
 
 
 # =========================================================
-# EXTRAÇÃO DOS ESPECTROS (CORRIGIDO — USA X,Y)
+# EXTRAÇÃO DOS ESPECTROS
 # =========================================================
 def extract_spectra(df):
 
     spectra = []
 
-    # AGRUPA POR POSIÇÃO REAL (x,y)
     for (x_val, y_val), group in df.groupby(["x", "y"]):
 
         group = group.sort_values("wave")
@@ -50,7 +48,7 @@ def extract_spectra(df):
 
 
 # =========================================================
-# GRID DE ESPECTROS (18 ESPECTROS)
+# GRID DOS ESPECTROS
 # =========================================================
 def plot_grid_spectra(spectra):
 
@@ -59,13 +57,11 @@ def plot_grid_spectra(spectra):
     rows = int(np.ceil(n / cols))
 
     fig, axes = plt.subplots(rows, cols, figsize=(14, rows*2.5), dpi=300)
-
     axes = axes.flatten()
 
     for i, spec in enumerate(spectra):
 
         ax = axes[i]
-
         ax.plot(spec["wave"], spec["intensity"], linewidth=0.8)
 
         ax.set_title(f"x={spec['x']}, y={spec['y']}", fontsize=8)
@@ -84,12 +80,12 @@ def plot_grid_spectra(spectra):
 # =========================================================
 def plot_single_spectrum(spec):
 
+    from scipy.signal import find_peaks
+
     fig, ax = plt.subplots(figsize=(5,3), dpi=300)
 
     ax.plot(spec["wave"], spec["intensity"], linewidth=1.2)
 
-    # DETECÇÃO DE PICOS
-    from scipy.signal import find_peaks
     peaks, _ = find_peaks(spec["intensity"], distance=20)
 
     ax.scatter(
@@ -99,21 +95,18 @@ def plot_single_spectrum(spec):
     )
 
     ax.invert_xaxis()
-
     ax.set_xlabel("Raman Shift (cm⁻¹)")
     ax.set_ylabel("Intensity")
-
     ax.set_title(f"x={spec['x']} | y={spec['y']}")
 
     return fig
 
 
 # =========================================================
-# MAPA REAL (CORRIGIDO — MAPA ESPACIAL)
+# MAPA ESPACIAL
 # =========================================================
 def plot_spatial_map(df):
 
-    # intensidade média por ponto (x,y)
     pivot = df.groupby(["y", "x"])["intensity"].mean().unstack()
 
     fig, ax = plt.subplots(figsize=(6,5), dpi=300)
@@ -135,14 +128,14 @@ def plot_spatial_map(df):
 
 
 # =========================================================
-# TAB PRINCIPAL
+# FUNÇÃO PRINCIPAL (COM CONTROLE DE PROCESSAMENTO)
 # =========================================================
 def render_mapeamento_molecular_tab(supabase=None):
 
     st.subheader("🗺️ Raman Mapping — Análise Espacial")
 
     # =====================================================
-    # 🔥 UPLOAD INDEPENDENTE (AGORA FUNCIONA)
+    # UPLOAD
     # =====================================================
     uploaded_file = st.file_uploader(
         "📂 Upload do arquivo de mapeamento Raman",
@@ -151,7 +144,7 @@ def render_mapeamento_molecular_tab(supabase=None):
     )
 
     if uploaded_file is None:
-        st.info("Faça upload do arquivo para gerar os 18 espectros e o mapa.")
+        st.info("Faça upload do arquivo para iniciar.")
         return
 
     # =====================================================
@@ -166,7 +159,20 @@ def render_mapeamento_molecular_tab(supabase=None):
 
     st.success("Arquivo carregado com sucesso")
 
+    # =====================================================
+    # PREVIEW
+    # =====================================================
+    st.markdown("### 🔍 Preview dos dados")
     st.dataframe(df.head())
+
+    # =====================================================
+    # BOTÃO DE PROCESSAMENTO
+    # =====================================================
+    processar = st.button("🚀 Processar Mapeamento")
+
+    if not processar:
+        st.warning("Clique no botão para gerar os espectros e o mapa.")
+        return
 
     # =====================================================
     # EXTRAÇÃO
@@ -185,7 +191,7 @@ def render_mapeamento_molecular_tab(supabase=None):
     ])
 
     # =====================================================
-    # GRID (SEUS 18 ESPECTROS)
+    # GRID
     # =====================================================
     with tabs[0]:
         st.pyplot(plot_grid_spectra(spectra))
@@ -198,7 +204,7 @@ def render_mapeamento_molecular_tab(supabase=None):
             st.pyplot(plot_single_spectrum(spec))
 
     # =====================================================
-    # MAPA REAL
+    # MAPA
     # =====================================================
     with tabs[2]:
         st.pyplot(plot_spatial_map(df))
