@@ -152,6 +152,29 @@ def plot_pca_biplot(df):
 # =========================================================
 # TAB PRINCIPAL
 # =========================================================
+def plot_ra_rq_comparison(df):
+
+    fig, ax = plt.subplots(figsize=(7,4), dpi=300)
+
+    x = np.arange(len(df.index))
+    width = 0.35
+
+    ax.bar(x - width/2, df["Ra"], width, label="Ra")
+    ax.bar(x + width/2, df["Rq"], width, label="Rq")
+
+    ax.set_xlabel("Amostras")
+    ax.set_ylabel("Rugosidade (µm)")
+    ax.set_title("Comparação dos parâmetros de rugosidade")
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(df.index)
+
+    ax.legend()
+
+    ax.grid(axis="y", alpha=0.3)
+
+    return fig
+
 def render_perfilometria_tab():
 
     st.header("📏 Perfilometria")
@@ -239,6 +262,15 @@ def render_perfilometria_tab():
 
             st.markdown("### 📊 Dataset consolidado")
             st.dataframe(df_final)
+
+    # =====================================================
+    # GRÁFICO COMPARATIVO
+    # =====================================================
+    st.markdown("### 📊 Comparação de Rugosidade (Ra vs Rq)")
+
+    fig_bar = plot_ra_rq_comparison(df_final)
+
+    st.pyplot(fig_bar)    
 
     # =====================================================
     # SUBABA 2 — PCA
