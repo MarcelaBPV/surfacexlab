@@ -1,5 +1,5 @@
 # =========================================================
-# TENSIOMETRIA — SurfaceXLab (VERSÃO FINAL)
+# TENSIOMETRIA — SurfaceXLab (FINAL ROBUSTO)
 # =========================================================
 
 import streamlit as st
@@ -14,9 +14,9 @@ from tensiometria_processing import process_tensiometry
 
 
 # =========================================================
-# GRÁFICO COMPARATIVO (ESTILO PAPER)
+# GRÁFICO COMPARATIVO
 # =========================================================
-def plot_tensio_comparison(df):
+def plot_comparison(df):
 
     fig, ax = plt.subplots(figsize=(7,4), dpi=300)
 
@@ -32,7 +32,7 @@ def plot_tensio_comparison(df):
     ax.set_xlabel("Amostras")
     ax.set_ylabel("Valores")
 
-    ax.set_title("Comparação — Energia de Superfície e Ângulo")
+    ax.set_title("Energia de superfície vs Ângulo de contato")
 
     ax.legend()
     ax.grid(axis="y", alpha=0.3)
@@ -45,27 +45,26 @@ def plot_tensio_comparison(df):
 # =========================================================
 def plot_pca(df):
 
-    X = df.select_dtypes(include=[np.number]).values
-    labels = df.index
-    features = df.select_dtypes(include=[np.number]).columns
+    df_num = df.select_dtypes(include=[np.number]).fillna(0)
 
-    X_scaled = StandardScaler().fit_transform(X)
+    X = StandardScaler().fit_transform(df_num.values)
 
     pca = PCA(n_components=2)
-    scores = pca.fit_transform(X_scaled)
+    scores = pca.fit_transform(X)
     loadings = pca.components_.T
+
     var_exp = pca.explained_variance_ratio_ * 100
 
     fig, ax = plt.subplots(figsize=(6,6), dpi=300)
 
     ax.scatter(scores[:,0], scores[:,1], s=90, edgecolor="black")
 
-    for i, label in enumerate(labels):
+    for i, label in enumerate(df.index):
         ax.text(scores[i,0], scores[i,1], label)
 
     scale = np.max(np.abs(scores)) * 0.8
 
-    for i, var in enumerate(features):
+    for i, var in enumerate(df_num.columns):
 
         ax.arrow(
             0, 0,
@@ -111,13 +110,13 @@ def render_tensiometria_tab(supabase=None):
     ])
 
     # =====================================================
-    # SUBABA 1 — PROCESSAMENTO
+    # SUBABA 1 — UPLOAD
     # =====================================================
     with tabs[0]:
 
         files = st.file_uploader(
-            "Upload arquivos de tensiometria",
-            type=["log", "txt", "xlsx"],
+            "Upload (.LOG, .xlsx, .csv)",
+            type=["log", "txt", "xlsx", "csv"],
             accept_multiple_files=True
         )
 
@@ -145,30 +144,30 @@ def render_tensiometria_tab(supabase=None):
 
             for f in files:
 
-                st.markdown(f"### 📄 {f.name}")
+                if f.name in st.session_state.tensiometry_samples:
+                    st.warning(f"{f.name} já processado")
+                    continue
+
+                st.markdown(f"---\n### 📄 {f.name}")
 
                 try:
                     result = process_tensiometry(f, theta, id_ig, i2d_ig)
                 except Exception as e:
-                    st.error("Erro no processamento")
+                    st.error("Erro ao processar arquivo")
                     st.exception(e)
                     continue
 
+                # gráfico
                 st.pyplot(result["figure"])
 
                 s = result["summary"]
 
-                # -------------------------
-                # DIAGNÓSTICO
-                # -------------------------
+                # diagnóstico
                 st.markdown("### 🧠 Diagnóstico físico")
-
                 st.write(f"**Molhabilidade:** {s['Molhabilidade']}")
                 st.write(f"**Diagnóstico:** {s['Diagnóstico']}")
 
-                # -------------------------
-                # MÉTRICAS
-                # -------------------------
+                # métricas
                 st.markdown("### 📊 Parâmetros")
 
                 c1, c2, c3 = st.columns(3)
@@ -181,12 +180,18 @@ def render_tensiometria_tab(supabase=None):
 
                 st.session_state.tensiometry_samples[f.name] = s
 
+        # dataset consolidado
         if st.session_state.tensiometry_samples:
+
+            st.markdown("### 📋 Dataset consolidado")
 
             df_all = pd.DataFrame(st.session_state.tensiometry_samples).T
 
-            st.markdown("### 📋 Dataset consolidado")
             st.dataframe(df_all)
+
+            if st.button("🗑 Limpar dados"):
+                st.session_state.tensiometry_samples = {}
+                st.experimental_rerun()
 
     # =====================================================
     # SUBABA 2 — COMPARAÇÃO
@@ -194,24 +199,16 @@ def render_tensiometria_tab(supabase=None):
     with tabs[1]:
 
         if len(st.session_state.tensiometry_samples) < 2:
-            st.info("Carregue pelo menos duas amostras.")
+            st.info("Carregue pelo menos duas amostras")
             return
 
         df = pd.DataFrame(st.session_state.tensiometry_samples).T
 
         st.dataframe(df)
 
-        st.markdown("### 📊 Comparação entre amostras")
+        st.markdown("### 📊 Comparação")
 
-        fig = plot_tensio_comparison(df)
-        st.pyplot(fig)
-
-        st.markdown("### 🔬 Interpretação")
-
-        st.write("""
-        Diferenças na energia superficial refletem alterações químicas da superfície.
-        O ângulo de contato (q*) indica comportamento hidrofílico/hidrofóbico.
-        """)
+        st.pyplot(plot_comparison(df))
 
     # =====================================================
     # SUBABA 3 — PCA
@@ -219,20 +216,11 @@ def render_tensiometria_tab(supabase=None):
     with tabs[2]:
 
         if len(st.session_state.tensiometry_samples) < 2:
-            st.info("Carregue pelo menos duas amostras.")
+            st.info("Carregue pelo menos duas amostras")
             return
 
         df = pd.DataFrame(st.session_state.tensiometry_samples).T
 
         st.dataframe(df)
 
-        fig = plot_pca(df)
-
-        st.pyplot(fig)
-
-        st.markdown("### 🔬 Interpretação")
-
-        st.write("""
-        PC1 geralmente está associado à energia superficial.
-        PC2 pode refletir contribuições estruturais (Raman).
-        """)
+        st.pyplot(plot_pca(df))
