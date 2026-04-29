@@ -1,5 +1,5 @@
 # =========================================================
-# Raman Processing — SurfaceXLab (FINAL ROBUSTO)
+# Raman Processing — SurfaceXLab (FINAL ESTÁVEL E CIENTÍFICO)
 # =========================================================
 
 import numpy as np
@@ -10,21 +10,14 @@ from scipy.signal import find_peaks
 
 
 # =========================================================
-# LEITURA UNIVERSAL (RESOLVE SEU ERRO)
+# LEITURA UNIVERSAL (ROBUSTA)
 # =========================================================
 def read_raman_file(file_like):
 
     name = file_like.name.lower()
 
-    # =========================
-    # EXCEL
-    # =========================
     if name.endswith(".xlsx") or name.endswith(".xls"):
         df = pd.read_excel(file_like)
-
-    # =========================
-    # CSV / TXT / LOG
-    # =========================
     else:
         try:
             df = pd.read_csv(file_like, sep=None, engine="python", encoding="utf-8")
@@ -34,9 +27,7 @@ def read_raman_file(file_like):
             except:
                 df = pd.read_csv(file_like, sep=None, engine="python", encoding="cp1252")
 
-    # =========================
-    # LIMPEZA
-    # =========================
+    # limpa e garante numérico
     df = df.apply(pd.to_numeric, errors="coerce").dropna()
 
     if df.shape[1] < 2:
@@ -49,26 +40,31 @@ def read_raman_file(file_like):
 
 
 # =========================================================
-# BASELINE ALS (REAL)
+# BASELINE ALS (CORRIGIDO — SEM ERRO DE DIMENSÃO)
 # =========================================================
 def baseline_als(y, lam=1e5, p=0.01, niter=10):
 
     L = len(y)
-    D = np.diff(np.eye(L), 2)
-    D = D.T @ D
+
+    # operador segunda derivada correto
+    D = np.diff(np.eye(L), n=2, axis=0)
+    DTD = D.T @ D
 
     w = np.ones(L)
 
     for _ in range(niter):
         W = np.diag(w)
-        Z = np.linalg.inv(W + lam * D) @ (w * y)
+
+        # solve é mais estável que inv
+        Z = np.linalg.solve(W + lam * DTD, w * y)
+
         w = p * (y > Z) + (1 - p) * (y < Z)
 
     return Z
 
 
 # =========================================================
-# FUNÇÃO LORENTZIANA
+# FUNÇÕES LORENTZIANAS
 # =========================================================
 def lorentz(x, a, x0, g):
     return a * (g**2 / ((x - x0)**2 + g**2))
@@ -109,56 +105,67 @@ def process_raman_spectrum_with_groups(file_like):
     x = df["shift"].values
     y = df["intensity"].values
 
-    # =========================
+    # =====================================================
     # BASELINE
-    # =========================
-    baseline = baseline_als(y)
+    # =====================================================
+    # ajuste automático para poucos pontos
+    lam = 1e5 if len(y) > 100 else 1e4
+
+    baseline = baseline_als(y, lam=lam)
+
     y_corr = y - baseline
 
-    # =========================
+    # =====================================================
     # NORMALIZAÇÃO
-    # =========================
+    # =====================================================
     y_norm = y_corr / np.max(y_corr)
 
     df["intensity_norm"] = y_norm
 
-    # =========================
+    # =====================================================
     # DETECÇÃO DE PICOS
-    # =========================
+    # =====================================================
     peaks, _ = find_peaks(y_norm, height=0.2, distance=20)
 
     if len(peaks) < 2:
         peaks = np.argsort(y_norm)[-3:]
 
-    # =========================
-    # PARAMETROS INICIAIS
-    # =========================
+    # =====================================================
+    # PARÂMETROS INICIAIS
+    # =====================================================
     p0 = []
 
     for p in peaks:
         p0.extend([y_norm[p], x[p], 10])
 
-    # =========================
-    # FIT
-    # =========================
+    # =====================================================
+    # FIT LORENTZIANO
+    # =====================================================
     try:
-        popt, _ = curve_fit(multi_lorentz, x, y_norm, p0=p0, maxfev=10000)
+        popt, _ = curve_fit(
+            multi_lorentz,
+            x,
+            y_norm,
+            p0=p0,
+            maxfev=10000
+        )
         y_fit = multi_lorentz(x, *popt)
+
     except:
         popt = p0
         y_fit = multi_lorentz(x, *popt)
 
-    # =========================
+    # =====================================================
     # R²
-    # =========================
+    # =====================================================
     ss_res = np.sum((y_norm - y_fit) ** 2)
     ss_tot = np.sum((y_norm - np.mean(y_norm)) ** 2)
 
     r2 = 1 - ss_res / ss_tot
 
-    # =========================
-    # PEAKS DATAFRAME
-    # =========================
+    # =====================================================
+    # PEAKS
+    # =====================================================
     peaks_data = []
 
     for i in range(0, len(popt), 3):
@@ -171,9 +178,9 @@ def process_raman_spectrum_with_groups(file_like):
 
     peaks_df = pd.DataFrame(peaks_data)
 
-    # =========================
+    # =====================================================
     # FIGURA 1 — RAW + BASELINE
-    # =========================
+    # =====================================================
     fig1, ax1 = plt.subplots(figsize=(6,4), dpi=300)
 
     ax1.plot(x, y, label="Raw")
@@ -186,9 +193,9 @@ def process_raman_spectrum_with_groups(file_like):
     ax1.legend()
     ax1.grid(alpha=0.3)
 
-    # =========================
+    # =====================================================
     # FIGURA 2 — FIT + RESÍDUO
-    # =========================
+    # =====================================================
     fig2, (ax2, ax3) = plt.subplots(
         2, 1,
         figsize=(6,5),
@@ -204,8 +211,8 @@ def process_raman_spectrum_with_groups(file_like):
     ax2.legend()
     ax2.grid(alpha=0.3)
 
-    # resíduo
     residual = y_norm - y_fit
+
     ax3.plot(x, residual, color="black")
     ax3.axhline(0, linestyle="--")
 
