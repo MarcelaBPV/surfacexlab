@@ -1,5 +1,5 @@
 # =========================================================
-# SurfaceXLab — Plataforma Científica Integrada
+# SurfaceXLab — Plataforma Científica Integrada (BLINDADO)
 # =========================================================
 
 import streamlit as st
@@ -20,33 +20,29 @@ from analise_completa_amostras_tab import render_analise_completa_amostras_tab
 # =========================================================
 st.set_page_config(
     page_title="SurfaceXLab",
-    page_icon="***",
+    page_icon="🔬",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
 
 
 # =========================================================
-# ESTILO (clean + científico)
+# ESTILO
 # =========================================================
 st.markdown("""
 <style>
 .block-container {
     padding-top: 1.2rem;
 }
-
 h1, h2, h3 {
     font-weight: 600;
 }
-
 [data-testid="stMetricValue"] {
     font-size: 22px;
 }
-
 [data-testid="stMetricLabel"] {
     font-size: 14px;
 }
-
 </style>
 """, unsafe_allow_html=True)
 
@@ -54,14 +50,13 @@ h1, h2, h3 {
 # =========================================================
 # HEADER
 # =========================================================
-st.markdown("# *** SurfaceXLab")
+st.markdown("# 🔬 SurfaceXLab")
 st.caption("Plataforma integrada para caracterização avançada de superfícies")
-
 st.divider()
 
 
 # =========================================================
-# SESSION STATE INIT (EVITA BUGS)
+# SESSION STATE INIT
 # =========================================================
 if "raman_peaks" not in st.session_state:
     st.session_state.raman_peaks = {}
@@ -77,7 +72,7 @@ if "perfilometria_samples" not in st.session_state:
 
 
 # =========================================================
-# DASHBOARD — VISÃO GERAL
+# DASHBOARD
 # =========================================================
 st.subheader("📊 Visão Geral dos Ensaios")
 
@@ -92,7 +87,7 @@ st.divider()
 
 
 # =========================================================
-# ABAS PRINCIPAIS
+# ABAS
 # =========================================================
 tabs = st.tabs([
     "🧬 Raman",
@@ -104,38 +99,58 @@ tabs = st.tabs([
 
 
 # =========================================================
-# ABA 1 — RAMAN
+# ABA 1 — RAMAN (NÃO PODE QUEBRAR)
 # =========================================================
 with tabs[0]:
-    render_raman_tab()
+    try:
+        render_raman_tab()
+    except Exception as e:
+        st.error("Erro no módulo Raman")
+        st.exception(e)
 
 
 # =========================================================
-# ABA 2 — RESISTIVIDADE
+# ABA 2 — RESISTIVIDADE (AQUI ESTAVA QUEBRANDO TUDO)
 # =========================================================
 with tabs[1]:
-    render_resistividade_tab()
+    try:
+        render_resistividade_tab()
+    except Exception as e:
+        st.error("Erro no módulo elétrico (isso NÃO trava mais o app)")
+        st.exception(e)
 
 
 # =========================================================
 # ABA 3 — TENSIOMETRIA
 # =========================================================
 with tabs[2]:
-    render_tensiometria_tab()
+    try:
+        render_tensiometria_tab()
+    except Exception as e:
+        st.error("Erro no módulo de tensiometria")
+        st.exception(e)
 
 
 # =========================================================
 # ABA 4 — PERFILOMETRIA
 # =========================================================
 with tabs[3]:
-    render_perfilometria_tab()
+    try:
+        render_perfilometria_tab()
+    except Exception as e:
+        st.error("Erro no módulo de perfilometria")
+        st.exception(e)
 
 
 # =========================================================
 # ABA 5 — ANÁLISE INTEGRADA
 # =========================================================
 with tabs[4]:
-    render_analise_completa_amostras_tab()
+    try:
+        render_analise_completa_amostras_tab()
+    except Exception as e:
+        st.error("Erro na análise integrada")
+        st.exception(e)
 
 
 # =========================================================
