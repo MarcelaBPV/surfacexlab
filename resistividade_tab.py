@@ -17,15 +17,16 @@ from resistividade_processing import process_resistivity
 # =========================================================
 def render_resistividade_tab(supabase=None):
 
-    st.header("⚡ Propriedades Elétricas — Resistividade")
+    st.header("⚡ Análises Elétricas")
 
     st.markdown(
         """
         **Subaba 1**  
-        Upload da amostra elétrica → ajuste **V × I** → cálculo físico  
+        Medição elétrica via método de **4 pontas (Smits, 1958)**  
+        Ajuste **V × I**, cálculo de resistividade, sheet resistance e diagnóstico físico.
 
         **Subaba 2**  
-        PCA multivariada usando **apenas os parâmetros físicos consolidados**
+        PCA multivariada com base em parâmetros físicos consolidados.
         """
     )
 
@@ -58,10 +59,8 @@ def render_resistividade_tab(supabase=None):
             step=0.1
         )
 
-        geometry = st.selectbox(
-            "Geometria da medição",
-            ["four_point_film", "bulk"]
-        )
+        # 🔥 FIXO — MÉTODO 4 PONTAS
+        geometry = "four_point_film"
 
         process_clicked = st.button("▶ Processar amostras")
 
@@ -88,20 +87,49 @@ def render_resistividade_tab(supabase=None):
                     st.pyplot(result["figure"])
 
                     # -----------------------------
-                    # Summary físico consolidado
+                    # Summary físico
                     # -----------------------------
                     summary = result["summary"].copy()
 
                     summary["Amostra"] = file.name
-                    summary["Classe"] = result["classe"]
                     summary["Espessura (µm)"] = thickness_um
 
                     st.session_state.electrical_samples[file.name] = summary
 
                     # -----------------------------
-                    # Preview individual
+                    # DIAGNÓSTICO FÍSICO
                     # -----------------------------
-                    st.markdown("**Variáveis elétricas calculadas:**")
+                    st.markdown("### 🧠 Diagnóstico físico")
+
+                    st.write(f"**Regime elétrico:** {summary['Regime']}")
+                    st.write(f"**Classe do material:** {summary['Classe']}")
+
+                    # -----------------------------
+                    # MÉTRICAS PRINCIPAIS
+                    # -----------------------------
+                    st.markdown("### 📊 Parâmetros elétricos")
+
+                    col1, col2, col3 = st.columns(3)
+
+                    col1.metric(
+                        "Resistividade (Ω·m)",
+                        f"{summary['Resistividade (Ω·m)']:.2e}"
+                    )
+
+                    col2.metric(
+                        "Condutividade (S/m)",
+                        f"{summary['Condutividade (S/m)']:.2e}"
+                    )
+
+                    col3.metric(
+                        "Sheet Resistance (Ω/sq)",
+                        f"{summary['Sheet Resistance (Ω/sq)']:.2e}"
+                    )
+
+                    # -----------------------------
+                    # TABELA COMPLETA
+                    # -----------------------------
+                    st.markdown("### 📋 Variáveis elétricas completas")
 
                     st.dataframe(
                         pd.DataFrame([summary]).set_index("Amostra"),
@@ -115,7 +143,7 @@ def render_resistividade_tab(supabase=None):
                     st.exception(e)
 
         # =====================================================
-        # TABELA GLOBAL + EXPORTAÇÃO ML
+        # TABELA GLOBAL
         # =====================================================
         if st.session_state.electrical_samples:
 
@@ -126,7 +154,7 @@ def render_resistividade_tab(supabase=None):
 
             st.dataframe(df_all, use_container_width=True)
 
-            # 👉 EXPORTA PARA ML GLOBAL
+            # EXPORTAÇÃO PARA ML
             df_ml = df_all.copy()
             df_ml = df_ml.apply(pd.to_numeric, errors="ignore")
 
@@ -159,6 +187,7 @@ def render_resistividade_tab(supabase=None):
             default=[
                 "Resistividade (Ω·m)",
                 "Condutividade (S/m)",
+                "Sheet Resistance (Ω/sq)",
                 "R²",
             ]
         )
