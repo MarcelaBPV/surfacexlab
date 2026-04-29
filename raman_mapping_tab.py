@@ -11,6 +11,8 @@ import matplotlib.pyplot as plt
 # =========================================================
 # LEITURA ROBUSTA (FUNCIONA COM SEU ARQUIVO REAL)
 # =========================================================
+st.write("DEBUG MAPPING ATIVO")
+
 def read_mapping(file):
 
     df = pd.read_csv(file, sep=r"\s+|\t+", engine="python")
