@@ -1,27 +1,32 @@
 # =========================================================
-# Raman Tab — SurfaceXLab (ARQUITETURA FINAL)
+# Raman Tab — SurfaceXLab
+# Interface Principal Raman
 # =========================================================
 
 import streamlit as st
 import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
 
-from sklearn.preprocessing import StandardScaler
-from sklearn.decomposition import PCA
-
-from scipy.ndimage import gaussian_filter1d
 
 # =========================================================
 # IMPORTS
 # =========================================================
 try:
-    from raman_processing import process_raman_spectrum_with_groups
+
+    from raman_processing import (
+        process_raman_spectrum_with_groups,
+        run_raman_pca
+    )
+
     RAMAN_OK = True
-except:
+
+except Exception:
+
     RAMAN_OK = False
 
-from raman_mapping_tab import render_mapeamento_molecular_tab
+
+from raman_mapping import (
+    render_mapeamento_molecular_tab
+)
 
 
 # =========================================================
@@ -32,16 +37,26 @@ def read_any_file(file):
     name = file.name.lower()
 
     if name.endswith(".xlsx"):
+
         df = pd.read_excel(file)
 
     elif name.endswith(".txt") or name.endswith(".log"):
-        df = pd.read_csv(file, sep=None, engine="python")
+
+        df = pd.read_csv(
+            file,
+            sep=None,
+            engine="python"
+        )
 
     elif name.endswith(".csv"):
+
         df = pd.read_csv(file)
 
     else:
-        raise ValueError("Formato não suportado")
+
+        raise ValueError(
+            "Formato não suportado"
+        )
 
     return df
 
@@ -49,105 +64,332 @@ def read_any_file(file):
 # =========================================================
 # TAB PRINCIPAL
 # =========================================================
-def render_raman_tab(supabase=None):
+def render_raman_tab(samples):
 
     st.header("🧬 Análises Moleculares")
 
-    subtabs = st.tabs([
-        "📐 Espectros (Paper)",
-        "🗺️ Mapping Raman",
-        "📊 PCA"
-    ])
+    if not RAMAN_OK:
+
+        st.error(
+            "⚠️ raman_processing não encontrado"
+        )
+
+        return
+
 
     # =====================================================
-    # SUBABA 1 — PAPER RAMAN
+    # SELEÇÃO DE AMOSTRAS
+    # =====================================================
+    sample_ids = list(samples.keys())
+
+    if not sample_ids:
+
+        st.warning(
+            "Nenhuma amostra cadastrada."
+        )
+
+        return
+
+
+    selected_sample = st.selectbox(
+        "🧪 Selecionar amostra",
+        sample_ids
+    )
+
+
+    # =====================================================
+    # METADADOS
+    # =====================================================
+    metadata = samples[selected_sample]["metadata"]
+
+    st.info(
+        f"""
+        Material: {metadata.get('material', '-')}
+
+        Tratamento: {metadata.get('treatment', '-')}
+
+        ID: {metadata.get('sample_id', '-')}
+        """
+    )
+
+
+    # =====================================================
+    # SUBABAS
+    # =====================================================
+    subtabs = st.tabs([
+
+        "📐 Processamento Raman",
+
+        "🗺️ Mapping Molecular",
+
+        "📊 PCA Multimodal"
+
+    ])
+
+
+    # =====================================================
+    # SUBABA 1 — PROCESSAMENTO
     # =====================================================
     with subtabs[0]:
 
-        st.subheader("📐 Processamento — Dados do Paper")
-
-        files = st.file_uploader(
-            "Upload dados Raman (xlsx, csv, txt, log)",
-            accept_multiple_files=True
+        st.subheader(
+            "📐 Processamento Espectral Raman"
         )
 
-        if not RAMAN_OK:
-            st.error("⚠️ raman_processing não encontrado")
-            return
+        st.caption(
+            """
+            Pipeline automatizado contendo:
+            suavização Savitzky–Golay,
+            correção ASLS,
+            fitting Lorentziano,
+            extração de FWHM
+            e classificação molecular.
+            """
+        )
+
+        files = st.file_uploader(
+
+            "Upload espectros Raman",
+
+            accept_multiple_files=True,
+
+            type=[
+                "xlsx",
+                "csv",
+                "txt",
+                "log"
+            ]
+        )
 
         if files:
 
             for f in files:
 
-                st.markdown(f"### {f.name}")
+                st.markdown(
+                    f"### 📄 {f.name}"
+                )
 
+                # =========================================
+                # LEITURA
+                # =========================================
                 try:
+
                     df = read_any_file(f)
+
                 except Exception as e:
-                    st.error("Erro na leitura")
+
+                    st.error(
+                        "Erro na leitura"
+                    )
+
                     st.exception(e)
+
                     continue
 
+
+                # =========================================
+                # PROCESSAMENTO
+                # =========================================
                 try:
+
                     result = process_raman_spectrum_with_groups(f)
+
                 except Exception as e:
-                    st.error("Erro no processamento")
+
+                    st.error(
+                        "Erro no processamento"
+                    )
+
                     st.exception(e)
+
                     continue
 
-                # plots
-                st.pyplot(result["figures"]["raw"])
-                st.pyplot(result["figures"]["baseline"])
 
-                # peaks
-                st.dataframe(result["peaks_df"])
+                # =========================================
+                # FIGURAS
+                # =========================================
+                st.pyplot(
+                    result["figures"]["raw"]
+                )
 
-                st.session_state.raman_peaks[f.name] = result["peaks_df"]
+                st.pyplot(
+                    result["figures"]["baseline"]
+                )
+
+                st.pyplot(
+                    result["figures"]["fit"]
+                )
+
+
+                # =========================================
+                # MÉTRICAS
+                # =========================================
+                col1, col2 = st.columns(2)
+
+                col1.metric(
+                    "R²",
+                    f"{result['r2']:.4f}"
+                )
+
+                col2.metric(
+                    "Quality",
+                    result["quality_flag"]
+                )
+
+
+                # =========================================
+                # PEAKS
+                # =========================================
+                st.markdown(
+                    "### 🔬 Picos Identificados"
+                )
+
+                st.dataframe(
+                    result["peaks_df"],
+                    use_container_width=True
+                )
+
+
+                # =========================================
+                # SAVE SAMPLE-CENTRIC
+                # =========================================
+                samples[selected_sample]["raman"] = {
+
+                    "filename": f.name,
+
+                    "peaks_df": result["peaks_df"],
+
+                    "fingerprint": result["fingerprint"],
+
+                    "r2": result["r2"],
+
+                    "quality_flag": result["quality_flag"]
+                }
+
+
+                st.success(
+                    "Espectro processado e salvo."
+                )
+
 
     # =====================================================
-    # SUBABA 2 — MAPPING (PACIENTE)
+    # SUBABA 2 — MAPPING
     # =====================================================
     with subtabs[1]:
 
-        st.subheader("🗺️ Mapping Raman — Paciente")
+        st.subheader(
+            "🗺️ Mapping Molecular Raman"
+        )
 
-        st.info("Upload do arquivo de mapeamento (ex: paciente 180)")
+        st.caption(
+            """
+            Reconstrução espacial
+            da distribuição molecular
+            obtida por espectroscopia Raman.
+            """
+        )
 
         render_mapeamento_molecular_tab()
+
 
     # =====================================================
     # SUBABA 3 — PCA
     # =====================================================
     with subtabs[2]:
 
-        st.subheader("📊 Análise PCA")
+        st.subheader(
+            "📊 PCA Raman Multimodal"
+        )
 
-        if len(st.session_state.get("raman_peaks", {})) < 2:
-            st.warning("Carregue pelo menos 2 espectros do paper")
-            return
-
-        df = pd.DataFrame(st.session_state.raman_peaks).T
-
-        df = df.select_dtypes(include=[np.number]).fillna(0)
+        st.caption(
+            """
+            PCA baseado em fingerprints
+            espectrais padronizados.
+            """
+        )
 
         try:
-            X = StandardScaler().fit_transform(df.values)
 
-            pca = PCA(n_components=2)
-            scores = pca.fit_transform(X)
+            pca_results = run_raman_pca(samples)
 
         except Exception as e:
-            st.error("Erro no PCA")
-            st.exception(e)
+
+            st.warning(str(e))
+
             return
 
-        fig, ax = plt.subplots()
 
-        ax.scatter(scores[:, 0], scores[:, 1])
+        scores = pca_results["scores"]
 
-        for i, name in enumerate(df.index):
-            ax.text(scores[i, 0], scores[i, 1], name)
+        labels = pca_results["labels"]
 
-        ax.set_title("PCA — Raman")
+        explained = pca_results[
+            "explained_variance"
+        ]
+
+
+        # ================================================
+        # FIGURA PCA
+        # ================================================
+        import matplotlib.pyplot as plt
+
+        fig, ax = plt.subplots(
+            figsize=(7, 5)
+        )
+
+        ax.scatter(
+            scores[:, 0],
+            scores[:, 1],
+            s=80
+        )
+
+        for i, label in enumerate(labels):
+
+            ax.text(
+                scores[i, 0],
+                scores[i, 1],
+                label
+            )
+
+        ax.set_xlabel(
+            f"PC1 ({explained[0]*100:.2f}%)"
+        )
+
+        ax.set_ylabel(
+            f"PC2 ({explained[1]*100:.2f}%)"
+        )
+
+        ax.set_title(
+            "PCA — Raman Fingerprints"
+        )
+
+        ax.grid(True)
 
         st.pyplot(fig)
+
+
+        # ================================================
+        # TABELA PCA
+        # ================================================
+        st.markdown(
+            "### 📋 Fingerprints Raman"
+        )
+
+        st.dataframe(
+            pca_results["dataframe"],
+            use_container_width=True
+        )
+
+
+        # ================================================
+        # INTERPRETAÇÃO
+        # ================================================
+        st.info(
+            """
+            A análise PCA foi realizada
+            utilizando fingerprints espectrais
+            extraídos automaticamente
+            a partir dos parâmetros Raman
+            identificados no fitting Lorentziano.
+            """
+        )
