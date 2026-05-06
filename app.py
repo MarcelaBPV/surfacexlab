@@ -11,12 +11,23 @@ from datetime import datetime
 # =========================================================
 # IMPORTAÇÃO DOS MÓDULOS
 # =========================================================
-from raman_tab import render_raman_tab
-from resistividade_tab import render_resistividade_tab
-from tensiometria_tab import render_tensiometria_tab
-from perfilometria_tab import render_perfilometria_tab
-from multimodal_tab import render_multimodal_tab
+from raman.raman_tab import render_raman_tab
 
+from electrical.resistividade_tab import (
+    render_resistividade_tab
+)
+
+from tensiometria.tensiometria_tab import (
+    render_tensiometria_tab
+)
+
+from perfilometria.perfilometria_tab import (
+    render_perfilometria_tab
+)
+
+from multimodal.pca_tab import (
+    render_pca_tab
+)
 
 # =========================================================
 # CONFIGURAÇÃO DO APP
@@ -301,7 +312,7 @@ with tabs[4]:
 
     try:
 
-        render_multimodal_tab(st.session_state.samples)
+        render_pca_tab()
 
     except Exception as e:
 
