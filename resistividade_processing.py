@@ -1,152 +1,336 @@
 # =========================================================
-# PROCESSAMENTO ELÉTRICO — VERSÃO CIENTÍFICA (4 PONTAS)
+# PROCESSAMENTO ELÉTRICO — SURFACEXLAB
+# F200 SCIENTIFIC PIPELINE
 # =========================================================
 
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
+from scipy.stats import linregress
+from scipy.signal import savgol_filter
+
+from resistividade_database import classify_resistivity
+
 
 # =========================================================
-# LEITURA ROBUSTA
+# LEITURA UNIVERSAL
 # =========================================================
 def read_iv_file(file_like):
 
-    df = pd.read_csv(file_like, sep=None, engine="python")
+    try:
+        df = pd.read_csv(file_like, sep=None, engine="python")
 
-    df.columns = [c.lower() for c in df.columns]
+    except:
+        df = pd.read_table(file_like)
 
-    col_I = [c for c in df.columns if "i" in c][0]
-    col_V = [c for c in df.columns if "v" in c][0]
+    df.columns = [c.lower().strip() for c in df.columns]
 
-    df = df[[col_I, col_V]]
+    # ---------------------------------------------
+    # DETECÇÃO AUTOMÁTICA
+    # ---------------------------------------------
+    current_cols = [
+        c for c in df.columns
+        if ("i" in c or "current" in c)
+    ]
+
+    voltage_cols = [
+        c for c in df.columns
+        if ("v" in c or "voltage" in c)
+    ]
+
+    if not current_cols or not voltage_cols:
+        raise ValueError(
+            "Colunas de corrente/tensão não encontradas."
+        )
+
+    df = df[[current_cols[0], voltage_cols[0]]]
+
     df.columns = ["I", "V"]
 
-    df = df.apply(pd.to_numeric, errors="coerce").dropna()
+    # ---------------------------------------------
+    # CONVERSÃO
+    # ---------------------------------------------
+    df["I"] = pd.to_numeric(df["I"], errors="coerce")
+    df["V"] = pd.to_numeric(df["V"], errors="coerce")
+
+    df = df.dropna()
+
+    # remove infinitos
+    df = df[np.isfinite(df["I"])]
+    df = df[np.isfinite(df["V"])]
 
     return df
 
 
 # =========================================================
-# AJUSTE LINEAR (REGIÃO CENTRAL — FÍSICO)
+# PRÉ-PROCESSAMENTO
 # =========================================================
-def linear_region_fit(V, I):
+def preprocess_iv_data(df):
 
-    # usa região central → evita contatos / não linearidade
-    mask = (V > np.percentile(V, 20)) & (V < np.percentile(V, 80))
+    df = df.copy()
 
-    V_lin = V[mask]
-    I_lin = I[mask]
+    # remove duplicados
+    df = df.drop_duplicates()
 
-    A = np.vstack([V_lin, np.ones_like(V_lin)]).T
-    slope, intercept = np.linalg.lstsq(A, I_lin, rcond=None)[0]
+    # ordena tensão
+    df = df.sort_values("V")
 
-    I_pred = slope * V + intercept
+    # suavização científica
+    if len(df) > 11:
 
-    ss_res = np.sum((I - I_pred) ** 2)
-    ss_tot = np.sum((I - np.mean(I)) ** 2)
+        df["I_smooth"] = savgol_filter(
+            df["I"],
+            window_length=11,
+            polyorder=3
+        )
 
-    R2 = 1 - ss_res / ss_tot
-
-    return slope, intercept, R2, I_pred
-
-
-# =========================================================
-# RESISTIVIDADE (4 PONTAS)
-# =========================================================
-def resistivity_4p(R, thickness):
-
-    k = np.pi / np.log(2)
-    return k * R * thickness
-
-
-# =========================================================
-# CLASSIFICAÇÃO
-# =========================================================
-def classify(sigma):
-
-    if sigma > 1e5:
-        return "Metal"
-    elif sigma > 1e-6:
-        return "Semicondutor"
     else:
-        return "Isolante"
+        df["I_smooth"] = df["I"]
+
+    return df
+
+
+# =========================================================
+# DETECÇÃO REGIÃO ÔHMICA
+# =========================================================
+def detect_linear_region(df):
+
+    V = df["V"].values
+    I = df["I_smooth"].values
+
+    # região central física
+    lower = np.percentile(V, 20)
+    upper = np.percentile(V, 80)
+
+    mask = (V >= lower) & (V <= upper)
+
+    return V[mask], I[mask]
+
+
+# =========================================================
+# AJUSTE ROBUSTO
+# =========================================================
+def robust_linear_fit(V, I):
+
+    result = linregress(V, I)
+
+    slope = result.slope
+    intercept = result.intercept
+    r_value = result.rvalue
+
+    R2 = r_value ** 2
+
+    I_fit = slope * V + intercept
+
+    return slope, intercept, R2, I_fit
+
+
+# =========================================================
+# RESISTIVIDADE 4 PONTAS
+# =========================================================
+def calculate_resistivity_4p(R, thickness):
+
+    correction_factor = np.pi / np.log(2)
+
+    rho = correction_factor * R * thickness
+
+    return rho
+
+
+# =========================================================
+# FEATURES SUPERFICIAIS
+# =========================================================
+def extract_surface_features(df):
+
+    V = df["V"].values
+    I = df["I_smooth"].values
+
+    dI_dV = np.gradient(I, V)
+
+    features = {
+
+        "I_max": np.max(I),
+
+        "I_min": np.min(I),
+
+        "I_mean": np.mean(I),
+
+        "I_std": np.std(I),
+
+        "dI_dV_mean": np.mean(dI_dV),
+
+        "dI_dV_std": np.std(dI_dV),
+
+        "nonlinearity_index": (
+            np.std(dI_dV) /
+            np.mean(np.abs(dI_dV))
+        )
+    }
+
+    return features
+
+
+# =========================================================
+# PLOT PAPER
+# =========================================================
+def generate_publication_plot(
+    df,
+    V_fit,
+    I_fit,
+    R2,
+    sample_name
+):
+
+    fig, ax = plt.subplots(
+        figsize=(6,4),
+        dpi=300
+    )
+
+    ax.scatter(
+        df["V"],
+        df["I"],
+        s=14,
+        alpha=0.8,
+        label="Experimental"
+    )
+
+    ax.plot(
+        V_fit,
+        I_fit,
+        linewidth=2,
+        label=f"Linear Fit (R²={R2:.4f})"
+    )
+
+    ax.set_xlabel("Voltage (V)")
+    ax.set_ylabel("Current (A)")
+
+    ax.set_title(
+        f"I–V Curve — {sample_name}"
+    )
+
+    ax.grid(alpha=0.25)
+
+    ax.legend(frameon=False)
+
+    plt.tight_layout()
+
+    return fig
 
 
 # =========================================================
 # PIPELINE PRINCIPAL
 # =========================================================
-def process_resistivity(file_like, thickness_m, geometry="four_point_film"):
+def process_resistivity(
+    file_like,
+    thickness_m,
+    sample_name="F200"
+):
 
+    # =====================================================
+    # LEITURA
+    # =====================================================
     df = read_iv_file(file_like)
 
-    I = df["I"].values
-    V = df["V"].values
+    # =====================================================
+    # PRÉ PROCESSAMENTO
+    # =====================================================
+    df = preprocess_iv_data(df)
 
     # =====================================================
-    # AJUSTE CORRETO
+    # REGIÃO ÔHMICA
     # =====================================================
-    slope, offset, R2, I_pred = linear_region_fit(V, I)
+    V_lin, I_lin = detect_linear_region(df)
 
-    # Física correta → I = V/R
-    R = 1 / slope if slope != 0 else np.nan
+    # =====================================================
+    # AJUSTE
+    # =====================================================
+    slope, intercept, R2, I_fit = robust_linear_fit(
+        V_lin,
+        I_lin
+    )
 
-    rho = resistivity_4p(R, thickness_m)
+    # =====================================================
+    # RESISTÊNCIA
+    # =====================================================
+    R = np.nan
+
+    if slope != 0:
+        R = 1 / slope
+
+    # =====================================================
+    # RESISTIVIDADE
+    # =====================================================
+    rho = calculate_resistivity_4p(
+        R,
+        thickness_m
+    )
+
     sigma = 1 / rho if rho > 0 else np.nan
-    Rs = rho / thickness_m
+
+    sheet_resistance = (
+        rho / thickness_m
+    )
 
     # =====================================================
-    # RESISTÊNCIA DIFERENCIAL
+    # FEATURES
     # =====================================================
-    dV = np.gradient(V)
-    dI = np.gradient(I)
-    R_diff = dV / dI
+    features = extract_surface_features(df)
 
     # =====================================================
-    # DIAGNÓSTICO FÍSICO
+    # CLASSIFICAÇÃO FÍSICA
     # =====================================================
-    regime = "Ôhmico"
-
-    if R2 < 0.98:
-        regime = "Não ôhmico"
-
-    if abs(offset) > 0.01:
-        regime += " + Contato não ideal"
-
-    classe = classify(sigma)
+    classification = classify_resistivity(
+        resistivity=rho,
+        r_squared=R2,
+        slope=slope
+    )
 
     # =====================================================
-    # GRÁFICO PADRÃO PAPER
+    # PLOT
     # =====================================================
-    fig, ax = plt.subplots(figsize=(6,4), dpi=300)
-
-    ax.scatter(V, I, s=12, label="Experimental")
-    ax.plot(V, I_pred, linewidth=1.5, label=f"Ajuste (R²={R2:.4f})")
-
-    ax.set_xlabel("Tensão (V)")
-    ax.set_ylabel("Corrente (A)")
-    ax.set_title("Curva I–V")
-
-    ax.grid(alpha=0.3)
-    ax.legend()
+    fig = generate_publication_plot(
+        df=df,
+        V_fit=V_lin,
+        I_fit=I_fit,
+        R2=R2,
+        sample_name=sample_name
+    )
 
     # =====================================================
     # SUMMARY
     # =====================================================
     summary = {
-        "Resistência (Ω)": R,
-        "Resistividade (Ω·m)": rho,
-        "Condutividade (S/m)": sigma,
-        "Sheet Resistance (Ω/sq)": Rs,
-        "R²": R2,
-        "Offset (A)": offset,
-        "Regime": regime,
-        "Classe": classe,
+
+        "Sample": sample_name,
+
+        "Resistance_Ohm": R,
+
+        "Resistivity_Ohm_m": rho,
+
+        "Conductivity_S_m": sigma,
+
+        "Sheet_Resistance_Ohm_sq":
+            sheet_resistance,
+
+        "Slope_A_V": slope,
+
+        "Intercept_A": intercept,
+
+        "R_squared": R2,
+
+        **classification,
+
+        **features
     }
 
     return {
-        "df": df,
+
+        "dataframe": df,
+
         "summary": summary,
+
         "figure": fig,
-        "R_diff": R_diff
+
+        "features": features
     }
