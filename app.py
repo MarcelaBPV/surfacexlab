@@ -11,21 +11,21 @@ from datetime import datetime
 # =========================================================
 # IMPORTAÇÃO DOS MÓDULOS
 # =========================================================
-from raman.raman_tab import render_raman_tab
+from raman_tab import render_raman_tab
 
-from electrical.resistividade_tab import (
+from resistividade_tab import (
     render_resistividade_tab
 )
 
-from tensiometria.tensiometria_tab import (
+from tensiometria_tab import (
     render_tensiometria_tab
 )
 
-from perfilometria.perfilometria_tab import (
+from perfilometria_tab import (
     render_perfilometria_tab
 )
 
-from multimodal.pca_tab import (
+from pca_tab import (
     render_pca_tab
 )
 
