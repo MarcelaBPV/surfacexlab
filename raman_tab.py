@@ -20,7 +20,6 @@ from raman_processing import (
 )
 
 from raman_mapping import (
-
     render_mapeamento_molecular_tab
 )
 
