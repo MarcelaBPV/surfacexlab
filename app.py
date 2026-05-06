@@ -29,15 +29,20 @@ from pca_tab import (
     render_pca_tab
 )
 
+
 # =========================================================
 # CONFIGURAÇÃO DO APP
 # =========================================================
 APP_NAME = "SurfaceXLab"
 
 st.set_page_config(
+
     page_title=APP_NAME,
+
     page_icon="🔬",
+
     layout="wide",
+
     initial_sidebar_state="expanded"
 )
 
@@ -46,8 +51,11 @@ st.set_page_config(
 # LOGGING
 # =========================================================
 logging.basicConfig(
+
     filename="surfacexlab.log",
+
     level=logging.INFO,
+
     format="%(asctime)s - %(levelname)s - %(message)s"
 )
 
@@ -82,58 +90,83 @@ h1, h2, h3 {
 
 
 # =========================================================
-# INICIALIZAÇÃO DO SESSION STATE
+# SESSION STATE
 # =========================================================
 if "samples" not in st.session_state:
+
     st.session_state.samples = {}
 
 if "logs" not in st.session_state:
+
     st.session_state.logs = []
+
+if "raman_samples" not in st.session_state:
+
+    st.session_state.raman_samples = {}
+
+if "electrical_samples" not in st.session_state:
+
+    st.session_state.electrical_samples = {}
+
+if "tensiometria_samples" not in st.session_state:
+
+    st.session_state.tensiometria_samples = {}
+
+if "perfilometria_samples" not in st.session_state:
+
+    st.session_state.perfilometria_samples = {}
 
 
 # =========================================================
 # FUNÇÕES AUXILIARES
 # =========================================================
-def create_sample(sample_id, material="", treatment=""):
-    """
-    Cria estrutura centralizada da amostra.
-    """
+def create_sample(
+
+    sample_id,
+
+    material="",
+
+    treatment=""
+):
 
     if sample_id not in st.session_state.samples:
 
         st.session_state.samples[sample_id] = {
 
             "metadata": {
+
                 "sample_id": sample_id,
+
                 "material": material,
+
                 "treatment": treatment,
+
                 "created_at": str(datetime.now())
-            },
-
-            "raman": {},
-
-            "electrical": {},
-
-            "tensiometry": {},
-
-            "perfilometry": {}
+            }
         }
 
-        logging.info(f"Amostra criada: {sample_id}")
+        logging.info(
+            f"Amostra criada: {sample_id}"
+        )
 
 
 def get_total_samples():
-    return len(st.session_state.samples)
+
+    return len(
+        st.session_state.samples
+    )
 
 
-def count_completed_modules(module_name):
-    count = 0
+def get_total_module(module_key):
 
-    for sample in st.session_state.samples.values():
-        if sample[module_name]:
-            count += 1
+    data = st.session_state.get(
 
-    return count
+        module_key,
+
+        {}
+    )
+
+    return len(data)
 
 
 # =========================================================
@@ -142,40 +175,54 @@ def count_completed_modules(module_name):
 st.title("🔬 SurfaceXLab")
 
 st.caption(
-    "Plataforma integrada para caracterização multimodal "
-    "de superfícies e interfaces"
+    "Plataforma integrada para caracterização "
+    "multimodal de superfícies e interfaces"
 )
 
 st.divider()
 
 
 # =========================================================
-# SIDEBAR — GERENCIAMENTO DE AMOSTRAS
+# SIDEBAR
 # =========================================================
 with st.sidebar:
 
     st.header("🧪 Gerenciamento de Amostras")
 
-    sample_id = st.text_input("ID da Amostra")
+    sample_id = st.text_input(
+        "ID da Amostra"
+    )
 
-    material = st.text_input("Material")
+    material = st.text_input(
+        "Material"
+    )
 
-    treatment = st.text_input("Tratamento")
+    treatment = st.text_input(
+        "Tratamento"
+    )
 
     if st.button("➕ Criar Amostra"):
 
         if sample_id.strip():
 
             create_sample(
+
                 sample_id=sample_id,
+
                 material=material,
+
                 treatment=treatment
             )
 
-            st.success(f"Amostra '{sample_id}' criada.")
+            st.success(
+                f"Amostra '{sample_id}' criada."
+            )
 
         else:
-            st.warning("Informe um ID válido.")
+
+            st.warning(
+                "Informe um ID válido."
+            )
 
     st.divider()
 
@@ -184,55 +231,82 @@ with st.sidebar:
     if st.session_state.samples:
 
         for sample_name in st.session_state.samples.keys():
+
             st.write(f"• {sample_name}")
 
     else:
-        st.info("Nenhuma amostra cadastrada.")
+
+        st.info(
+            "Nenhuma amostra cadastrada."
+        )
 
 
 # =========================================================
-# DASHBOARD GERAL
+# DASHBOARD
 # =========================================================
 st.subheader("📊 Visão Geral")
 
 col1, col2, col3, col4, col5 = st.columns(5)
 
 col1.metric(
+
     "🧪 Amostras",
+
     get_total_samples()
 )
 
 col2.metric(
+
     "🧬 Raman",
-    count_completed_modules("raman")
+
+    get_total_module(
+        "raman_samples"
+    )
 )
 
 col3.metric(
+
     "⚡ Elétrico",
-    count_completed_modules("electrical")
+
+    get_total_module(
+        "electrical_samples"
+    )
 )
 
 col4.metric(
+
     "💧 Tensiometria",
-    count_completed_modules("tensiometry")
+
+    get_total_module(
+        "tensiometria_samples"
+    )
 )
 
 col5.metric(
+
     "📏 Perfilometria",
-    count_completed_modules("perfilometry")
+
+    get_total_module(
+        "perfilometria_samples"
+    )
 )
 
 st.divider()
 
 
 # =========================================================
-# ABAS PRINCIPAIS
+# ABAS
 # =========================================================
 tabs = st.tabs([
+
     "🧬 Raman",
+
     "⚡ Resistividade",
+
     "💧 Tensiometria",
+
     "📏 Perfilometria",
+
     "🧠 Integração Multimodal"
 ])
 
@@ -244,13 +318,18 @@ with tabs[0]:
 
     try:
 
-        render_raman_tab(st.session_state.samples)
+        render_raman_tab()
 
     except Exception as e:
 
-        logging.error(f"Erro módulo Raman: {str(e)}")
+        logging.error(
+            f"Erro módulo Raman: {str(e)}"
+        )
 
-        st.error("Erro no módulo Raman.")
+        st.error(
+            "Erro no módulo Raman."
+        )
+
         st.exception(e)
 
 
@@ -261,13 +340,18 @@ with tabs[1]:
 
     try:
 
-        render_resistividade_tab(st.session_state.samples)
+        render_resistividade_tab()
 
     except Exception as e:
 
-        logging.error(f"Erro módulo elétrico: {str(e)}")
+        logging.error(
+            f"Erro módulo elétrico: {str(e)}"
+        )
 
-        st.error("Erro no módulo elétrico.")
+        st.error(
+            "Erro no módulo elétrico."
+        )
+
         st.exception(e)
 
 
@@ -278,13 +362,18 @@ with tabs[2]:
 
     try:
 
-        render_tensiometria_tab(st.session_state.samples)
+        render_tensiometria_tab()
 
     except Exception as e:
 
-        logging.error(f"Erro módulo tensiometria: {str(e)}")
+        logging.error(
+            f"Erro módulo tensiometria: {str(e)}"
+        )
 
-        st.error("Erro no módulo de tensiometria.")
+        st.error(
+            "Erro no módulo de tensiometria."
+        )
+
         st.exception(e)
 
 
@@ -295,18 +384,23 @@ with tabs[3]:
 
     try:
 
-        render_perfilometria_tab(st.session_state.samples)
+        render_perfilometria_tab()
 
     except Exception as e:
 
-        logging.error(f"Erro módulo perfilometria: {str(e)}")
+        logging.error(
+            f"Erro módulo perfilometria: {str(e)}"
+        )
 
-        st.error("Erro no módulo de perfilometria.")
+        st.error(
+            "Erro no módulo de perfilometria."
+        )
+
         st.exception(e)
 
 
 # =========================================================
-# ABA MULTIMODAL
+# ABA PCA
 # =========================================================
 with tabs[4]:
 
@@ -316,9 +410,14 @@ with tabs[4]:
 
     except Exception as e:
 
-        logging.error(f"Erro módulo multimodal: {str(e)}")
+        logging.error(
+            f"Erro módulo multimodal: {str(e)}"
+        )
 
-        st.error("Erro na integração multimodal.")
+        st.error(
+            "Erro na integração multimodal."
+        )
+
         st.exception(e)
 
 
@@ -328,6 +427,6 @@ with tabs[4]:
 st.divider()
 
 st.caption(
-    "SurfaceXLab © Plataforma científica integrada para "
-    "caracterização multimodal de superfícies"
+    "SurfaceXLab © Plataforma científica integrada "
+    "para caracterização multimodal de superfícies"
 )
