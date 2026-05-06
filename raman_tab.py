@@ -12,10 +12,10 @@ import pandas as pd
 # =========================================================
 try:
 
-    from raman_processing import (
-        process_raman_spectrum_with_groups,
-        run_raman_pca
-    )
+    from raman.raman_processing import (
+    process_raman_spectrum_with_groups,
+    run_raman_pca
+)
 
     RAMAN_OK = True
 
@@ -24,7 +24,7 @@ except Exception:
     RAMAN_OK = False
 
 
-from raman_mapping import (
+from raman.raman_mapping import (
     render_mapeamento_molecular_tab
 )
 
