@@ -1,210 +1,339 @@
 # =========================================================
-# Raman Mapping — SurfaceXLab (FINAL COMPLETO)
+# raman_mapping.py
+# SurfaceXLab — Molecular Mapping Module
 # =========================================================
 
-import streamlit as st
-import pandas as pd
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
+import streamlit as st
+
+from scipy.signal import savgol_filter, find_peaks
+from scipy.sparse import diags
+from scipy.sparse.linalg import spsolve
+
+from sklearn.preprocessing import StandardScaler
+from sklearn.decomposition import PCA
 
 
 # =========================================================
-# LEITURA ROBUSTA
+# BASELINE ASLS
 # =========================================================
-def read_mapping(file):
+def baseline_asls(y, lam=1e5, p=0.001, niter=10):
 
-    df = pd.read_csv(file, sep=r"\s+|\t+", engine="python")
+    L = len(y)
 
-    if len(df.columns) >= 4:
-        df = df.iloc[:, :4]
-        df.columns = ["y", "x", "wave", "intensity"]
-    else:
-        raise ValueError("Arquivo inválido — precisa de 4 colunas")
+    D = diags([1, -2, 1], [0, -1, -2], shape=(L, L-2))
 
-    df = df.apply(lambda col: pd.to_numeric(col, errors="coerce"))
+    w = np.ones(L)
 
-    return df.dropna()
+    for _ in range(niter):
 
+        W = diags(w, 0)
 
-# =========================================================
-# EXTRAÇÃO DOS ESPECTROS
-# =========================================================
-def extract_spectra(df):
+        Z = W + lam * D.dot(D.transpose())
 
-    spectra = []
+        z = spsolve(Z, w * y)
 
-    for (x_val, y_val), group in df.groupby(["x", "y"]):
+        w = p * (y > z) + (1 - p) * (y < z)
 
-        group = group.sort_values("wave")
-
-        spectra.append({
-            "x": x_val,
-            "y": y_val,
-            "wave": group["wave"].values,
-            "intensity": group["intensity"].values
-        })
-
-    return spectra
+    return z
 
 
 # =========================================================
-# GRID DOS ESPECTROS
+# LEITOR MAPEAMENTO
 # =========================================================
-def plot_grid_spectra(spectra):
+def load_mapping_file(file):
 
-    n = len(spectra)
-    cols = 6
-    rows = int(np.ceil(n / cols))
-
-    fig, axes = plt.subplots(rows, cols, figsize=(14, rows*2.5), dpi=300)
-    axes = axes.flatten()
-
-    for i, spec in enumerate(spectra):
-
-        ax = axes[i]
-        ax.plot(spec["wave"], spec["intensity"], linewidth=0.8)
-
-        ax.set_title(f"x={spec['x']}, y={spec['y']}", fontsize=8)
-        ax.invert_xaxis()
-
-    for j in range(i+1, len(axes)):
-        axes[j].axis("off")
-
-    plt.tight_layout()
-
-    return fig
-
-
-# =========================================================
-# ESPECTRO INDIVIDUAL COM PICOS
-# =========================================================
-def plot_single_spectrum(spec):
-
-    from scipy.signal import find_peaks
-
-    fig, ax = plt.subplots(figsize=(5,3), dpi=300)
-
-    ax.plot(spec["wave"], spec["intensity"], linewidth=1.2)
-
-    peaks, _ = find_peaks(spec["intensity"], distance=20)
-
-    ax.scatter(
-        spec["wave"][peaks],
-        spec["intensity"][peaks],
-        s=18
+    df = pd.read_csv(
+        file,
+        sep=r"\s+",
+        engine="python"
     )
 
-    ax.invert_xaxis()
+    df.columns = [
+        c.strip().lower()
+        for c in df.columns
+    ]
+
+    return df
+
+
+# =========================================================
+# ORGANIZA ESPECTROS
+# =========================================================
+def organize_spectra(df):
+
+    grouped = {}
+
+    coords = df[["x", "y"]].drop_duplicates()
+
+    for _, row in coords.iterrows():
+
+        x = row["x"]
+        y = row["y"]
+
+        sub = df[
+            (df["x"] == x) &
+            (df["y"] == y)
+        ]
+
+        wave = sub["wave"].values
+        intensity = sub["intensity"].values
+
+        grouped[(x, y)] = {
+            "wave": wave,
+            "intensity": intensity
+        }
+
+    return grouped
+
+
+# =========================================================
+# PROCESSAMENTO ESPECTRAL
+# =========================================================
+def process_spectrum(wave, intensity):
+
+    # suavização
+    smooth = savgol_filter(
+        intensity,
+        window_length=21,
+        polyorder=3
+    )
+
+    # baseline
+    baseline = baseline_asls(smooth)
+
+    corrected = smooth - baseline
+
+    # normalização
+    corrected = (
+        corrected - corrected.min()
+    ) / (
+        corrected.max() - corrected.min()
+    )
+
+    return corrected, baseline
+
+
+# =========================================================
+# DETECÇÃO PICOS
+# =========================================================
+def detect_peaks(wave, intensity):
+
+    peaks, props = find_peaks(
+        intensity,
+        prominence=0.08,
+        distance=15
+    )
+
+    return peaks
+
+
+# =========================================================
+# PLOT ESPECTROS
+# =========================================================
+def plot_mapping_spectra(grouped):
+
+    fig, ax = plt.subplots(
+        figsize=(8, 5)
+    )
+
+    selected = list(grouped.items())[:9]
+
+    for idx, ((x, y), data) in enumerate(selected):
+
+        wave = data["wave"]
+        intensity = data["processed"]
+
+        peaks = data["peaks"]
+
+        ax.plot(
+            wave,
+            intensity + idx * 1.2,
+            linewidth=1.5
+        )
+
+        ax.scatter(
+            wave[peaks],
+            intensity[peaks] + idx * 1.2,
+            color="red",
+            s=15
+        )
+
     ax.set_xlabel("Raman Shift (cm⁻¹)")
-    ax.set_ylabel("Intensity")
-    ax.set_title(f"x={spec['x']} | y={spec['y']}")
+    ax.set_ylabel("Normalized Intensity")
+
+    ax.set_title(
+        "Raman Spectra Along Blood Drop Diameter"
+    )
 
     return fig
 
 
 # =========================================================
-# MAPA ESPACIAL
+# MAPA RAMAN
 # =========================================================
-def plot_spatial_map(df):
+def build_intensity_map(grouped):
 
-    pivot = df.groupby(["y", "x"])["intensity"].mean().unstack()
+    positions = []
+    intensities = []
 
-    fig, ax = plt.subplots(figsize=(6,5), dpi=300)
+    for (x, y), data in grouped.items():
+
+        positions.append(y)
+
+        intensities.append(
+            np.sum(data["processed"])
+        )
+
+    positions = np.array(positions)
+    intensities = np.array(intensities)
+
+    idx = np.argsort(positions)
+
+    positions = positions[idx]
+    intensities = intensities[idx]
+
+    matrix = np.tile(
+        intensities,
+        (20, 1)
+    )
+
+    fig, ax = plt.subplots(
+        figsize=(7, 4)
+    )
 
     im = ax.imshow(
-        pivot.values,
-        origin="lower",
+        matrix,
         aspect="auto",
-        cmap="inferno"
+        origin="lower"
     )
 
-    ax.set_title("Mapa Raman (Intensidade média)")
-    ax.set_xlabel("X")
-    ax.set_ylabel("Y")
+    ax.set_title("Raman Intensity Map")
 
-    plt.colorbar(im, ax=ax)
+    ax.set_xlabel("Mapping Position")
+    ax.set_ylabel("Y Position")
+
+    plt.colorbar(im)
 
     return fig
 
 
 # =========================================================
-# FUNÇÃO PRINCIPAL (COM CONTROLE DE PROCESSAMENTO)
+# PCA
 # =========================================================
-def render_mapeamento_molecular_tab(supabase=None):
+def run_mapping_pca(grouped):
 
-    st.subheader("🗺️ Raman Mapping — Análise Espacial")
+    spectra = []
+    labels = []
 
-    # =====================================================
-    # UPLOAD
-    # =====================================================
-    uploaded_file = st.file_uploader(
-        "📂 Upload do arquivo de mapeamento Raman",
-        type=["txt", "csv"],
-        key="raman_mapping_upload"
+    for (x, y), data in grouped.items():
+
+        spectra.append(data["processed"])
+
+        labels.append(f"Y={int(y)}")
+
+    X = np.array(spectra)
+
+    X = StandardScaler().fit_transform(X)
+
+    pca = PCA(n_components=2)
+
+    scores = pca.fit_transform(X)
+
+    fig, ax = plt.subplots(
+        figsize=(6, 5)
     )
 
-    if uploaded_file is None:
-        st.info("Faça upload do arquivo para iniciar.")
+    ax.scatter(
+        scores[:, 0],
+        scores[:, 1]
+    )
+
+    for i, label in enumerate(labels):
+
+        ax.text(
+            scores[i, 0],
+            scores[i, 1],
+            label,
+            fontsize=8
+        )
+
+    ax.set_title(
+        "PCA — Molecular Fingerprint"
+    )
+
+    ax.set_xlabel("PC1")
+    ax.set_ylabel("PC2")
+
+    return fig
+
+
+# =========================================================
+# STREAMLIT TAB
+# =========================================================
+def render_mapping_tab():
+
+    st.subheader(
+        "🗺️ Molecular Raman Mapping"
+    )
+
+    file = st.file_uploader(
+        "Upload mapping file",
+        type=["txt", "csv"]
+    )
+
+    if file is None:
         return
 
-    # =====================================================
-    # LEITURA
-    # =====================================================
-    try:
-        df = read_mapping(uploaded_file)
-    except Exception as e:
-        st.error("Erro ao ler o arquivo")
-        st.exception(e)
-        return
+    df = load_mapping_file(file)
 
-    st.success("Arquivo carregado com sucesso")
+    grouped = organize_spectra(df)
 
-    # =====================================================
-    # PREVIEW
-    # =====================================================
-    st.markdown("### 🔍 Preview dos dados")
-    st.dataframe(df.head())
+    # processamento
+    for key in grouped:
 
-    # =====================================================
-    # BOTÃO DE PROCESSAMENTO
-    # =====================================================
-    processar = st.button("🚀 Processar Mapeamento")
+        wave = grouped[key]["wave"]
+        intensity = grouped[key]["intensity"]
 
-    if not processar:
-        st.warning("Clique no botão para gerar os espectros e o mapa.")
-        return
+        processed, baseline = process_spectrum(
+            wave,
+            intensity
+        )
+
+        peaks = detect_peaks(
+            wave,
+            processed
+        )
+
+        grouped[key]["processed"] = processed
+        grouped[key]["baseline"] = baseline
+        grouped[key]["peaks"] = peaks
 
     # =====================================================
-    # EXTRAÇÃO
+    # FIGURA 1 — ESPECTROS
     # =====================================================
-    spectra = extract_spectra(df)
+    st.markdown("### 📐 Raman Spectra")
 
-    st.success(f"{len(spectra)} espectros detectados")
+    fig1 = plot_mapping_spectra(grouped)
 
-    # =====================================================
-    # SUBABAS INTERNAS
-    # =====================================================
-    tabs = st.tabs([
-        "📊 18 Espectros",
-        "📈 Espectros individuais",
-        "🔥 Mapa Raman"
-    ])
+    st.pyplot(fig1)
 
     # =====================================================
-    # GRID
+    # FIGURA 2 — MAPA
     # =====================================================
-    with tabs[0]:
-        st.pyplot(plot_grid_spectra(spectra))
+    st.markdown("### 🗺️ Raman Intensity Map")
+
+    fig2 = build_intensity_map(grouped)
+
+    st.pyplot(fig2)
 
     # =====================================================
-    # INDIVIDUAIS
+    # FIGURA 3 — PCA
     # =====================================================
-    with tabs[1]:
-        for spec in spectra:
-            st.pyplot(plot_single_spectrum(spec))
+    st.markdown("### 📊 PCA")
 
-    # =====================================================
-    # MAPA
-    # =====================================================
-    with tabs[2]:
-        st.pyplot(plot_spatial_map(df))
+    fig3 = run_mapping_pca(grouped)
+
+    st.pyplot(fig3)
