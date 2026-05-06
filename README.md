@@ -1,17 +1,22 @@
 # SurfaceXLab
 
-Plataforma genérica para **análise de superfície de materiais**, integrada com Streamlit e Supabase.
+SurfaceXLab/
 
-*1 Análise Molecular
-*2 Análise Elétrica
-*3 Análise Físico-Mecânica
-*4 Otimização (ML)
+├── app.py
+├── config.py
+├── database/
+├── modules/
+│   ├── raman/
+│   ├── electrical/
+│   ├── tensiometry/
+│   ├── perfilometry/
+│   └── multimodal/
+├── utils/
+├── styles/
+├── logs/
+└── data/
 
-Este código e a concepção da plataforma SurfaceXLab são de propriedade de:
-
-**Marcela Veiga**
-
-- © 2025 Marcela Veiga — Todos os direitos reservados.  
+- © 2026 Marcela Veiga — Todos os direitos reservados.  
 - É proibida a cópia, redistribuição ou uso comercial deste código sem autorização
   prévia e expressa da autora.
 
