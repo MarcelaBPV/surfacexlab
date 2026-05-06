@@ -1,8 +1,11 @@
 # =========================================================
-# SurfaceXLab — Plataforma Científica Integrada (BLINDADO)
+# SurfaceXLab — Plataforma Científica Integrada
+# Arquitetura Modular | Sample-Centric | Multimodal
 # =========================================================
 
 import streamlit as st
+import logging
+from datetime import datetime
 
 
 # =========================================================
@@ -12,144 +15,299 @@ from raman_tab import render_raman_tab
 from resistividade_tab import render_resistividade_tab
 from tensiometria_tab import render_tensiometria_tab
 from perfilometria_tab import render_perfilometria_tab
-from analise_completa_amostras_tab import render_analise_completa_amostras_tab
+from multimodal_tab import render_multimodal_tab
 
 
 # =========================================================
-# CONFIGURAÇÃO DA PÁGINA
+# CONFIGURAÇÃO DO APP
 # =========================================================
+APP_NAME = "SurfaceXLab"
+
 st.set_page_config(
-    page_title="SurfaceXLab",
+    page_title=APP_NAME,
     page_icon="🔬",
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="expanded"
 )
 
 
 # =========================================================
-# ESTILO
+# LOGGING
+# =========================================================
+logging.basicConfig(
+    filename="surfacexlab.log",
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s"
+)
+
+logging.info("Aplicação iniciada")
+
+
+# =========================================================
+# ESTILO GLOBAL
 # =========================================================
 st.markdown("""
 <style>
+
 .block-container {
-    padding-top: 1.2rem;
+    padding-top: 1rem;
+    padding-bottom: 1rem;
 }
+
 h1, h2, h3 {
     font-weight: 600;
 }
+
 [data-testid="stMetricValue"] {
     font-size: 22px;
 }
+
 [data-testid="stMetricLabel"] {
     font-size: 14px;
 }
+
 </style>
 """, unsafe_allow_html=True)
 
 
 # =========================================================
+# INICIALIZAÇÃO DO SESSION STATE
+# =========================================================
+if "samples" not in st.session_state:
+    st.session_state.samples = {}
+
+if "logs" not in st.session_state:
+    st.session_state.logs = []
+
+
+# =========================================================
+# FUNÇÕES AUXILIARES
+# =========================================================
+def create_sample(sample_id, material="", treatment=""):
+    """
+    Cria estrutura centralizada da amostra.
+    """
+
+    if sample_id not in st.session_state.samples:
+
+        st.session_state.samples[sample_id] = {
+
+            "metadata": {
+                "sample_id": sample_id,
+                "material": material,
+                "treatment": treatment,
+                "created_at": str(datetime.now())
+            },
+
+            "raman": {},
+
+            "electrical": {},
+
+            "tensiometry": {},
+
+            "perfilometry": {}
+        }
+
+        logging.info(f"Amostra criada: {sample_id}")
+
+
+def get_total_samples():
+    return len(st.session_state.samples)
+
+
+def count_completed_modules(module_name):
+    count = 0
+
+    for sample in st.session_state.samples.values():
+        if sample[module_name]:
+            count += 1
+
+    return count
+
+
+# =========================================================
 # HEADER
 # =========================================================
-st.markdown("# 🔬 SurfaceXLab")
-st.caption("Plataforma integrada para caracterização avançada de superfícies")
-st.divider()
+st.title("🔬 SurfaceXLab")
 
-
-# =========================================================
-# SESSION STATE INIT
-# =========================================================
-if "raman_peaks" not in st.session_state:
-    st.session_state.raman_peaks = {}
-
-if "electrical_samples" not in st.session_state:
-    st.session_state.electrical_samples = {}
-
-if "tensiometry_samples" not in st.session_state:
-    st.session_state.tensiometry_samples = {}
-
-if "perfilometria_samples" not in st.session_state:
-    st.session_state.perfilometria_samples = {}
-
-
-# =========================================================
-# DASHBOARD
-# =========================================================
-st.subheader("📊 Visão Geral dos Ensaios")
-
-col1, col2, col3, col4 = st.columns(4)
-
-col1.metric("🧬 Raman", len(st.session_state.raman_peaks))
-col2.metric("⚡ Elétrico", len(st.session_state.electrical_samples))
-col3.metric("💧 Tensiometria", len(st.session_state.tensiometry_samples))
-col4.metric("📏 Perfilometria", len(st.session_state.perfilometria_samples))
+st.caption(
+    "Plataforma integrada para caracterização multimodal "
+    "de superfícies e interfaces"
+)
 
 st.divider()
 
 
 # =========================================================
-# ABAS
+# SIDEBAR — GERENCIAMENTO DE AMOSTRAS
+# =========================================================
+with st.sidebar:
+
+    st.header("🧪 Gerenciamento de Amostras")
+
+    sample_id = st.text_input("ID da Amostra")
+
+    material = st.text_input("Material")
+
+    treatment = st.text_input("Tratamento")
+
+    if st.button("➕ Criar Amostra"):
+
+        if sample_id.strip():
+
+            create_sample(
+                sample_id=sample_id,
+                material=material,
+                treatment=treatment
+            )
+
+            st.success(f"Amostra '{sample_id}' criada.")
+
+        else:
+            st.warning("Informe um ID válido.")
+
+    st.divider()
+
+    st.subheader("📂 Amostras Registradas")
+
+    if st.session_state.samples:
+
+        for sample_name in st.session_state.samples.keys():
+            st.write(f"• {sample_name}")
+
+    else:
+        st.info("Nenhuma amostra cadastrada.")
+
+
+# =========================================================
+# DASHBOARD GERAL
+# =========================================================
+st.subheader("📊 Visão Geral")
+
+col1, col2, col3, col4, col5 = st.columns(5)
+
+col1.metric(
+    "🧪 Amostras",
+    get_total_samples()
+)
+
+col2.metric(
+    "🧬 Raman",
+    count_completed_modules("raman")
+)
+
+col3.metric(
+    "⚡ Elétrico",
+    count_completed_modules("electrical")
+)
+
+col4.metric(
+    "💧 Tensiometria",
+    count_completed_modules("tensiometry")
+)
+
+col5.metric(
+    "📏 Perfilometria",
+    count_completed_modules("perfilometry")
+)
+
+st.divider()
+
+
+# =========================================================
+# ABAS PRINCIPAIS
 # =========================================================
 tabs = st.tabs([
     "🧬 Raman",
-    "⚡ Resistividade (4 Pontas)",
+    "⚡ Resistividade",
     "💧 Tensiometria",
     "📏 Perfilometria",
-    "🧠 Análise Integrada"
+    "🧠 Integração Multimodal"
 ])
 
 
 # =========================================================
-# ABA 1 — RAMAN (NÃO PODE QUEBRAR)
+# ABA RAMAN
 # =========================================================
 with tabs[0]:
+
     try:
-        render_raman_tab()
+
+        render_raman_tab(st.session_state.samples)
+
     except Exception as e:
-        st.error("Erro no módulo Raman")
+
+        logging.error(f"Erro módulo Raman: {str(e)}")
+
+        st.error("Erro no módulo Raman.")
         st.exception(e)
 
 
 # =========================================================
-# ABA 2 — RESISTIVIDADE (AQUI ESTAVA QUEBRANDO TUDO)
+# ABA ELÉTRICA
 # =========================================================
 with tabs[1]:
+
     try:
-        render_resistividade_tab()
+
+        render_resistividade_tab(st.session_state.samples)
+
     except Exception as e:
-        st.error("Erro no módulo elétrico (isso NÃO trava mais o app)")
+
+        logging.error(f"Erro módulo elétrico: {str(e)}")
+
+        st.error("Erro no módulo elétrico.")
         st.exception(e)
 
 
 # =========================================================
-# ABA 3 — TENSIOMETRIA
+# ABA TENSIOMETRIA
 # =========================================================
 with tabs[2]:
+
     try:
-        render_tensiometria_tab()
+
+        render_tensiometria_tab(st.session_state.samples)
+
     except Exception as e:
-        st.error("Erro no módulo de tensiometria")
+
+        logging.error(f"Erro módulo tensiometria: {str(e)}")
+
+        st.error("Erro no módulo de tensiometria.")
         st.exception(e)
 
 
 # =========================================================
-# ABA 4 — PERFILOMETRIA
+# ABA PERFILOMETRIA
 # =========================================================
 with tabs[3]:
+
     try:
-        render_perfilometria_tab()
+
+        render_perfilometria_tab(st.session_state.samples)
+
     except Exception as e:
-        st.error("Erro no módulo de perfilometria")
+
+        logging.error(f"Erro módulo perfilometria: {str(e)}")
+
+        st.error("Erro no módulo de perfilometria.")
         st.exception(e)
 
 
 # =========================================================
-# ABA 5 — ANÁLISE INTEGRADA
+# ABA MULTIMODAL
 # =========================================================
 with tabs[4]:
+
     try:
-        render_analise_completa_amostras_tab()
+
+        render_multimodal_tab(st.session_state.samples)
+
     except Exception as e:
-        st.error("Erro na análise integrada")
+
+        logging.error(f"Erro módulo multimodal: {str(e)}")
+
+        st.error("Erro na integração multimodal.")
         st.exception(e)
 
 
@@ -157,4 +315,8 @@ with tabs[4]:
 # RODAPÉ
 # =========================================================
 st.divider()
-st.caption("SurfaceXLab © Plataforma científica integrada para análise de superfícies")
+
+st.caption(
+    "SurfaceXLab © Plataforma científica integrada para "
+    "caracterização multimodal de superfícies"
+)
