@@ -298,10 +298,6 @@ def render_spectral_deconvolution_tab():
             f"{len(coords)} espectros detectados."
         )
 
-        # =================================================
-        # NUMBER OF SPECTRA
-        # =================================================
-
         n_spectra = st.slider(
 
             "Quantidade de espectros",
@@ -314,10 +310,6 @@ def render_spectral_deconvolution_tab():
         )
 
         coords_plot = coords[:n_spectra]
-
-        # =================================================
-        # GRID
-        # =================================================
 
         ncols = 3
         nrows = int(np.ceil(n_spectra / ncols))
@@ -362,11 +354,8 @@ def render_spectral_deconvolution_tab():
                 f"Y = {y_pos:.0f} µm"
             )
 
-            axes[idx].invert_xaxis()
-
             axes[idx].grid(alpha=0.2)
 
-        # remove unused axes
         for j in range(idx+1, len(axes)):
 
             fig_map.delaxes(axes[j])
@@ -488,60 +477,100 @@ def render_spectral_deconvolution_tab():
         # corrected spectrum
         y_corr = y_smooth - baseline
 
-        # keep physical scale
+        # publication-grade normalization
         y_corr = y_corr - np.min(y_corr)
+        y_corr = y_corr / np.max(y_corr)
 
         # =================================================
         # PREPROCESSING PLOT
         # =================================================
 
-        fig_pre, ax_pre = plt.subplots(
-            figsize=(10,5)
+        fig_pre, (ax1, ax2) = plt.subplots(
+
+            2,
+
+            1,
+
+            figsize=(10,8),
+
+            sharex=True
         )
 
-        ax_pre.plot(
+        # ==========================================
+        # RAW + BASELINE
+        # ==========================================
+
+        ax1.plot(
 
             x,
 
             y,
 
-            label='Raw',
+            color='gray',
 
-            alpha=0.4
+            lw=1.5,
+
+            label='Raw'
         )
 
-        ax_pre.plot(
+        ax1.plot(
 
             x,
 
             y_smooth,
 
+            color='orange',
+
+            lw=2,
+
             label='Smoothed'
         )
 
-        ax_pre.plot(
+        ax1.plot(
 
             x,
 
             baseline,
 
+            color='green',
+
+            lw=2,
+
             label='Baseline'
         )
 
-        ax_pre.plot(
+        ax1.set_ylabel("Intensity")
+
+        ax1.legend()
+
+        ax1.grid(alpha=0.2)
+
+        # ==========================================
+        # CORRECTED SPECTRUM
+        # ==========================================
+
+        ax2.plot(
 
             x,
 
             y_corr,
 
-            label='Corrected'
+            color='red',
+
+            lw=2
         )
 
-        ax_pre.legend()
+        ax2.set_xlabel(
+            "Raman shift (cm⁻¹)"
+        )
 
-        ax_pre.grid(alpha=0.2)
+        ax2.set_ylabel(
+            "Corrected"
+        )
 
-        ax_pre.invert_xaxis()
+        ax2.grid(alpha=0.2)
+
+        plt.tight_layout()
 
         st.pyplot(fig_pre)
 
@@ -670,17 +699,14 @@ def render_spectral_deconvolution_tab():
         )
 
         # =================================================
-        # PUBLICATION-GRADE FIT PLOT
+        # FIT PLOT
         # =================================================
 
         fig_fit, ax_fit = plt.subplots(
             figsize=(12,7)
         )
 
-        # =============================================
-        # EXPERIMENTAL
-        # =============================================
-
+        # experimental
         ax_fit.plot(
 
             x,
@@ -689,15 +715,12 @@ def render_spectral_deconvolution_tab():
 
             color='gray',
 
-            lw=2,
+            lw=2.5,
 
             label='Experimental'
         )
 
-        # =============================================
-        # GLOBAL FIT
-        # =============================================
-
+        # global fit
         ax_fit.plot(
 
             x,
@@ -713,10 +736,7 @@ def render_spectral_deconvolution_tab():
             label='Global Fit'
         )
 
-        # =============================================
-        # COMPONENT COLORS
-        # =============================================
-
+        # colors
         component_colors = [
 
             '#ef2929',
@@ -734,20 +754,18 @@ def render_spectral_deconvolution_tab():
             '#f4a3a3'
         ]
 
-        # =============================================
-        # COMPONENTS
-        # =============================================
-
+        # components
         for i, (center_ref, _, _) in enumerate(RAMAN_PEAKS):
 
             prefix = f"p{i}_"
 
             comp = components[prefix]
 
-            # filled component
             ax_fit.fill_between(
 
                 x,
+
+                0,
 
                 comp,
 
@@ -758,7 +776,6 @@ def render_spectral_deconvolution_tab():
                 ]
             )
 
-            # line
             ax_fit.plot(
 
                 x,
@@ -803,10 +820,6 @@ def render_spectral_deconvolution_tab():
                 )
             )
 
-        # =============================================
-        # STYLE
-        # =============================================
-
         ax_fit.set_xlabel(
             "Raman shift (cm⁻¹)",
             fontsize=14
@@ -820,8 +833,6 @@ def render_spectral_deconvolution_tab():
         ax_fit.legend()
 
         ax_fit.grid(alpha=0.15)
-
-        ax_fit.invert_xaxis()
 
         plt.tight_layout()
 
@@ -856,8 +867,6 @@ def render_spectral_deconvolution_tab():
         )
 
         ax_res.grid(alpha=0.2)
-
-        ax_res.invert_xaxis()
 
         ax_res.set_xlabel(
             "Raman shift (cm⁻¹)"
@@ -995,10 +1004,7 @@ def render_spectral_deconvolution_tab():
                         np.max(origin_interp)
                     )
 
-                    # =====================================
-                    # METRICS
-                    # =====================================
-
+                    # metrics
                     rmse_origin = np.sqrt(
 
                         np.mean(
@@ -1054,10 +1060,7 @@ def render_spectral_deconvolution_tab():
                         f"{pearson:.5f}"
                     )
 
-                    # =====================================
-                    # OVERLAY
-                    # =====================================
-
+                    # overlay
                     fig_cmp, ax_cmp = plt.subplots(
                         figsize=(12,6)
                     )
@@ -1093,8 +1096,6 @@ def render_spectral_deconvolution_tab():
                     ax_cmp.legend()
 
                     ax_cmp.grid(alpha=0.2)
-
-                    ax_cmp.invert_xaxis()
 
                     st.pyplot(fig_cmp)
 
