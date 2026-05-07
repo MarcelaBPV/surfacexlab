@@ -629,7 +629,7 @@ def render_spectral_deconvolution_tab():
         st.pyplot(fig_pre)
 
 
-                # =================================================
+        # =================================================
         # AUTOMATIC PEAK DETECTION
         # =================================================
 
@@ -722,7 +722,7 @@ def render_spectral_deconvolution_tab():
 
         st.pyplot(fig_peaks)
 
-        # =================================================
+                 # =================================================
         # MOLECULAR IDENTIFICATION
         # =================================================
 
@@ -744,16 +744,16 @@ def render_spectral_deconvolution_tab():
                     identified_peaks.append({
 
                         "Peak":
-                            round(peak,1),
+                            round(float(peak),1),
 
                         "Reference":
-                            known_peak,
+                            float(known_peak),
 
                         "Assignment":
-                            assignment,
+                            str(assignment),
 
                         "Intensity":
-                            round(height,2)
+                            round(float(height),2)
                     })
 
                     found = True
@@ -763,21 +763,50 @@ def render_spectral_deconvolution_tab():
                 identified_peaks.append({
 
                     "Peak":
-                        round(peak,1),
+                        round(float(peak),1),
 
                     "Reference":
-                        "-",
+                        np.nan,
 
                     "Assignment":
                         "Unknown",
 
                     "Intensity":
-                        round(height,2)
+                        round(float(height),2)
                 })
+
+        # =================================================
+        # DATAFRAME
+        # =================================================
 
         identified_df = pd.DataFrame(
             identified_peaks
         )
+
+        identified_df["Reference"] = pd.to_numeric(
+
+            identified_df["Reference"],
+
+            errors="coerce"
+        )
+
+        identified_df["Peak"] = pd.to_numeric(
+
+            identified_df["Peak"],
+
+            errors="coerce"
+        )
+
+        identified_df["Intensity"] = pd.to_numeric(
+
+            identified_df["Intensity"],
+
+            errors="coerce"
+        )
+
+        # =================================================
+        # SHOW TABLE
+        # =================================================
 
         st.subheader(
             "🧬 Molecular Identification"
@@ -831,11 +860,11 @@ def render_spectral_deconvolution_tab():
 
             pars[prefix+'center'].set(
 
-                value=peak,
+                value=float(peak),
 
-                min=peak-10,
+                min=float(peak)-10,
 
-                max=peak+10
+                max=float(peak)+10
             )
 
             pars[prefix+'sigma'].set(
@@ -849,7 +878,7 @@ def render_spectral_deconvolution_tab():
 
             pars[prefix+'amplitude'].set(
 
-                value=peak_heights[i]*50,
+                value=float(peak_heights[i])*50,
 
                 min=0
             )
@@ -908,7 +937,9 @@ def render_spectral_deconvolution_tab():
             figsize=(12,6)
         )
 
-        # experimental
+        # =================================================
+        # EXPERIMENTAL
+        # =================================================
 
         ax_fit.plot(
 
@@ -923,7 +954,9 @@ def render_spectral_deconvolution_tab():
             label='Experimental'
         )
 
-        # global fit
+        # =================================================
+        # GLOBAL FIT
+        # =================================================
 
         ax_fit.plot(
 
@@ -940,7 +973,9 @@ def render_spectral_deconvolution_tab():
             label='Global Fit'
         )
 
-        # components
+        # =================================================
+        # COMPONENTS
+        # =================================================
 
         colors = plt.cm.Set2.colors
 
@@ -978,7 +1013,9 @@ def render_spectral_deconvolution_tab():
                 lw=1.5
             )
 
-        # labels
+        # =================================================
+        # LABELS
+        # =================================================
 
         for _, row in identified_df.iterrows():
 
@@ -1071,6 +1108,10 @@ def render_spectral_deconvolution_tab():
         plt.tight_layout()
 
         st.pyplot(fig_res)
+
+        # =================================================
+        # RMSE
+        # =================================================
 
         st.metric(
             "RMSE",
