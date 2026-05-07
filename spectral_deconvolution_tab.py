@@ -40,13 +40,35 @@ RAMAN_BANDS = {
 }
 
 # =========================================================
+# RAMAN PEAK DATABASE
+# center, amplitude, sigma
+# =========================================================
+
+RAMAN_PEAKS = [
+
+    (1536, 2000, 8),
+
+    (1556, 4500, 12),
+
+    (1577, 5500, 15),
+
+    (1600, 3800, 9),
+
+    (1617, 2400, 7),
+
+    (1626, 3000, 10),
+
+    (1663, 1800, 18)
+]
+
+# =========================================================
 # BASELINE ASLS
 # =========================================================
 
 def baseline_asls(
     y,
-    lam=1e6,
-    p=0.001,
+    lam=1e8,
+    p=0.0001,
     niter=10
 ):
 
@@ -81,7 +103,7 @@ def baseline_asls(
     return z
 
 # =========================================================
-# MAIN TAB
+# MAIN FUNCTION
 # =========================================================
 
 def render_spectral_deconvolution_tab():
@@ -90,7 +112,7 @@ def render_spectral_deconvolution_tab():
 
     st.markdown("""
     Workflow espectroscópico completo para:
-    
+
     - Raman Mapping
     - Seleção individual de espectros
     - Baseline correction
@@ -103,7 +125,7 @@ def render_spectral_deconvolution_tab():
     st.divider()
 
     # =====================================================
-    # CONFIGURAÇÕES GERAIS
+    # CONFIG
     # =====================================================
 
     st.subheader("⚙ Configurações Gerais")
@@ -143,7 +165,7 @@ def render_spectral_deconvolution_tab():
     st.divider()
 
     # =====================================================
-    # UPLOAD
+    # FILE UPLOAD
     # =====================================================
 
     uploaded_file = st.file_uploader(
@@ -159,9 +181,7 @@ def render_spectral_deconvolution_tab():
 
     if uploaded_file is None:
 
-        st.info(
-            "Faça upload do arquivo Raman."
-        )
+        st.info("Faça upload do arquivo Raman.")
 
         return
 
@@ -190,9 +210,7 @@ def render_spectral_deconvolution_tab():
 
     except Exception as e:
 
-        st.error(
-            f"Erro leitura arquivo: {e}"
-        )
+        st.error(f"Erro leitura arquivo: {e}")
 
         return
 
@@ -206,7 +224,19 @@ def render_spectral_deconvolution_tab():
     st.write(df.head())
 
     # =====================================================
-    # COLUNAS
+    # REQUIRED COLUMNS
+    # =====================================================
+
+    if not all(col in df.columns for col in ['x', 'y']):
+
+        st.error(
+            "Arquivo precisa possuir colunas x e y."
+        )
+
+        return
+
+    # =====================================================
+    # COLUMN SELECTION
     # =====================================================
 
     cols = df.columns.tolist()
@@ -236,6 +266,14 @@ def render_spectral_deconvolution_tab():
         )
 
     # =====================================================
+    # GROUPED DATA
+    # =====================================================
+
+    grouped = df.groupby(['x', 'y'])
+
+    coords = list(grouped.groups.keys())
+
+    # =====================================================
     # TABS
     # =====================================================
 
@@ -256,29 +294,13 @@ def render_spectral_deconvolution_tab():
 
         st.header("🔬 Raman Mapping Viewer")
 
-        # ================================================
-        # VERIFICAR X,Y
-        # ================================================
-
-        if not all(col in df.columns for col in ['x', 'y']):
-
-            st.error(
-                "Arquivo precisa possuir colunas x e y."
-            )
-
-            return
-
-        grouped = df.groupby(['x', 'y'])
-
-        coords = list(grouped.groups.keys())
-
         st.success(
             f"{len(coords)} espectros detectados."
         )
 
-        # ================================================
-        # QUANTIDADE DE ESPECTROS
-        # ================================================
+        # =================================================
+        # NUMBER OF SPECTRA
+        # =================================================
 
         n_spectra = st.slider(
 
@@ -293,9 +315,9 @@ def render_spectral_deconvolution_tab():
 
         coords_plot = coords[:n_spectra]
 
-        # ================================================
+        # =================================================
         # GRID
-        # ================================================
+        # =================================================
 
         ncols = 3
         nrows = int(np.ceil(n_spectra / ncols))
@@ -344,7 +366,7 @@ def render_spectral_deconvolution_tab():
 
             axes[idx].grid(alpha=0.2)
 
-        # remover eixos sobrando
+        # remove unused axes
         for j in range(idx+1, len(axes)):
 
             fig_map.delaxes(axes[j])
@@ -353,9 +375,17 @@ def render_spectral_deconvolution_tab():
 
         st.pyplot(fig_map)
 
-        # ================================================
-        # SELECTOR
-        # ================================================
+    # =====================================================
+    # TAB 2 — PROCESSING
+    # =====================================================
+
+    with tab2:
+
+        st.header("⚙ Spectral Processing")
+
+        # =================================================
+        # SELECT SPECTRUM
+        # =================================================
 
         st.subheader("🎯 Select Spectrum")
 
@@ -368,7 +398,7 @@ def render_spectral_deconvolution_tab():
 
         selected_coord = st.selectbox(
 
-            "Escolha o espectro",
+            "Escolha o espectro para análise",
 
             coord_options
         )
@@ -383,480 +413,531 @@ def render_spectral_deconvolution_tab():
             (x_sel, y_sel)
         )
 
-        st.session_state[
-            "selected_spectrum"
-        ] = selected_spectrum
-
         st.success(
             f"Espectro selecionado: X={x_sel} | Y={y_sel}"
         )
 
-    # =====================================================
-    # TAB 2 — PROCESSING
-    # =====================================================
+        # =================================================
+        # EXTRACT SPECTRUM
+        # =================================================
 
-    with tab2:
+        x = selected_spectrum[x_col].values
+        y = selected_spectrum[y_col].values
 
-        st.header("⚙ Spectral Processing")
+        order = np.argsort(x)
 
-        if "selected_spectrum" not in st.session_state:
+        x = x[order]
+        y = y[order]
 
-            st.warning(
-                "Selecione um espectro na aba Raman Mapping."
+        # =================================================
+        # REGION
+        # =================================================
+
+        st.subheader("🔍 Região Espectral")
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+
+            x_min = st.number_input(
+                "Min Raman",
+                value=1500.0
             )
 
-        else:
+        with col2:
 
-            spec = st.session_state[
-                "selected_spectrum"
-            ]
+            x_max = st.number_input(
+                "Max Raman",
+                value=1700.0
+            )
 
-            x = spec[x_col].values
-            y = spec[y_col].values
+        mask = (
 
-            # ordenar
-            order = np.argsort(x)
+            (x >= x_min) &
 
-            x = x[order]
-            y = y[order]
+            (x <= x_max)
+        )
 
-            # ============================================
-            # REGIÃO ESPECTRAL
-            # ============================================
+        x = x[mask]
+        y = y[mask]
 
-            st.subheader("🔍 Região Espectral")
+        # =================================================
+        # PREPROCESSING
+        # =================================================
 
-            col1, col2 = st.columns(2)
+        st.subheader("📊 Preprocessing")
 
-            with col1:
+        y_smooth = savgol_filter(
 
-                x_min = st.number_input(
-                    "Min Raman",
-                    value=1500.0
+            y,
+
+            smooth_window,
+
+            polyorder
+        )
+
+        baseline = baseline_asls(
+
+            y_smooth,
+
+            lam=1e8,
+
+            p=0.0001
+        )
+
+        # corrected spectrum
+        y_corr = y_smooth - baseline
+
+        # keep physical scale
+        y_corr = y_corr - np.min(y_corr)
+
+        # =================================================
+        # PREPROCESSING PLOT
+        # =================================================
+
+        fig_pre, ax_pre = plt.subplots(
+            figsize=(10,5)
+        )
+
+        ax_pre.plot(
+
+            x,
+
+            y,
+
+            label='Raw',
+
+            alpha=0.4
+        )
+
+        ax_pre.plot(
+
+            x,
+
+            y_smooth,
+
+            label='Smoothed'
+        )
+
+        ax_pre.plot(
+
+            x,
+
+            baseline,
+
+            label='Baseline'
+        )
+
+        ax_pre.plot(
+
+            x,
+
+            y_corr,
+
+            label='Corrected'
+        )
+
+        ax_pre.legend()
+
+        ax_pre.grid(alpha=0.2)
+
+        ax_pre.invert_xaxis()
+
+        st.pyplot(fig_pre)
+
+        # =================================================
+        # RAMAN DECONVOLUTION
+        # =================================================
+
+        st.subheader("🧠 Raman Deconvolution")
+
+        model = None
+        params = None
+
+        for i, (center, amp_guess, sigma_guess) in enumerate(RAMAN_PEAKS):
+
+            prefix = f"p{i}_"
+
+            # =============================================
+            # MODEL TYPE
+            # =============================================
+
+            if model_type == "Lorentzian":
+
+                peak_model = LorentzianModel(
+                    prefix=prefix
                 )
 
-            with col2:
+            elif model_type == "Gaussian":
 
-                x_max = st.number_input(
-                    "Max Raman",
-                    value=1700.0
+                peak_model = GaussianModel(
+                    prefix=prefix
                 )
 
-            mask = (
+            else:
 
-                (x >= x_min) &
-
-                (x <= x_max)
-            )
-
-            x = x[mask]
-            y = y[mask]
-
-            # ============================================
-            # PREPROCESSING
-            # ============================================
-
-            st.subheader("📊 Preprocessing")
-
-            y_smooth = savgol_filter(
-
-                y,
-
-                smooth_window,
-
-                polyorder
-            )
-
-            baseline = baseline_asls(
-                y_smooth
-            )
-
-            y_corr = (
-                y_smooth - baseline
-            )
-
-            y_corr = (
-                y_corr /
-                np.max(y_corr)
-            )
-
-            fig_pre, ax_pre = plt.subplots(
-                figsize=(10,5)
-            )
-
-            ax_pre.plot(
-
-                x,
-
-                y,
-
-                label='Raw',
-
-                alpha=0.4
-            )
-
-            ax_pre.plot(
-
-                x,
-
-                y_smooth,
-
-                label='Smoothed'
-            )
-
-            ax_pre.plot(
-
-                x,
-
-                baseline,
-
-                label='Baseline'
-            )
-
-            ax_pre.plot(
-
-                x,
-
-                y_corr,
-
-                label='Corrected'
-            )
-
-            ax_pre.legend()
-
-            ax_pre.grid(alpha=0.2)
-
-            ax_pre.invert_xaxis()
-
-            st.pyplot(fig_pre)
-
-            # ============================================
-            # GUIDED FITTING
-            # ============================================
-
-            st.subheader(
-                "🧠 Raman Deconvolution"
-            )
-
-            expected_peaks = list(
-                RAMAN_BANDS.keys()
-            )
-
-            model = None
-            params = None
-
-            for i, center in enumerate(expected_peaks):
-
-                prefix = f"p{i}_"
-
-                # ========================================
-                # MODEL TYPE
-                # ========================================
-
-                if model_type == "Lorentzian":
-
-                    peak_model = LorentzianModel(
-                        prefix=prefix
-                    )
-
-                elif model_type == "Gaussian":
-
-                    peak_model = GaussianModel(
-                        prefix=prefix
-                    )
-
-                else:
-
-                    peak_model = PseudoVoigtModel(
-                        prefix=prefix
-                    )
-
-                # ========================================
-                # BUILD MODEL
-                # ========================================
-
-                if model is None:
-
-                    model = peak_model
-
-                else:
-
-                    model += peak_model
-
-                # ========================================
-                # PARAMS
-                # ========================================
-
-                pars = peak_model.make_params()
-
-                pars[prefix+'center'].set(
-
-                    value=center,
-
-                    min=center-8,
-
-                    max=center+8
+                peak_model = PseudoVoigtModel(
+                    prefix=prefix
                 )
 
-                pars[prefix+'sigma'].set(
+            # =============================================
+            # BUILD MODEL
+            # =============================================
 
-                    value=10,
+            if model is None:
 
-                    min=1,
+                model = peak_model
 
-                    max=40
-                )
+            else:
 
-                pars[prefix+'amplitude'].set(
+                model += peak_model
+
+            # =============================================
+            # PARAMS
+            # =============================================
+
+            pars = peak_model.make_params()
+
+            pars[prefix+'center'].set(
+
+                value=center,
+
+                min=center-10,
+
+                max=center+10
+            )
+
+            pars[prefix+'sigma'].set(
+
+                value=sigma_guess,
+
+                min=2,
+
+                max=40
+            )
+
+            pars[prefix+'amplitude'].set(
+
+                value=amp_guess,
+
+                min=0
+            )
+
+            if model_type == "Pseudo-Voigt":
+
+                pars[prefix+'fraction'].set(
 
                     value=0.5,
 
-                    min=0
+                    min=0,
+
+                    max=1
                 )
 
-                if model_type == "Pseudo-Voigt":
+            if params is None:
 
-                    pars[prefix+'fraction'].set(
+                params = pars
 
-                        value=0.5,
+            else:
 
-                        min=0,
+                params.update(pars)
 
-                        max=1
-                    )
+        # =================================================
+        # FIT
+        # =================================================
 
-                if params is None:
+        result = model.fit(
 
-                    params = pars
+            y_corr,
 
-                else:
+            params,
 
-                    params.update(pars)
+            x=x
+        )
 
-            # ============================================
-            # FIT
-            # ============================================
+        components = result.eval_components(
+            x=x
+        )
 
-            result = model.fit(
+        # =================================================
+        # RESIDUAL
+        # =================================================
 
-                y_corr,
+        residual = y_corr - result.best_fit
 
-                params,
+        rmse = np.sqrt(
+            np.mean(residual**2)
+        )
 
-                x=x
+        # =================================================
+        # PUBLICATION-GRADE FIT PLOT
+        # =================================================
+
+        fig_fit, ax_fit = plt.subplots(
+            figsize=(12,7)
+        )
+
+        # =============================================
+        # EXPERIMENTAL
+        # =============================================
+
+        ax_fit.plot(
+
+            x,
+
+            y_corr,
+
+            color='gray',
+
+            lw=2,
+
+            label='Experimental'
+        )
+
+        # =============================================
+        # GLOBAL FIT
+        # =============================================
+
+        ax_fit.plot(
+
+            x,
+
+            result.best_fit,
+
+            '--',
+
+            color='red',
+
+            lw=2,
+
+            label='Global Fit'
+        )
+
+        # =============================================
+        # COMPONENT COLORS
+        # =============================================
+
+        component_colors = [
+
+            '#ef2929',
+
+            '#204a87',
+
+            '#edd400',
+
+            '#4e9a06',
+
+            '#75507b',
+
+            '#888a85',
+
+            '#f4a3a3'
+        ]
+
+        # =============================================
+        # COMPONENTS
+        # =============================================
+
+        for i, (center_ref, _, _) in enumerate(RAMAN_PEAKS):
+
+            prefix = f"p{i}_"
+
+            comp = components[prefix]
+
+            # filled component
+            ax_fit.fill_between(
+
+                x,
+
+                comp,
+
+                alpha=0.45,
+
+                color=component_colors[
+                    i % len(component_colors)
+                ]
             )
 
-            components = result.eval_components(
-                x=x
-            )
-
-            # ============================================
-            # RESIDUAL
-            # ============================================
-
-            residual = (
-
-                y_corr -
-
-                result.best_fit
-            )
-
-            rmse = np.sqrt(
-                np.mean(residual**2)
-            )
-
-            # ============================================
-            # FIT PLOT
-            # ============================================
-
-            fig_fit, ax_fit = plt.subplots(
-                figsize=(12,7)
-            )
-
+            # line
             ax_fit.plot(
 
                 x,
 
-                y_corr,
+                comp,
 
-                color='black',
+                lw=1,
 
-                lw=1.5,
-
-                label='Experimental'
+                color=component_colors[
+                    i % len(component_colors)
+                ]
             )
 
-            ax_fit.plot(
+            fitted_center = result.params[
+                prefix+'center'
+            ].value
 
-                x,
-
-                result.best_fit,
-
-                '--',
-
-                color='red',
-
-                lw=2,
-
-                label='Global Fit'
+            idx_peak = np.argmin(
+                np.abs(x - fitted_center)
             )
 
-            cmap = plt.cm.tab10.colors
+            ypos = comp[idx_peak]
 
-            for i, center_ref in enumerate(expected_peaks):
+            ax_fit.annotate(
 
-                prefix = f"p{i}_"
+                f"{fitted_center:.0f}\n({RAMAN_BANDS[int(center_ref)]})",
 
-                comp = components[prefix]
+                xy=(fitted_center, ypos),
 
-                ax_fit.plot(
+                xytext=(
 
-                    x,
+                    fitted_center + 8,
 
-                    comp,
+                    ypos + np.max(y_corr)*0.05
+                ),
 
-                    color=cmap[i % len(cmap)],
+                fontsize=10,
 
-                    lw=1.2
+                arrowprops=dict(
+                    arrowstyle='->',
+                    lw=1
                 )
-
-                fitted_center = result.params[
-                    prefix + 'center'
-                ].value
-
-                idx_peak = np.argmin(
-                    np.abs(x - fitted_center)
-                )
-
-                ypos = comp[idx_peak]
-
-                ax_fit.annotate(
-
-                    f"{fitted_center:.0f}\n({RAMAN_BANDS[center_ref]})",
-
-                    xy=(fitted_center, ypos),
-
-                    xytext=(
-                        fitted_center + 5,
-                        ypos + 0.05
-                    ),
-
-                    fontsize=8,
-
-                    arrowprops=dict(
-                        arrowstyle='->'
-                    )
-                )
-
-            ax_fit.legend()
-
-            ax_fit.grid(alpha=0.2)
-
-            ax_fit.invert_xaxis()
-
-            st.pyplot(fig_fit)
-
-            # ============================================
-            # RESIDUAL PLOT
-            # ============================================
-
-            st.subheader("📉 Residual")
-
-            fig_res, ax_res = plt.subplots(
-                figsize=(12,3)
             )
 
-            ax_res.plot(
+        # =============================================
+        # STYLE
+        # =============================================
 
-                x,
+        ax_fit.set_xlabel(
+            "Raman shift (cm⁻¹)",
+            fontsize=14
+        )
 
-                residual,
+        ax_fit.set_ylabel(
+            "Intensity",
+            fontsize=14
+        )
 
-                color='black'
-            )
+        ax_fit.legend()
 
-            ax_res.axhline(
+        ax_fit.grid(alpha=0.15)
 
-                0,
+        ax_fit.invert_xaxis()
 
-                linestyle='--',
+        plt.tight_layout()
 
-                color='red'
-            )
+        st.pyplot(fig_fit)
 
-            ax_res.grid(alpha=0.2)
+        # =================================================
+        # RESIDUAL PLOT
+        # =================================================
 
-            ax_res.invert_xaxis()
+        st.subheader("📉 Residual")
 
-            st.pyplot(fig_res)
+        fig_res, ax_res = plt.subplots(
+            figsize=(12,3)
+        )
 
-            # ============================================
-            # RMSE
-            # ============================================
+        ax_res.plot(
 
-            st.metric(
+            x,
 
-                "RMSE",
+            residual,
 
-                f"{rmse:.6f}"
-            )
+            color='black'
+        )
 
-            # ============================================
-            # PEAK TABLE
-            # ============================================
+        ax_res.axhline(
 
-            st.subheader("📋 Peak Parameters")
+            0,
 
-            peak_results = []
+            linestyle='--',
 
-            for i, center_ref in enumerate(expected_peaks):
+            color='red'
+        )
 
-                prefix = f"p{i}_"
+        ax_res.grid(alpha=0.2)
 
-                peak_results.append({
+        ax_res.invert_xaxis()
 
-                    "Peak":
+        ax_res.set_xlabel(
+            "Raman shift (cm⁻¹)"
+        )
 
-                        RAMAN_BANDS[
-                            center_ref
-                        ],
+        ax_res.set_ylabel(
+            "Residual"
+        )
 
-                    "Center (cm⁻¹)":
+        plt.tight_layout()
 
-                        result.params[
-                            prefix+'center'
-                        ].value,
+        st.pyplot(fig_res)
 
-                    "FWHM":
+        # =================================================
+        # RMSE
+        # =================================================
 
-                        result.params[
-                            prefix+'fwhm'
-                        ].value,
+        st.metric(
 
-                    "Amplitude":
+            "RMSE",
 
-                        result.params[
-                            prefix+'amplitude'
-                        ].value
-                })
+            f"{rmse:.6f}"
+        )
 
-            peak_df = pd.DataFrame(
-                peak_results
-            )
+        # =================================================
+        # PEAK TABLE
+        # =================================================
 
-            st.dataframe(
-                peak_df,
-                width='stretch'
-            )
+        st.subheader("📋 Peak Parameters")
 
-            # salvar resultado
-            st.session_state[
-                "result_best_fit"
-            ] = result.best_fit
+        peak_results = []
 
-            st.session_state[
-                "x_processed"
-            ] = x
+        for i, (center_ref, _, _) in enumerate(RAMAN_PEAKS):
+
+            prefix = f"p{i}_"
+
+            peak_results.append({
+
+                "Peak":
+
+                    RAMAN_BANDS[
+                        int(center_ref)
+                    ],
+
+                "Center (cm⁻¹)":
+
+                    result.params[
+                        prefix+'center'
+                    ].value,
+
+                "FWHM":
+
+                    result.params[
+                        prefix+'fwhm'
+                    ].value,
+
+                "Amplitude":
+
+                    result.params[
+                        prefix+'amplitude'
+                    ].value
+            })
+
+        peak_df = pd.DataFrame(
+            peak_results
+        )
+
+        st.dataframe(
+            peak_df,
+            width='stretch'
+        )
+
+        # save session
+        st.session_state[
+            "result_best_fit"
+        ] = result.best_fit
+
+        st.session_state[
+            "x_processed"
+        ] = x
 
     # =====================================================
     # TAB 3 — VALIDATION
@@ -914,9 +995,9 @@ def render_spectral_deconvolution_tab():
                         np.max(origin_interp)
                     )
 
-                    # ====================================
+                    # =====================================
                     # METRICS
-                    # ====================================
+                    # =====================================
 
                     rmse_origin = np.sqrt(
 
@@ -973,9 +1054,9 @@ def render_spectral_deconvolution_tab():
                         f"{pearson:.5f}"
                     )
 
-                    # ====================================
+                    # =====================================
                     # OVERLAY
-                    # ====================================
+                    # =====================================
 
                     fig_cmp, ax_cmp = plt.subplots(
                         figsize=(12,6)
