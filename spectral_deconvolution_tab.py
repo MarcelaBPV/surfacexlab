@@ -140,6 +140,7 @@ def render_spectral_deconvolution_tab():
     - Residual Analysis
     - Origin Validation
     - Raman Intelligence
+
     """)
 
     st.divider()
@@ -534,7 +535,7 @@ def render_spectral_deconvolution_tab():
         y_corr = y_corr / np.max(y_corr)
 
         # =================================================
-        # PREPROCESSING PLOT
+        # COMPACT PREPROCESSING FIGURE
         # =================================================
 
         fig_pre, (ax1, ax2) = plt.subplots(
@@ -543,9 +544,13 @@ def render_spectral_deconvolution_tab():
 
             1,
 
-            figsize=(10,8),
+            figsize=(8,5),
 
-            sharex=True
+            sharex=True,
+
+            gridspec_kw={
+                'height_ratios': [1, 1]
+            }
         )
 
         ax1.plot(
@@ -556,7 +561,7 @@ def render_spectral_deconvolution_tab():
 
             color='gray',
 
-            lw=1.5,
+            lw=1.2,
 
             label='Raw'
         )
@@ -569,7 +574,7 @@ def render_spectral_deconvolution_tab():
 
             color='orange',
 
-            lw=2,
+            lw=1.8,
 
             label='Smoothed'
         )
@@ -587,9 +592,16 @@ def render_spectral_deconvolution_tab():
             label='Baseline'
         )
 
-        ax1.legend()
+        ax1.legend(
+            fontsize=8
+        )
 
         ax1.grid(alpha=0.2)
+
+        ax1.set_ylabel(
+            "Intensity",
+            fontsize=9
+        )
 
         ax2.plot(
 
@@ -603,11 +615,13 @@ def render_spectral_deconvolution_tab():
         )
 
         ax2.set_xlabel(
-            "Raman shift (cm⁻¹)"
+            "Raman shift (cm⁻¹)",
+            fontsize=10
         )
 
         ax2.set_ylabel(
-            "Normalized Intensity"
+            "Normalized",
+            fontsize=9
         )
 
         ax2.grid(alpha=0.2)
@@ -715,10 +729,6 @@ def render_spectral_deconvolution_tab():
 
             prefix = f"p{i}_"
 
-            # =============================================
-            # MODEL TYPE
-            # =============================================
-
             if model_type == "Lorentzian":
 
                 peak_model = LorentzianModel(
@@ -736,10 +746,6 @@ def render_spectral_deconvolution_tab():
                 peak_model = PseudoVoigtModel(
                     prefix=prefix
                 )
-
-            # =============================================
-            # BUILD MODEL
-            # =============================================
 
             if model is None:
 
@@ -823,11 +829,11 @@ def render_spectral_deconvolution_tab():
         )
 
         # =================================================
-        # FIT PLOT
+        # PUBLICATION-GRADE FIT FIGURE
         # =================================================
 
         fig_fit, ax_fit = plt.subplots(
-            figsize=(12,7)
+            figsize=(10,6)
         )
 
         ax_fit.plot(
@@ -853,12 +859,12 @@ def render_spectral_deconvolution_tab():
 
             color='red',
 
-            lw=2,
+            lw=2.5,
 
-            label='Automatic Fit'
+            label='Global Fit'
         )
 
-        colors = plt.cm.tab20.colors
+        colors = plt.cm.Set2.colors
 
         for i, peak in enumerate(peak_positions):
 
@@ -874,7 +880,7 @@ def render_spectral_deconvolution_tab():
 
                 comp,
 
-                alpha=0.35,
+                alpha=0.5,
 
                 color=colors[
                     i % len(colors)
@@ -887,7 +893,7 @@ def render_spectral_deconvolution_tab():
 
                 comp,
 
-                lw=1,
+                lw=1.3,
 
                 color=colors[
                     i % len(colors)
@@ -923,7 +929,9 @@ def render_spectral_deconvolution_tab():
                     ypos + 0.05
                 ),
 
-                fontsize=8,
+                fontsize=9,
+
+                fontweight='bold',
 
                 arrowprops=dict(
                     arrowstyle='->',
@@ -932,14 +940,18 @@ def render_spectral_deconvolution_tab():
             )
 
         ax_fit.set_xlabel(
-            "Raman shift (cm⁻¹)"
+            "Raman shift (cm⁻¹)",
+            fontsize=14
         )
 
         ax_fit.set_ylabel(
-            "Normalized Intensity"
+            "Normalized Intensity",
+            fontsize=14
         )
 
-        ax_fit.legend()
+        ax_fit.legend(
+            fontsize=10
+        )
 
         ax_fit.grid(alpha=0.2)
 
@@ -956,7 +968,7 @@ def render_spectral_deconvolution_tab():
         )
 
         fig_res, ax_res = plt.subplots(
-            figsize=(12,3)
+            figsize=(10,2.5)
         )
 
         ax_res.plot(
@@ -1001,7 +1013,7 @@ def render_spectral_deconvolution_tab():
         )
 
         # =================================================
-        # MOLECULAR IDENTIFICATION
+        # IDENTIFIED PEAKS
         # =================================================
 
         st.subheader(
@@ -1014,171 +1026,3 @@ def render_spectral_deconvolution_tab():
 
             width='stretch'
         )
-
-        # SAVE
-        st.session_state[
-            "result_best_fit"
-        ] = result.best_fit
-
-        st.session_state[
-            "x_processed"
-        ] = x
-
-    # =====================================================
-    # TAB 3 — VALIDATION
-    # =====================================================
-
-    with tab3:
-
-        st.header(
-            "📉 Origin Validation"
-        )
-
-        if "result_best_fit" not in st.session_state:
-
-            st.warning(
-                "Run fitting first."
-            )
-
-        else:
-
-            origin_file = st.file_uploader(
-
-                "Upload Origin Export",
-
-                type=["csv","txt"]
-            )
-
-            if origin_file is not None:
-
-                try:
-
-                    origin_df = pd.read_csv(
-                        origin_file
-                    )
-
-                    x_proc = st.session_state[
-                        "x_processed"
-                    ]
-
-                    fit_proc = st.session_state[
-                        "result_best_fit"
-                    ]
-
-                    origin_x = origin_df.iloc[:,0].values
-                    origin_y = origin_df.iloc[:,1].values
-
-                    origin_interp = np.interp(
-
-                        x_proc,
-
-                        origin_x,
-
-                        origin_y
-                    )
-
-                    origin_interp = (
-                        origin_interp /
-                        np.max(origin_interp)
-                    )
-
-                    rmse_origin = np.sqrt(
-
-                        np.mean(
-                            (
-                                origin_interp -
-                                fit_proc
-                            )**2
-                        )
-                    )
-
-                    ss_res = np.sum(
-
-                        (
-                            origin_interp -
-                            fit_proc
-                        )**2
-                    )
-
-                    ss_tot = np.sum(
-
-                        (
-                            origin_interp -
-                            np.mean(origin_interp)
-                        )**2
-                    )
-
-                    r2 = 1 - (
-                        ss_res / ss_tot
-                    )
-
-                    pearson = np.corrcoef(
-
-                        origin_interp,
-
-                        fit_proc
-
-                    )[0,1]
-
-                    col1, col2, col3 = st.columns(3)
-
-                    col1.metric(
-                        "RMSE",
-                        f"{rmse_origin:.6f}"
-                    )
-
-                    col2.metric(
-                        "R²",
-                        f"{r2:.5f}"
-                    )
-
-                    col3.metric(
-                        "Pearson",
-                        f"{pearson:.5f}"
-                    )
-
-                    fig_cmp, ax_cmp = plt.subplots(
-                        figsize=(12,6)
-                    )
-
-                    ax_cmp.plot(
-
-                        x_proc,
-
-                        origin_interp,
-
-                        color='black',
-
-                        lw=2,
-
-                        label='Origin Manual'
-                    )
-
-                    ax_cmp.plot(
-
-                        x_proc,
-
-                        fit_proc,
-
-                        '--',
-
-                        color='red',
-
-                        lw=2,
-
-                        label='SurfaceXLab'
-                    )
-
-                    ax_cmp.legend()
-
-                    ax_cmp.grid(alpha=0.2)
-
-                    plt.tight_layout()
-
-                    st.pyplot(fig_cmp)
-
-                except Exception as e:
-
-                    st.error(
-                        f"Origin validation error: {e}"
-                    )
