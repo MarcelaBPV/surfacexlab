@@ -20,6 +20,45 @@ from lmfit.models import (
 )
 
 # =========================================================
+# BASELINE ASLS
+# =========================================================
+
+def baseline_asls(
+    y,
+    lam=1e6,
+    p=0.001,
+    niter=10
+):
+
+    L = len(y)
+
+    D = sparse.diags(
+        [1, -2, 1],
+        [0, -1, -2],
+        shape=(L, L - 2)
+    )
+
+    w = np.ones(L)
+
+    for i in range(niter):
+
+        W = sparse.spdiags(
+            w,
+            0,
+            L,
+            L
+        )
+
+        Z = W + lam * D.dot(D.transpose())
+
+        z = spsolve(Z, w * y)
+
+        w = p * (y > z) + (1 - p) * (y < z)
+
+    return z
+
+
+# =========================================================
 # PAGE
 # =========================================================
 
@@ -43,7 +82,7 @@ def render_spectral_deconvolution_tab():
     st.divider()
 
     # =====================================================
-    # SIDEBAR CONFIG
+    # CONFIGURAÇÕES
     # =====================================================
 
     st.subheader("⚙ Configurações")
@@ -131,188 +170,6 @@ def render_spectral_deconvolution_tab():
 
     st.write(df.head())
 
-    # =========================================================
-# PLOTAGEM DOS 18 ESPECTROS DO MAPEAMENTO
-# ADICIONAR DENTRO DO:
-# render_spectral_deconvolution_tab()
-# =========================================================
-
-st.divider()
-
-st.header("🧬 Raman Mapping — 18 Spectra")
-
-st.markdown("""
-Visualização automática dos espectros Raman adquiridos
-ao longo do eixo espacial da amostra.
-""")
-
-# =====================================================
-# DETECTAR SE É MAPEAMENTO
-# =====================================================
-
-required_cols = ['x', 'y']
-
-if all(col in df.columns for col in required_cols):
-
-    st.success("Mapeamento Raman detectado.")
-
-    # =================================================
-    # COORDENADAS ÚNICAS
-    # =================================================
-
-    coords = (
-        df[['x', 'y']]
-        .drop_duplicates()
-        .sort_values(by=['y', 'x'])
-    )
-
-    st.write(
-        f"Total de posições detectadas: {len(coords)}"
-    )
-
-    # =================================================
-    # QUANTIDADE DE ESPECTROS
-    # =================================================
-
-    n_spectra = st.slider(
-
-        "Quantidade de espectros",
-
-        min_value=1,
-
-        max_value=min(36, len(coords)),
-
-        value=min(18, len(coords))
-    )
-
-    selected_coords = coords.head(n_spectra)
-
-    # =================================================
-    # FIGURA DOS ESPECTROS
-    # =================================================
-
-    fig, axes = plt.subplots(
-
-        nrows=int(np.ceil(n_spectra / 3)),
-
-        ncols=3,
-
-        figsize=(15, 4 * int(np.ceil(n_spectra / 3)))
-    )
-
-    axes = np.array(axes).flatten()
-
-    # =================================================
-    # LOOP DOS ESPECTROS
-    # =================================================
-
-    for idx, (_, row) in enumerate(
-        selected_coords.iterrows()
-    ):
-
-        x_pos = row['x']
-        y_pos = row['y']
-
-        sub = df[
-            (df['x'] == x_pos) &
-            (df['y'] == y_pos)
-        ]
-
-        if len(sub) < 10:
-            continue
-
-        wave = sub[x_col].values
-        inten = sub[y_col].values
-
-        # suavização
-        inten_smooth = savgol_filter(
-            inten,
-            smooth_window,
-            polyorder
-        )
-
-        # baseline
-        baseline = baseline_asls(
-            inten_smooth
-        )
-
-        inten_corr = (
-            inten_smooth - baseline
-        )
-
-        inten_corr = (
-            inten_corr /
-            np.max(inten_corr)
-        )
-
-        ax = axes[idx]
-
-        ax.plot(
-
-            wave,
-
-            inten_corr,
-
-            color='black',
-
-            lw=1.2
-        )
-
-        ax.set_title(
-
-            f"Y = {y_pos:.0f} µm",
-
-            fontsize=11
-        )
-
-        ax.set_xlabel(
-            "Raman shift"
-        )
-
-        ax.set_ylabel(
-            "Intensity"
-        )
-
-        ax.invert_xaxis()
-
-        ax.grid(alpha=0.2)
-
-    # remover eixos vazios
-    for j in range(idx + 1, len(axes)):
-
-        fig.delaxes(axes[j])
-
-    plt.tight_layout()
-
-    st.pyplot(fig)
-
-    # =================================================
-    # EXPORT FIGURE
-    # =================================================
-
-    fig.savefig(
-
-        "raman_mapping_18_spectra.png",
-
-        dpi=600,
-
-        bbox_inches='tight'
-    )
-
-    st.success(
-        "Figura publication-grade gerada."
-    )
-
-else:
-
-    st.warning("""
-    Arquivo não possui colunas:
-    - x
-    - y
-
-    Necessárias para mapeamento Raman.
-    """)
-
     # =====================================================
     # SELECT COLUMNS
     # =====================================================
@@ -327,21 +184,181 @@ else:
 
         x_col = st.selectbox(
             "Eixo Raman",
-            cols
+            cols,
+            index=0
         )
 
     with col2:
 
         y_col = st.selectbox(
             "Intensidade",
-            cols
+            cols,
+            index=1
         )
 
     x = df[x_col].values
     y = df[y_col].values
 
     # =====================================================
-    # REGION SELECTION
+    # PLOTAGEM DOS 18 ESPECTROS
+    # =====================================================
+
+    st.divider()
+
+    st.header("🧬 Raman Mapping — 18 Spectra")
+
+    st.markdown("""
+    Visualização automática dos espectros Raman adquiridos
+    ao longo do eixo espacial da amostra.
+    """)
+
+    required_cols = ['x', 'y']
+
+    if all(col in df.columns for col in required_cols):
+
+        st.success("Mapeamento Raman detectado.")
+
+        coords = (
+            df[['x', 'y']]
+            .drop_duplicates()
+            .sort_values(by=['y', 'x'])
+        )
+
+        st.write(
+            f"Total de posições detectadas: {len(coords)}"
+        )
+
+        n_spectra = st.slider(
+
+            "Quantidade de espectros",
+
+            min_value=1,
+
+            max_value=min(36, len(coords)),
+
+            value=min(18, len(coords))
+        )
+
+        selected_coords = coords.head(n_spectra)
+
+        ncols = 3
+        nrows = int(np.ceil(n_spectra / ncols))
+
+        fig, axes = plt.subplots(
+
+            nrows=nrows,
+
+            ncols=ncols,
+
+            figsize=(15, 4 * nrows)
+        )
+
+        axes = np.array(axes).flatten()
+
+        for idx, (_, row) in enumerate(
+            selected_coords.iterrows()
+        ):
+
+            x_pos = row['x']
+            y_pos = row['y']
+
+            sub = df[
+                (df['x'] == x_pos) &
+                (df['y'] == y_pos)
+            ]
+
+            if len(sub) < 10:
+                continue
+
+            wave = sub[x_col].values
+            inten = sub[y_col].values
+
+            inten_smooth = savgol_filter(
+                inten,
+                smooth_window,
+                polyorder
+            )
+
+            baseline = baseline_asls(
+                inten_smooth
+            )
+
+            inten_corr = (
+                inten_smooth - baseline
+            )
+
+            if np.max(inten_corr) != 0:
+
+                inten_corr = (
+                    inten_corr /
+                    np.max(inten_corr)
+                )
+
+            ax = axes[idx]
+
+            ax.plot(
+
+                wave,
+
+                inten_corr,
+
+                color='black',
+
+                lw=1.2
+            )
+
+            ax.set_title(
+
+                f"Y = {y_pos:.0f} µm",
+
+                fontsize=11
+            )
+
+            ax.set_xlabel(
+                "Raman shift"
+            )
+
+            ax.set_ylabel(
+                "Intensity"
+            )
+
+            ax.grid(alpha=0.2)
+
+            ax.invert_xaxis()
+
+        for j in range(idx + 1, len(axes)):
+
+            fig.delaxes(axes[j])
+
+        plt.tight_layout()
+
+        st.pyplot(fig)
+
+        fig.savefig(
+
+            "raman_mapping_18_spectra.png",
+
+            dpi=600,
+
+            bbox_inches='tight'
+        )
+
+        st.success(
+            "Figura publication-grade gerada."
+        )
+
+    else:
+
+        st.warning("""
+        Arquivo não possui colunas:
+        - x
+        - y
+
+        Necessárias para mapeamento Raman.
+        """)
+
+    # =====================================================
+    # REGIÃO ESPECTRAL
     # =====================================================
 
     st.subheader("🔍 Região Espectral")
@@ -378,56 +395,24 @@ else:
     )
 
     # =====================================================
-    # BASELINE ASLS
+    # BASELINE
     # =====================================================
-
-    def baseline_asls(
-        y,
-        lam=1e6,
-        p=0.001,
-        niter=10
-    ):
-
-        L = len(y)
-
-        D = sparse.diags(
-            [1, -2, 1],
-            [0, -1, -2],
-            shape=(L, L-2)
-        )
-
-        w = np.ones(L)
-
-        for i in range(niter):
-
-            W = sparse.spdiags(
-                w,
-                0,
-                L,
-                L
-            )
-
-            Z = W + lam * D.dot(D.transpose())
-
-            z = spsolve(Z, w * y)
-
-            w = p * (y > z) + (1-p) * (y < z)
-
-        return z
 
     baseline = baseline_asls(y_smooth)
 
     y_corr = y_smooth - baseline
 
-    y_corr = y_corr / np.max(y_corr)
+    if np.max(y_corr) != 0:
+
+        y_corr = y_corr / np.max(y_corr)
 
     # =====================================================
-    # PLOT PREPROCESSING
+    # PREPROCESSING PLOT
     # =====================================================
 
     st.subheader("📈 Pré-processamento")
 
-    fig, ax = plt.subplots(figsize=(10,5))
+    fig, ax = plt.subplots(figsize=(10, 5))
 
     ax.plot(
         x,
@@ -512,7 +497,7 @@ else:
     peak_x = x[peaks]
     peak_y = y_corr[peaks]
 
-    fig, ax = plt.subplots(figsize=(10,5))
+    fig, ax = plt.subplots(figsize=(10, 5))
 
     ax.plot(x, y_corr)
 
@@ -573,9 +558,9 @@ else:
 
             value=center,
 
-            min=center-10,
+            min=center - 10,
 
-            max=center+10
+            max=center + 10
         )
 
         pars[prefix + 'sigma'].set(
@@ -625,12 +610,12 @@ else:
     components = result.eval_components(x=x)
 
     # =====================================================
-    # PUBLICATION PLOT
+    # PUBLICATION FITTING
     # =====================================================
 
     st.subheader("📊 Publication-Grade Fitting")
 
-    fig, ax = plt.subplots(figsize=(12,7))
+    fig, ax = plt.subplots(figsize=(12, 7))
 
     ax.plot(
 
@@ -695,7 +680,7 @@ else:
 
             xy=(fitted_center, ypos),
 
-            xytext=(fitted_center+5, ypos+0.05),
+            xytext=(fitted_center + 5, ypos + 0.05),
 
             fontsize=9,
 
@@ -728,7 +713,7 @@ else:
 
     residual = y_corr - result.best_fit
 
-    fig, ax = plt.subplots(figsize=(10,3))
+    fig, ax = plt.subplots(figsize=(10, 3))
 
     ax.plot(
         x,
@@ -762,32 +747,30 @@ else:
 
         peak_results.append({
 
-            "Peak":
-
-                i + 1,
+            "Peak": i + 1,
 
             "Center (cm⁻¹)":
 
                 result.params[
-                    prefix+'center'
+                    prefix + 'center'
                 ].value,
 
             "FWHM":
 
                 result.params[
-                    prefix+'fwhm'
+                    prefix + 'fwhm'
                 ].value,
 
             "Amplitude":
 
                 result.params[
-                    prefix+'amplitude'
+                    prefix + 'amplitude'
                 ].value,
 
             "Sigma":
 
                 result.params[
-                    prefix+'sigma'
+                    prefix + 'sigma'
                 ].value
         })
 
