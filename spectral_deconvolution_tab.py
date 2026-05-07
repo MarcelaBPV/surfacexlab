@@ -1,6 +1,6 @@
 # =========================================================
 # SurfaceXLab — Spectral Deconvolution Module
-# Publication-Grade Raman Multi-Peak Fitting
+# Raman Mapping + Multi-Peak Fitting
 # =========================================================
 
 import streamlit as st
@@ -30,24 +30,27 @@ def baseline_asls(
     niter=10
 ):
 
+    y = np.asarray(y, dtype=float)
+
     L = len(y)
 
     D = sparse.diags(
         [1, -2, 1],
         [0, -1, -2],
-        shape=(L, L - 2)
-    )
+        shape=(L, L - 2),
+        dtype=float
+    ).tocsc()
 
     w = np.ones(L)
 
-    for i in range(niter):
+    for _ in range(niter):
 
         W = sparse.spdiags(
             w,
             0,
             L,
             L
-        )
+        ).tocsc()
 
         Z = W + lam * D.dot(D.transpose())
 
@@ -59,7 +62,7 @@ def baseline_asls(
 
 
 # =========================================================
-# PAGE
+# MAIN TAB
 # =========================================================
 
 def render_spectral_deconvolution_tab():
@@ -67,22 +70,21 @@ def render_spectral_deconvolution_tab():
     st.title("🧪 Spectral Deconvolution")
 
     st.markdown("""
-    Ajuste espectral multi-pico automatizado utilizando
-    modelos Lorentzianos, Gaussianos e Pseudo-Voigt.
-
-    O módulo executa:
+    Ajuste espectral multi-pico automatizado utilizando:
+    
     - Correção de linha de base
     - Suavização espectral
     - Detecção automática de picos
-    - Deconvolução multi-pico
+    - Fitting Lorentziano
+    - Fitting Pseudo-Voigt
     - Extração de FWHM
-    - Identificação molecular
+    - Raman Mapping
     """)
 
     st.divider()
 
     # =====================================================
-    # CONFIGURAÇÕES
+    # CONFIG
     # =====================================================
 
     st.subheader("⚙ Configurações")
@@ -122,12 +124,12 @@ def render_spectral_deconvolution_tab():
     st.divider()
 
     # =====================================================
-    # FILE UPLOAD
+    # UPLOAD
     # =====================================================
 
     uploaded_file = st.file_uploader(
 
-        "Upload Raman Spectrum",
+        "Upload Raman File",
 
         type=[
             "txt",
@@ -138,12 +140,12 @@ def render_spectral_deconvolution_tab():
 
     if uploaded_file is None:
 
-        st.info("Faça upload de um espectro Raman.")
+        st.info("Faça upload do arquivo Raman.")
 
         return
 
     # =====================================================
-    # LOAD DATA
+    # LOAD FILE
     # =====================================================
 
     try:
@@ -156,7 +158,7 @@ def render_spectral_deconvolution_tab():
 
             df = pd.read_csv(
                 uploaded_file,
-                sep=None,
+                sep=r"\s+|,|;",
                 engine="python"
             )
 
@@ -171,61 +173,36 @@ def render_spectral_deconvolution_tab():
     st.write(df.head())
 
     # =====================================================
-    # SELECT COLUMNS
+    # STANDARDIZE COLUMN NAMES
     # =====================================================
 
-    st.subheader("📌 Seleção das Colunas")
-
-    cols = df.columns.tolist()
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-
-        x_col = st.selectbox(
-            "Eixo Raman",
-            cols,
-            index=0
-        )
-
-    with col2:
-
-        y_col = st.selectbox(
-            "Intensidade",
-            cols,
-            index=1
-        )
-
-    x = df[x_col].values
-    y = df[y_col].values
+    df.columns = [
+        str(c).strip()
+        for c in df.columns
+    ]
 
     # =====================================================
-    # PLOTAGEM DOS 18 ESPECTROS
+    # RAMAN MAPPING
     # =====================================================
 
-    st.divider()
+    if all(col in df.columns for col in ['x', 'y']):
 
-    st.header("🧬 Raman Mapping — 18 Spectra")
+        st.divider()
 
-    st.markdown("""
-    Visualização automática dos espectros Raman adquiridos
-    ao longo do eixo espacial da amostra.
-    """)
-
-    required_cols = ['x', 'y']
-
-    if all(col in df.columns for col in required_cols):
+        st.header("🧬 Raman Mapping — 18 Spectra")
 
         st.success("Mapeamento Raman detectado.")
 
-        coords = (
-            df[['x', 'y']]
-            .drop_duplicates()
-            .sort_values(by=['y', 'x'])
-        )
+        # ================================================
+        # GROUP SPECTRA
+        # ================================================
+
+        grouped = df.groupby(['x', 'y'])
+
+        coords = list(grouped.groups.keys())
 
         st.write(
-            f"Total de posições detectadas: {len(coords)}"
+            f"Total de espectros encontrados: {len(coords)}"
         )
 
         n_spectra = st.slider(
@@ -239,7 +216,11 @@ def render_spectral_deconvolution_tab():
             value=min(18, len(coords))
         )
 
-        selected_coords = coords.head(n_spectra)
+        coords = coords[:n_spectra]
+
+        # ================================================
+        # GRID
+        # ================================================
 
         ncols = 3
         nrows = int(np.ceil(n_spectra / ncols))
@@ -255,30 +236,56 @@ def render_spectral_deconvolution_tab():
 
         axes = np.array(axes).flatten()
 
-        for idx, (_, row) in enumerate(
-            selected_coords.iterrows()
-        ):
+        # ================================================
+        # LOOP
+        # ================================================
 
-            x_pos = row['x']
-            y_pos = row['y']
+        for idx, (x_pos, y_pos) in enumerate(coords):
 
-            sub = df[
-                (df['x'] == x_pos) &
-                (df['y'] == y_pos)
-            ]
+            sub = grouped.get_group(
+                (x_pos, y_pos)
+            )
 
-            if len(sub) < 10:
-                continue
+            # ============================================
+            # COLUMN DETECTION
+            # ============================================
 
-            wave = sub[x_col].values
-            inten = sub[y_col].values
+            wave_col = None
+            inten_col = None
 
+            for c in df.columns:
+
+                if 'wave' in c.lower():
+
+                    wave_col = c
+
+                if 'intensity' in c.lower():
+
+                    inten_col = c
+
+            if wave_col is None:
+                wave_col = df.columns[2]
+
+            if inten_col is None:
+                inten_col = df.columns[3]
+
+            wave = sub[wave_col].values
+            inten = sub[inten_col].values
+
+            # ordenar
+            order = np.argsort(wave)
+
+            wave = wave[order]
+            inten = inten[order]
+
+            # smoothing
             inten_smooth = savgol_filter(
                 inten,
                 smooth_window,
                 polyorder
             )
 
+            # baseline
             baseline = baseline_asls(
                 inten_smooth
             )
@@ -287,11 +294,13 @@ def render_spectral_deconvolution_tab():
                 inten_smooth - baseline
             )
 
-            if np.max(inten_corr) != 0:
+            # normalize
+            max_val = np.max(inten_corr)
+
+            if max_val != 0:
 
                 inten_corr = (
-                    inten_corr /
-                    np.max(inten_corr)
+                    inten_corr / max_val
                 )
 
             ax = axes[idx]
@@ -315,7 +324,7 @@ def render_spectral_deconvolution_tab():
             )
 
             ax.set_xlabel(
-                "Raman shift"
+                "Raman shift (cm⁻¹)"
             )
 
             ax.set_ylabel(
@@ -326,6 +335,10 @@ def render_spectral_deconvolution_tab():
 
             ax.invert_xaxis()
 
+        # ================================================
+        # REMOVE EMPTY AXES
+        # ================================================
+
         for j in range(idx + 1, len(axes)):
 
             fig.delaxes(axes[j])
@@ -333,6 +346,10 @@ def render_spectral_deconvolution_tab():
         plt.tight_layout()
 
         st.pyplot(fig)
+
+        # ================================================
+        # SAVE
+        # ================================================
 
         fig.savefig(
 
@@ -344,21 +361,42 @@ def render_spectral_deconvolution_tab():
         )
 
         st.success(
-            "Figura publication-grade gerada."
+            "18 espectros Raman plotados."
         )
 
-    else:
+    # =====================================================
+    # SINGLE SPECTRUM
+    # =====================================================
 
-        st.warning("""
-        Arquivo não possui colunas:
-        - x
-        - y
+    st.divider()
 
-        Necessárias para mapeamento Raman.
-        """)
+    st.header("📈 Single Spectrum Analysis")
+
+    cols = df.columns.tolist()
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+
+        x_col = st.selectbox(
+            "Eixo Raman",
+            cols,
+            index=min(2, len(cols)-1)
+        )
+
+    with col2:
+
+        y_col = st.selectbox(
+            "Intensidade",
+            cols,
+            index=min(3, len(cols)-1)
+        )
+
+    x = df[x_col].values
+    y = df[y_col].values
 
     # =====================================================
-    # REGIÃO ESPECTRAL
+    # REGION
     # =====================================================
 
     st.subheader("🔍 Região Espectral")
@@ -385,7 +423,7 @@ def render_spectral_deconvolution_tab():
     y = y[mask]
 
     # =====================================================
-    # SMOOTHING
+    # PREPROCESS
     # =====================================================
 
     y_smooth = savgol_filter(
@@ -394,23 +432,23 @@ def render_spectral_deconvolution_tab():
         polyorder
     )
 
-    # =====================================================
-    # BASELINE
-    # =====================================================
-
-    baseline = baseline_asls(y_smooth)
+    baseline = baseline_asls(
+        y_smooth
+    )
 
     y_corr = y_smooth - baseline
 
-    if np.max(y_corr) != 0:
+    max_val = np.max(y_corr)
 
-        y_corr = y_corr / np.max(y_corr)
+    if max_val != 0:
+
+        y_corr = y_corr / max_val
 
     # =====================================================
-    # PREPROCESSING PLOT
+    # PREPROCESS PLOT
     # =====================================================
 
-    st.subheader("📈 Pré-processamento")
+    st.subheader("📊 Pré-processamento")
 
     fig, ax = plt.subplots(figsize=(10, 5))
 
@@ -441,7 +479,8 @@ def render_spectral_deconvolution_tab():
 
     ax.legend()
 
-    ax.set_xlabel("Raman shift (cm⁻¹)")
+    ax.set_xlabel("Raman shift")
+
     ax.set_ylabel("Intensity")
 
     ax.invert_xaxis()
@@ -454,44 +493,15 @@ def render_spectral_deconvolution_tab():
 
     st.subheader("📍 Peak Detection")
 
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-
-        prominence = st.slider(
-            "Prominence",
-            0.001,
-            1.0,
-            0.03
-        )
-
-    with col2:
-
-        distance = st.slider(
-            "Distance",
-            1,
-            100,
-            20
-        )
-
-    with col3:
-
-        width = st.slider(
-            "Width",
-            1,
-            100,
-            5
-        )
-
     peaks, props = find_peaks(
 
         y_corr,
 
-        prominence=prominence,
+        prominence=0.03,
 
-        distance=distance,
+        distance=20,
 
-        width=width
+        width=5
     )
 
     peak_x = x[peaks]
@@ -506,8 +516,6 @@ def render_spectral_deconvolution_tab():
         peak_y,
         color='red'
     )
-
-    ax.set_title("Detected Peaks")
 
     ax.invert_xaxis()
 
@@ -579,17 +587,6 @@ def render_spectral_deconvolution_tab():
             min=0
         )
 
-        if model_type == "Pseudo-Voigt":
-
-            pars[prefix + 'fraction'].set(
-
-                value=0.5,
-
-                min=0,
-
-                max=1
-            )
-
         if params is None:
 
             params = pars
@@ -610,10 +607,10 @@ def render_spectral_deconvolution_tab():
     components = result.eval_components(x=x)
 
     # =====================================================
-    # PUBLICATION FITTING
+    # FIT PLOT
     # =====================================================
 
-    st.subheader("📊 Publication-Grade Fitting")
+    st.subheader("📉 Publication-Grade Fitting")
 
     fig, ax = plt.subplots(figsize=(12, 7))
 
@@ -661,18 +658,18 @@ def render_spectral_deconvolution_tab():
 
             color=cmap[i % len(cmap)],
 
-            lw=1.5
+            lw=1.2
         )
 
         fitted_center = result.params[
             prefix + 'center'
         ].value
 
-        idx = np.argmin(
+        idx_peak = np.argmin(
             np.abs(x - fitted_center)
         )
 
-        ypos = comp[idx]
+        ypos = comp[idx_peak]
 
         ax.annotate(
 
@@ -680,9 +677,12 @@ def render_spectral_deconvolution_tab():
 
             xy=(fitted_center, ypos),
 
-            xytext=(fitted_center + 5, ypos + 0.05),
+            xytext=(
+                fitted_center + 5,
+                ypos + 0.05
+            ),
 
-            fontsize=9,
+            fontsize=8,
 
             arrowprops=dict(
                 arrowstyle='->'
@@ -697,39 +697,11 @@ def render_spectral_deconvolution_tab():
         "Normalized Intensity"
     )
 
-    ax.legend()
+    ax.legend(loc='upper right')
 
     ax.grid(alpha=0.2)
 
     ax.invert_xaxis()
-
-    st.pyplot(fig)
-
-    # =====================================================
-    # RESIDUAL
-    # =====================================================
-
-    st.subheader("📉 Residual")
-
-    residual = y_corr - result.best_fit
-
-    fig, ax = plt.subplots(figsize=(10, 3))
-
-    ax.plot(
-        x,
-        residual,
-        color='black'
-    )
-
-    ax.axhline(
-        0,
-        linestyle='--',
-        color='red'
-    )
-
-    ax.invert_xaxis()
-
-    ax.set_title("Residual")
 
     st.pyplot(fig)
 
@@ -765,12 +737,6 @@ def render_spectral_deconvolution_tab():
 
                 result.params[
                     prefix + 'amplitude'
-                ].value,
-
-            "Sigma":
-
-                result.params[
-                    prefix + 'sigma'
                 ].value
         })
 
@@ -780,7 +746,7 @@ def render_spectral_deconvolution_tab():
 
     st.dataframe(
         peak_df,
-        use_container_width=True
+        width='stretch'
     )
 
     # =====================================================
