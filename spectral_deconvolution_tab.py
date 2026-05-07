@@ -532,8 +532,6 @@ def render_spectral_deconvolution_tab():
 
         y_corr = y_corr - np.min(y_corr)
 
-        y_corr = y_corr / np.max(y_corr)
-
         # =================================================
         # COMPACT PREPROCESSING FIGURE
         # =================================================
