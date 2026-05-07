@@ -7,7 +7,6 @@ import streamlit as st
 import logging
 from datetime import datetime
 
-
 # =========================================================
 # IMPORTAÇÃO DOS MÓDULOS
 # =========================================================
@@ -29,6 +28,12 @@ from pca_tab import (
     render_pca_tab
 )
 
+# =========================================================
+# NOVO MÓDULO — DECONVOLUÇÃO ESPECTRAL
+# =========================================================
+from spectral_deconvolution_tab import (
+    render_spectral_deconvolution_tab
+)
 
 # =========================================================
 # CONFIGURAÇÃO DO APP
@@ -46,7 +51,6 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-
 # =========================================================
 # LOGGING
 # =========================================================
@@ -60,7 +64,6 @@ logging.basicConfig(
 )
 
 logging.info("Aplicação iniciada")
-
 
 # =========================================================
 # ESTILO GLOBAL
@@ -88,7 +91,6 @@ h1, h2, h3 {
 </style>
 """, unsafe_allow_html=True)
 
-
 # =========================================================
 # SESSION STATE
 # =========================================================
@@ -115,7 +117,6 @@ if "tensiometria_samples" not in st.session_state:
 if "perfilometria_samples" not in st.session_state:
 
     st.session_state.perfilometria_samples = {}
-
 
 # =========================================================
 # FUNÇÕES AUXILIARES
@@ -149,13 +150,11 @@ def create_sample(
             f"Amostra criada: {sample_id}"
         )
 
-
 def get_total_samples():
 
     return len(
         st.session_state.samples
     )
-
 
 def get_total_module(module_key):
 
@@ -168,7 +167,6 @@ def get_total_module(module_key):
 
     return len(data)
 
-
 # =========================================================
 # HEADER
 # =========================================================
@@ -180,7 +178,6 @@ st.caption(
 )
 
 st.divider()
-
 
 # =========================================================
 # SIDEBAR
@@ -240,13 +237,12 @@ with st.sidebar:
             "Nenhuma amostra cadastrada."
         )
 
-
 # =========================================================
 # DASHBOARD
 # =========================================================
 st.subheader("📊 Visão Geral")
 
-col1, col2, col3, col4, col5 = st.columns(5)
+col1, col2, col3, col4, col5, col6 = st.columns(6)
 
 col1.metric(
 
@@ -291,8 +287,14 @@ col5.metric(
     )
 )
 
-st.divider()
+col6.metric(
 
+    "🧪 Fitting",
+
+    0
+)
+
+st.divider()
 
 # =========================================================
 # ABAS
@@ -307,9 +309,10 @@ tabs = st.tabs([
 
     "📏 Perfilometria",
 
-    "🧠 Integração Multimodal"
-])
+    "🧠 Integração Multimodal",
 
+    "🧪 Spectral Deconvolution"
+])
 
 # =========================================================
 # ABA RAMAN
@@ -332,7 +335,6 @@ with tabs[0]:
 
         st.exception(e)
 
-
 # =========================================================
 # ABA ELÉTRICA
 # =========================================================
@@ -353,7 +355,6 @@ with tabs[1]:
         )
 
         st.exception(e)
-
 
 # =========================================================
 # ABA TENSIOMETRIA
@@ -376,7 +377,6 @@ with tabs[2]:
 
         st.exception(e)
 
-
 # =========================================================
 # ABA PERFILOMETRIA
 # =========================================================
@@ -398,9 +398,8 @@ with tabs[3]:
 
         st.exception(e)
 
-
 # =========================================================
-# ABA PCA
+# ABA PCA / MULTIMODAL
 # =========================================================
 with tabs[4]:
 
@@ -420,6 +419,26 @@ with tabs[4]:
 
         st.exception(e)
 
+# =========================================================
+# ABA SPECTRAL DECONVOLUTION
+# =========================================================
+with tabs[5]:
+
+    try:
+
+        render_spectral_deconvolution_tab()
+
+    except Exception as e:
+
+        logging.error(
+            f"Erro módulo spectral deconvolution: {str(e)}"
+        )
+
+        st.error(
+            "Erro no módulo spectral deconvolution."
+        )
+
+        st.exception(e)
 
 # =========================================================
 # RODAPÉ
