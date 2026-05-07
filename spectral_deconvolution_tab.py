@@ -131,6 +131,188 @@ def render_spectral_deconvolution_tab():
 
     st.write(df.head())
 
+    # =========================================================
+# PLOTAGEM DOS 18 ESPECTROS DO MAPEAMENTO
+# ADICIONAR DENTRO DO:
+# render_spectral_deconvolution_tab()
+# =========================================================
+
+st.divider()
+
+st.header("🧬 Raman Mapping — 18 Spectra")
+
+st.markdown("""
+Visualização automática dos espectros Raman adquiridos
+ao longo do eixo espacial da amostra.
+""")
+
+# =====================================================
+# DETECTAR SE É MAPEAMENTO
+# =====================================================
+
+required_cols = ['x', 'y']
+
+if all(col in df.columns for col in required_cols):
+
+    st.success("Mapeamento Raman detectado.")
+
+    # =================================================
+    # COORDENADAS ÚNICAS
+    # =================================================
+
+    coords = (
+        df[['x', 'y']]
+        .drop_duplicates()
+        .sort_values(by=['y', 'x'])
+    )
+
+    st.write(
+        f"Total de posições detectadas: {len(coords)}"
+    )
+
+    # =================================================
+    # QUANTIDADE DE ESPECTROS
+    # =================================================
+
+    n_spectra = st.slider(
+
+        "Quantidade de espectros",
+
+        min_value=1,
+
+        max_value=min(36, len(coords)),
+
+        value=min(18, len(coords))
+    )
+
+    selected_coords = coords.head(n_spectra)
+
+    # =================================================
+    # FIGURA DOS ESPECTROS
+    # =================================================
+
+    fig, axes = plt.subplots(
+
+        nrows=int(np.ceil(n_spectra / 3)),
+
+        ncols=3,
+
+        figsize=(15, 4 * int(np.ceil(n_spectra / 3)))
+    )
+
+    axes = np.array(axes).flatten()
+
+    # =================================================
+    # LOOP DOS ESPECTROS
+    # =================================================
+
+    for idx, (_, row) in enumerate(
+        selected_coords.iterrows()
+    ):
+
+        x_pos = row['x']
+        y_pos = row['y']
+
+        sub = df[
+            (df['x'] == x_pos) &
+            (df['y'] == y_pos)
+        ]
+
+        if len(sub) < 10:
+            continue
+
+        wave = sub[x_col].values
+        inten = sub[y_col].values
+
+        # suavização
+        inten_smooth = savgol_filter(
+            inten,
+            smooth_window,
+            polyorder
+        )
+
+        # baseline
+        baseline = baseline_asls(
+            inten_smooth
+        )
+
+        inten_corr = (
+            inten_smooth - baseline
+        )
+
+        inten_corr = (
+            inten_corr /
+            np.max(inten_corr)
+        )
+
+        ax = axes[idx]
+
+        ax.plot(
+
+            wave,
+
+            inten_corr,
+
+            color='black',
+
+            lw=1.2
+        )
+
+        ax.set_title(
+
+            f"Y = {y_pos:.0f} µm",
+
+            fontsize=11
+        )
+
+        ax.set_xlabel(
+            "Raman shift"
+        )
+
+        ax.set_ylabel(
+            "Intensity"
+        )
+
+        ax.invert_xaxis()
+
+        ax.grid(alpha=0.2)
+
+    # remover eixos vazios
+    for j in range(idx + 1, len(axes)):
+
+        fig.delaxes(axes[j])
+
+    plt.tight_layout()
+
+    st.pyplot(fig)
+
+    # =================================================
+    # EXPORT FIGURE
+    # =================================================
+
+    fig.savefig(
+
+        "raman_mapping_18_spectra.png",
+
+        dpi=600,
+
+        bbox_inches='tight'
+    )
+
+    st.success(
+        "Figura publication-grade gerada."
+    )
+
+else:
+
+    st.warning("""
+    Arquivo não possui colunas:
+    - x
+    - y
+
+    Necessárias para mapeamento Raman.
+    """)
+
     # =====================================================
     # SELECT COLUMNS
     # =====================================================
