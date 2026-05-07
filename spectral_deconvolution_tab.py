@@ -1,6 +1,6 @@
 # =========================================================
 # SurfaceXLab — Spectral Deconvolution Module
-# Raman Mapping + Origin Validation
+# Raman Mapping + Guided Deconvolution + Origin Validation
 # =========================================================
 
 import streamlit as st
@@ -89,24 +89,31 @@ def render_spectral_deconvolution_tab():
     st.title("🧪 Spectral Deconvolution")
 
     st.markdown("""
-    Módulo avançado de deconvolução espectral Raman
-    com validação quantitativa contra Origin.
+    Workflow espectroscópico completo para:
+    
+    - Raman Mapping
+    - Seleção individual de espectros
+    - Baseline correction
+    - Noise removal
+    - Guided Raman fitting
+    - Residual analysis
+    - Validation against Origin
     """)
 
     st.divider()
 
     # =====================================================
-    # CONFIG
+    # CONFIGURAÇÕES GERAIS
     # =====================================================
 
-    st.subheader("⚙ Configurações")
+    st.subheader("⚙ Configurações Gerais")
 
     col1, col2, col3 = st.columns(3)
 
     with col1:
 
         model_type = st.selectbox(
-            "Modelo",
+            "Modelo de fitting",
             [
                 "Pseudo-Voigt",
                 "Lorentzian",
@@ -136,12 +143,12 @@ def render_spectral_deconvolution_tab():
     st.divider()
 
     # =====================================================
-    # UPLOAD RAMAN
+    # UPLOAD
     # =====================================================
 
     uploaded_file = st.file_uploader(
 
-        "Upload Raman File",
+        "Upload Raman Mapping",
 
         type=[
             "txt",
@@ -152,7 +159,9 @@ def render_spectral_deconvolution_tab():
 
     if uploaded_file is None:
 
-        st.info("Faça upload do espectro Raman.")
+        st.info(
+            "Faça upload do arquivo Raman."
+        )
 
         return
 
@@ -164,19 +173,26 @@ def render_spectral_deconvolution_tab():
 
         if uploaded_file.name.endswith(".xlsx"):
 
-            df = pd.read_excel(uploaded_file)
+            df = pd.read_excel(
+                uploaded_file
+            )
 
         else:
 
             df = pd.read_csv(
+
                 uploaded_file,
+
                 sep=r"\s+|,|;",
+
                 engine="python"
             )
 
     except Exception as e:
 
-        st.error(f"Erro leitura arquivo: {e}")
+        st.error(
+            f"Erro leitura arquivo: {e}"
+        )
 
         return
 
@@ -190,7 +206,7 @@ def render_spectral_deconvolution_tab():
     st.write(df.head())
 
     # =====================================================
-    # SELECT COLUMNS
+    # COLUNAS
     # =====================================================
 
     cols = df.columns.tolist()
@@ -200,592 +216,477 @@ def render_spectral_deconvolution_tab():
     with col1:
 
         x_col = st.selectbox(
+
             "Raman Shift",
+
             cols,
+
             index=min(2, len(cols)-1)
         )
 
     with col2:
 
         y_col = st.selectbox(
+
             "Intensity",
+
             cols,
+
             index=min(3, len(cols)-1)
         )
 
-    x = df[x_col].values
-    y = df[y_col].values
-
     # =====================================================
-    # REGION
+    # TABS
     # =====================================================
 
-    st.subheader("🔍 Região Espectral")
+    tab1, tab2, tab3 = st.tabs([
 
-    col1, col2 = st.columns(2)
+        "🔬 Raman Mapping",
 
-    with col1:
+        "⚙ Spectral Processing",
 
-        x_min = st.number_input(
-            "Min",
-            value=1500.0
-        )
-
-    with col2:
-
-        x_max = st.number_input(
-            "Max",
-            value=1700.0
-        )
-
-    mask = (x >= x_min) & (x <= x_max)
-
-    x = x[mask]
-    y = y[mask]
+        "📉 Validation"
+    ])
 
     # =====================================================
-    # SORT
+    # TAB 1 — RAMAN MAPPING
     # =====================================================
 
-    order = np.argsort(x)
+    with tab1:
 
-    x = x[order]
-    y = y[order]
-
-    # =====================================================
-    # PREPROCESS
-    # =====================================================
-
-    y_smooth = savgol_filter(
-        y,
-        smooth_window,
-        polyorder
-    )
-
-    baseline = baseline_asls(
-        y_smooth
-    )
-
-    y_corr = y_smooth - baseline
-
-    y_corr = (
-        y_corr /
-        np.max(y_corr)
-    )
-
-    # =====================================================
-    # PREPROCESS PLOT
-    # =====================================================
-
-    st.subheader("📊 Pré-processamento")
-
-    fig_pre, ax_pre = plt.subplots(
-        figsize=(10,5)
-    )
-
-    ax_pre.plot(
-        x,
-        y,
-        label='Raw',
-        alpha=0.5
-    )
-
-    ax_pre.plot(
-        x,
-        y_smooth,
-        label='Smoothed'
-    )
-
-    ax_pre.plot(
-        x,
-        baseline,
-        label='Baseline'
-    )
-
-    ax_pre.plot(
-        x,
-        y_corr,
-        label='Corrected'
-    )
-
-    ax_pre.legend()
-
-    ax_pre.invert_xaxis()
-
-    ax_pre.grid(alpha=0.2)
-
-    st.pyplot(fig_pre)
-
-    # =====================================================
-    # GUIDED FITTING
-    # =====================================================
-
-    st.subheader("🧠 Guided Raman Deconvolution")
-
-    expected_peaks = list(
-        RAMAN_BANDS.keys()
-    )
-
-    model = None
-    params = None
-
-    for i, center in enumerate(expected_peaks):
-
-        prefix = f"p{i}_"
+        st.header("🔬 Raman Mapping Viewer")
 
         # ================================================
-        # MODEL TYPE
+        # VERIFICAR X,Y
         # ================================================
 
-        if model_type == "Lorentzian":
+        if not all(col in df.columns for col in ['x', 'y']):
 
-            peak_model = LorentzianModel(
-                prefix=prefix
+            st.error(
+                "Arquivo precisa possuir colunas x e y."
             )
 
-        elif model_type == "Gaussian":
+            return
 
-            peak_model = GaussianModel(
-                prefix=prefix
-            )
+        grouped = df.groupby(['x', 'y'])
 
-        else:
+        coords = list(grouped.groups.keys())
 
-            peak_model = PseudoVoigtModel(
-                prefix=prefix
-            )
+        st.success(
+            f"{len(coords)} espectros detectados."
+        )
 
         # ================================================
-        # BUILD MODEL
+        # QUANTIDADE DE ESPECTROS
         # ================================================
 
-        if model is None:
+        n_spectra = st.slider(
 
-            model = peak_model
+            "Quantidade de espectros",
 
-        else:
+            min_value=1,
 
-            model += peak_model
+            max_value=min(36, len(coords)),
+
+            value=9
+        )
+
+        coords_plot = coords[:n_spectra]
 
         # ================================================
-        # PARAMETERS
+        # GRID
         # ================================================
 
-        pars = peak_model.make_params()
+        ncols = 3
+        nrows = int(np.ceil(n_spectra / ncols))
 
-        pars[prefix + 'center'].set(
+        fig_map, axes = plt.subplots(
 
-            value=center,
+            nrows=nrows,
 
-            min=center - 8,
+            ncols=ncols,
 
-            max=center + 8
+            figsize=(15, 4*nrows)
         )
 
-        pars[prefix + 'sigma'].set(
+        axes = np.array(axes).flatten()
 
-            value=10,
+        for idx, (x_pos, y_pos) in enumerate(coords_plot):
 
-            min=1,
-
-            max=40
-        )
-
-        pars[prefix + 'amplitude'].set(
-
-            value=0.5,
-
-            min=0
-        )
-
-        if model_type == "Pseudo-Voigt":
-
-            pars[prefix + 'fraction'].set(
-
-                value=0.5,
-
-                min=0,
-
-                max=1
+            sub = grouped.get_group(
+                (x_pos, y_pos)
             )
 
-        if params is None:
+            wave = sub[x_col].values
+            inten = sub[y_col].values
 
-            params = pars
+            order = np.argsort(wave)
 
-        else:
+            wave = wave[order]
+            inten = inten[order]
 
-            params.update(pars)
+            axes[idx].plot(
 
-    # =====================================================
-    # FIT
-    # =====================================================
+                wave,
 
-    result = model.fit(
-
-        y_corr,
-
-        params,
-
-        x=x
-    )
-
-    components = result.eval_components(
-        x=x
-    )
-
-    # =====================================================
-    # RESIDUAL
-    # =====================================================
-
-    residual = y_corr - result.best_fit
-
-    rmse = np.sqrt(
-        np.mean(residual**2)
-    )
-
-    # =====================================================
-    # FIT PLOT
-    # =====================================================
-
-    st.subheader("📉 Publication-Grade Fitting")
-
-    fig_fit, ax_fit = plt.subplots(
-        figsize=(12,7)
-    )
-
-    ax_fit.plot(
-
-        x,
-
-        y_corr,
-
-        color='black',
-
-        lw=1.5,
-
-        label='Experimental'
-    )
-
-    ax_fit.plot(
-
-        x,
-
-        result.best_fit,
-
-        '--',
-
-        color='red',
-
-        lw=2,
-
-        label='Global Fit'
-    )
-
-    cmap = plt.cm.tab10.colors
-
-    for i, center_ref in enumerate(expected_peaks):
-
-        prefix = f"p{i}_"
-
-        comp = components[prefix]
-
-        ax_fit.plot(
-
-            x,
-
-            comp,
-
-            color=cmap[i % len(cmap)],
-
-            lw=1.2
-        )
-
-        fitted_center = result.params[
-            prefix + 'center'
-        ].value
-
-        idx_peak = np.argmin(
-            np.abs(x - fitted_center)
-        )
-
-        ypos = comp[idx_peak]
-
-        ax_fit.annotate(
-
-            f"{fitted_center:.0f}\n({RAMAN_BANDS[center_ref]})",
-
-            xy=(fitted_center, ypos),
-
-            xytext=(
-                fitted_center + 5,
-                ypos + 0.05
-            ),
-
-            fontsize=8,
-
-            arrowprops=dict(
-                arrowstyle='->'
-            )
-        )
-
-    ax_fit.set_xlabel(
-        "Raman shift (cm⁻¹)"
-    )
-
-    ax_fit.set_ylabel(
-        "Normalized Intensity"
-    )
-
-    ax_fit.legend()
-
-    ax_fit.grid(alpha=0.2)
-
-    ax_fit.invert_xaxis()
-
-    st.pyplot(fig_fit)
-
-    # =====================================================
-    # RESIDUAL PLOT
-    # =====================================================
-
-    st.subheader("📉 Residual Analysis")
-
-    fig_res, ax_res = plt.subplots(
-        figsize=(12,3)
-    )
-
-    ax_res.plot(
-
-        x,
-
-        residual,
-
-        color='black'
-    )
-
-    ax_res.axhline(
-
-        0,
-
-        linestyle='--',
-
-        color='red'
-    )
-
-    ax_res.set_xlabel(
-        "Raman shift (cm⁻¹)"
-    )
-
-    ax_res.set_ylabel(
-        "Residual"
-    )
-
-    ax_res.invert_xaxis()
-
-    ax_res.grid(alpha=0.2)
-
-    st.pyplot(fig_res)
-
-    # =====================================================
-    # RMSE
-    # =====================================================
-
-    st.metric(
-        "RMSE",
-        f"{rmse:.6f}"
-    )
-
-    # =====================================================
-    # PEAK TABLE
-    # =====================================================
-
-    st.subheader("📋 Peak Parameters")
-
-    peak_results = []
-
-    for i, center_ref in enumerate(expected_peaks):
-
-        prefix = f"p{i}_"
-
-        peak_results.append({
-
-            "Peak":
-
-                RAMAN_BANDS[
-                    center_ref
-                ],
-
-            "Center (cm⁻¹)":
-
-                result.params[
-                    prefix + 'center'
-                ].value,
-
-            "FWHM":
-
-                result.params[
-                    prefix + 'fwhm'
-                ].value,
-
-            "Amplitude":
-
-                result.params[
-                    prefix + 'amplitude'
-                ].value
-        })
-
-    peak_df = pd.DataFrame(
-        peak_results
-    )
-
-    st.dataframe(
-        peak_df,
-        width='stretch'
-    )
-
-    # =====================================================
-    # ORIGIN VALIDATION
-    # =====================================================
-
-    st.divider()
-
-    st.header(
-        "🔬 Origin vs SurfaceXLab"
-    )
-
-    origin_file = st.file_uploader(
-
-        "Upload Origin Export",
-
-        type=["csv", "txt"]
-    )
-
-    if origin_file is not None:
-
-        try:
-
-            origin_df = pd.read_csv(
-                origin_file
-            )
-
-            st.write(origin_df.head())
-
-            origin_x = origin_df.iloc[:,0].values
-            origin_y = origin_df.iloc[:,1].values
-
-            # ============================================
-            # INTERPOLATION
-            # ============================================
-
-            origin_interp = np.interp(
-
-                x,
-
-                origin_x,
-
-                origin_y
-            )
-
-            # normalize
-            origin_interp = (
-                origin_interp /
-                np.max(origin_interp)
-            )
-
-            # ============================================
-            # RMSE
-            # ============================================
-
-            rmse_origin = np.sqrt(
-
-                np.mean(
-                    (
-                        origin_interp -
-                        result.best_fit
-                    )**2
-                )
-            )
-
-            # ============================================
-            # R²
-            # ============================================
-
-            ss_res = np.sum(
-
-                (
-                    origin_interp -
-                    result.best_fit
-                )**2
-            )
-
-            ss_tot = np.sum(
-
-                (
-                    origin_interp -
-                    np.mean(origin_interp)
-                )**2
-            )
-
-            r2 = 1 - (
-                ss_res / ss_tot
-            )
-
-            # ============================================
-            # PEARSON
-            # ============================================
-
-            pearson = np.corrcoef(
-
-                origin_interp,
-
-                result.best_fit
-
-            )[0,1]
-
-            # ============================================
-            # METRICS
-            # ============================================
-
-            col1, col2, col3 = st.columns(3)
-
-            col1.metric(
-                "RMSE",
-                f"{rmse_origin:.6f}"
-            )
-
-            col2.metric(
-                "R²",
-                f"{r2:.5f}"
-            )
-
-            col3.metric(
-                "Pearson",
-                f"{pearson:.5f}"
-            )
-
-            # ============================================
-            # OVERLAY
-            # ============================================
-
-            fig_cmp, ax_cmp = plt.subplots(
-                figsize=(12,6)
-            )
-
-            ax_cmp.plot(
-
-                x,
-
-                origin_interp,
+                inten,
 
                 color='black',
 
-                lw=2,
-
-                label='Origin Manual'
+                lw=1
             )
 
-            ax_cmp.plot(
+            axes[idx].set_title(
+                f"Y = {y_pos:.0f} µm"
+            )
+
+            axes[idx].invert_xaxis()
+
+            axes[idx].grid(alpha=0.2)
+
+        # remover eixos sobrando
+        for j in range(idx+1, len(axes)):
+
+            fig_map.delaxes(axes[j])
+
+        plt.tight_layout()
+
+        st.pyplot(fig_map)
+
+        # ================================================
+        # SELECTOR
+        # ================================================
+
+        st.subheader("🎯 Select Spectrum")
+
+        coord_options = [
+
+            f"X={x} | Y={y}"
+
+            for x,y in coords
+        ]
+
+        selected_coord = st.selectbox(
+
+            "Escolha o espectro",
+
+            coord_options
+        )
+
+        selected_idx = coord_options.index(
+            selected_coord
+        )
+
+        x_sel, y_sel = coords[selected_idx]
+
+        selected_spectrum = grouped.get_group(
+            (x_sel, y_sel)
+        )
+
+        st.session_state[
+            "selected_spectrum"
+        ] = selected_spectrum
+
+        st.success(
+            f"Espectro selecionado: X={x_sel} | Y={y_sel}"
+        )
+
+    # =====================================================
+    # TAB 2 — PROCESSING
+    # =====================================================
+
+    with tab2:
+
+        st.header("⚙ Spectral Processing")
+
+        if "selected_spectrum" not in st.session_state:
+
+            st.warning(
+                "Selecione um espectro na aba Raman Mapping."
+            )
+
+        else:
+
+            spec = st.session_state[
+                "selected_spectrum"
+            ]
+
+            x = spec[x_col].values
+            y = spec[y_col].values
+
+            # ordenar
+            order = np.argsort(x)
+
+            x = x[order]
+            y = y[order]
+
+            # ============================================
+            # REGIÃO ESPECTRAL
+            # ============================================
+
+            st.subheader("🔍 Região Espectral")
+
+            col1, col2 = st.columns(2)
+
+            with col1:
+
+                x_min = st.number_input(
+                    "Min Raman",
+                    value=1500.0
+                )
+
+            with col2:
+
+                x_max = st.number_input(
+                    "Max Raman",
+                    value=1700.0
+                )
+
+            mask = (
+
+                (x >= x_min) &
+
+                (x <= x_max)
+            )
+
+            x = x[mask]
+            y = y[mask]
+
+            # ============================================
+            # PREPROCESSING
+            # ============================================
+
+            st.subheader("📊 Preprocessing")
+
+            y_smooth = savgol_filter(
+
+                y,
+
+                smooth_window,
+
+                polyorder
+            )
+
+            baseline = baseline_asls(
+                y_smooth
+            )
+
+            y_corr = (
+                y_smooth - baseline
+            )
+
+            y_corr = (
+                y_corr /
+                np.max(y_corr)
+            )
+
+            fig_pre, ax_pre = plt.subplots(
+                figsize=(10,5)
+            )
+
+            ax_pre.plot(
+
+                x,
+
+                y,
+
+                label='Raw',
+
+                alpha=0.4
+            )
+
+            ax_pre.plot(
+
+                x,
+
+                y_smooth,
+
+                label='Smoothed'
+            )
+
+            ax_pre.plot(
+
+                x,
+
+                baseline,
+
+                label='Baseline'
+            )
+
+            ax_pre.plot(
+
+                x,
+
+                y_corr,
+
+                label='Corrected'
+            )
+
+            ax_pre.legend()
+
+            ax_pre.grid(alpha=0.2)
+
+            ax_pre.invert_xaxis()
+
+            st.pyplot(fig_pre)
+
+            # ============================================
+            # GUIDED FITTING
+            # ============================================
+
+            st.subheader(
+                "🧠 Raman Deconvolution"
+            )
+
+            expected_peaks = list(
+                RAMAN_BANDS.keys()
+            )
+
+            model = None
+            params = None
+
+            for i, center in enumerate(expected_peaks):
+
+                prefix = f"p{i}_"
+
+                # ========================================
+                # MODEL TYPE
+                # ========================================
+
+                if model_type == "Lorentzian":
+
+                    peak_model = LorentzianModel(
+                        prefix=prefix
+                    )
+
+                elif model_type == "Gaussian":
+
+                    peak_model = GaussianModel(
+                        prefix=prefix
+                    )
+
+                else:
+
+                    peak_model = PseudoVoigtModel(
+                        prefix=prefix
+                    )
+
+                # ========================================
+                # BUILD MODEL
+                # ========================================
+
+                if model is None:
+
+                    model = peak_model
+
+                else:
+
+                    model += peak_model
+
+                # ========================================
+                # PARAMS
+                # ========================================
+
+                pars = peak_model.make_params()
+
+                pars[prefix+'center'].set(
+
+                    value=center,
+
+                    min=center-8,
+
+                    max=center+8
+                )
+
+                pars[prefix+'sigma'].set(
+
+                    value=10,
+
+                    min=1,
+
+                    max=40
+                )
+
+                pars[prefix+'amplitude'].set(
+
+                    value=0.5,
+
+                    min=0
+                )
+
+                if model_type == "Pseudo-Voigt":
+
+                    pars[prefix+'fraction'].set(
+
+                        value=0.5,
+
+                        min=0,
+
+                        max=1
+                    )
+
+                if params is None:
+
+                    params = pars
+
+                else:
+
+                    params.update(pars)
+
+            # ============================================
+            # FIT
+            # ============================================
+
+            result = model.fit(
+
+                y_corr,
+
+                params,
+
+                x=x
+            )
+
+            components = result.eval_components(
+                x=x
+            )
+
+            # ============================================
+            # RESIDUAL
+            # ============================================
+
+            residual = (
+
+                y_corr -
+
+                result.best_fit
+            )
+
+            rmse = np.sqrt(
+                np.mean(residual**2)
+            )
+
+            # ============================================
+            # FIT PLOT
+            # ============================================
+
+            fig_fit, ax_fit = plt.subplots(
+                figsize=(12,7)
+            )
+
+            ax_fit.plot(
+
+                x,
+
+                y_corr,
+
+                color='black',
+
+                lw=1.5,
+
+                label='Experimental'
+            )
+
+            ax_fit.plot(
 
                 x,
 
@@ -797,50 +698,327 @@ def render_spectral_deconvolution_tab():
 
                 lw=2,
 
-                label='SurfaceXLab'
+                label='Global Fit'
             )
 
-            ax_cmp.set_xlabel(
-                "Raman shift (cm⁻¹)"
+            cmap = plt.cm.tab10.colors
+
+            for i, center_ref in enumerate(expected_peaks):
+
+                prefix = f"p{i}_"
+
+                comp = components[prefix]
+
+                ax_fit.plot(
+
+                    x,
+
+                    comp,
+
+                    color=cmap[i % len(cmap)],
+
+                    lw=1.2
+                )
+
+                fitted_center = result.params[
+                    prefix + 'center'
+                ].value
+
+                idx_peak = np.argmin(
+                    np.abs(x - fitted_center)
+                )
+
+                ypos = comp[idx_peak]
+
+                ax_fit.annotate(
+
+                    f"{fitted_center:.0f}\n({RAMAN_BANDS[center_ref]})",
+
+                    xy=(fitted_center, ypos),
+
+                    xytext=(
+                        fitted_center + 5,
+                        ypos + 0.05
+                    ),
+
+                    fontsize=8,
+
+                    arrowprops=dict(
+                        arrowstyle='->'
+                    )
+                )
+
+            ax_fit.legend()
+
+            ax_fit.grid(alpha=0.2)
+
+            ax_fit.invert_xaxis()
+
+            st.pyplot(fig_fit)
+
+            # ============================================
+            # RESIDUAL PLOT
+            # ============================================
+
+            st.subheader("📉 Residual")
+
+            fig_res, ax_res = plt.subplots(
+                figsize=(12,3)
             )
 
-            ax_cmp.set_ylabel(
-                "Normalized Intensity"
+            ax_res.plot(
+
+                x,
+
+                residual,
+
+                color='black'
             )
 
-            ax_cmp.legend()
+            ax_res.axhline(
 
-            ax_cmp.invert_xaxis()
+                0,
 
-            ax_cmp.grid(alpha=0.2)
+                linestyle='--',
 
-            st.pyplot(fig_cmp)
-
-        except Exception as e:
-
-            st.error(
-                f"Erro validação Origin: {e}"
+                color='red'
             )
+
+            ax_res.grid(alpha=0.2)
+
+            ax_res.invert_xaxis()
+
+            st.pyplot(fig_res)
+
+            # ============================================
+            # RMSE
+            # ============================================
+
+            st.metric(
+
+                "RMSE",
+
+                f"{rmse:.6f}"
+            )
+
+            # ============================================
+            # PEAK TABLE
+            # ============================================
+
+            st.subheader("📋 Peak Parameters")
+
+            peak_results = []
+
+            for i, center_ref in enumerate(expected_peaks):
+
+                prefix = f"p{i}_"
+
+                peak_results.append({
+
+                    "Peak":
+
+                        RAMAN_BANDS[
+                            center_ref
+                        ],
+
+                    "Center (cm⁻¹)":
+
+                        result.params[
+                            prefix+'center'
+                        ].value,
+
+                    "FWHM":
+
+                        result.params[
+                            prefix+'fwhm'
+                        ].value,
+
+                    "Amplitude":
+
+                        result.params[
+                            prefix+'amplitude'
+                        ].value
+                })
+
+            peak_df = pd.DataFrame(
+                peak_results
+            )
+
+            st.dataframe(
+                peak_df,
+                width='stretch'
+            )
+
+            # salvar resultado
+            st.session_state[
+                "result_best_fit"
+            ] = result.best_fit
+
+            st.session_state[
+                "x_processed"
+            ] = x
 
     # =====================================================
-    # DOWNLOAD
+    # TAB 3 — VALIDATION
     # =====================================================
 
-    csv = peak_df.to_csv(
-        index=False
-    ).encode()
+    with tab3:
 
-    st.download_button(
+        st.header("📉 Origin Validation")
 
-        "⬇ Download Peak Table",
+        if "result_best_fit" not in st.session_state:
 
-        data=csv,
+            st.warning(
+                "Execute o fitting primeiro."
+            )
 
-        file_name="peak_results.csv",
+        else:
 
-        mime="text/csv"
-    )
+            origin_file = st.file_uploader(
 
-    st.success(
-        "Deconvolução concluída."
-    )
+                "Upload Origin Export",
+
+                type=["csv","txt"]
+            )
+
+            if origin_file is not None:
+
+                try:
+
+                    origin_df = pd.read_csv(
+                        origin_file
+                    )
+
+                    x_proc = st.session_state[
+                        "x_processed"
+                    ]
+
+                    fit_proc = st.session_state[
+                        "result_best_fit"
+                    ]
+
+                    origin_x = origin_df.iloc[:,0].values
+                    origin_y = origin_df.iloc[:,1].values
+
+                    origin_interp = np.interp(
+
+                        x_proc,
+
+                        origin_x,
+
+                        origin_y
+                    )
+
+                    origin_interp = (
+                        origin_interp /
+                        np.max(origin_interp)
+                    )
+
+                    # ====================================
+                    # METRICS
+                    # ====================================
+
+                    rmse_origin = np.sqrt(
+
+                        np.mean(
+                            (
+                                origin_interp -
+                                fit_proc
+                            )**2
+                        )
+                    )
+
+                    ss_res = np.sum(
+
+                        (
+                            origin_interp -
+                            fit_proc
+                        )**2
+                    )
+
+                    ss_tot = np.sum(
+
+                        (
+                            origin_interp -
+                            np.mean(origin_interp)
+                        )**2
+                    )
+
+                    r2 = 1 - (
+                        ss_res / ss_tot
+                    )
+
+                    pearson = np.corrcoef(
+
+                        origin_interp,
+
+                        fit_proc
+
+                    )[0,1]
+
+                    col1, col2, col3 = st.columns(3)
+
+                    col1.metric(
+                        "RMSE",
+                        f"{rmse_origin:.6f}"
+                    )
+
+                    col2.metric(
+                        "R²",
+                        f"{r2:.5f}"
+                    )
+
+                    col3.metric(
+                        "Pearson",
+                        f"{pearson:.5f}"
+                    )
+
+                    # ====================================
+                    # OVERLAY
+                    # ====================================
+
+                    fig_cmp, ax_cmp = plt.subplots(
+                        figsize=(12,6)
+                    )
+
+                    ax_cmp.plot(
+
+                        x_proc,
+
+                        origin_interp,
+
+                        color='black',
+
+                        lw=2,
+
+                        label='Origin Manual'
+                    )
+
+                    ax_cmp.plot(
+
+                        x_proc,
+
+                        fit_proc,
+
+                        '--',
+
+                        color='red',
+
+                        lw=2,
+
+                        label='SurfaceXLab'
+                    )
+
+                    ax_cmp.legend()
+
+                    ax_cmp.grid(alpha=0.2)
+
+                    ax_cmp.invert_xaxis()
+
+                    st.pyplot(fig_cmp)
+
+                except Exception as e:
+
+                    st.error(
+                        f"Erro validação Origin: {e}"
+                    )
