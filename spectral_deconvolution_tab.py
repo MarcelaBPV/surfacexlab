@@ -630,387 +630,508 @@ def render_spectral_deconvolution_tab():
 
         st.pyplot(fig_pre)
 
-        # =================================================
-        # AUTOMATIC PEAK DETECTION
-        # =================================================
+    # =================================================
+# AUTOMATIC PEAK DETECTION
+# =================================================
 
-        st.subheader(
-            "🧠 Automatic Raman Analysis"
+st.subheader(
+    "🧠 Automatic Raman Analysis"
+)
+
+peak_idx, props = find_peaks(
+
+    y_corr,
+
+    prominence=0.06,
+
+    width=4,
+
+    distance=15
+)
+
+peak_positions = x[peak_idx]
+
+peak_heights = y_corr[peak_idx]
+
+# =================================================
+# PEAK DETECTION FIGURE
+# =================================================
+
+st.subheader(
+    "📍 Automatic Peak Detection"
+)
+
+fig_peaks, ax_peaks = plt.subplots(
+    figsize=(10,4)
+)
+
+ax_peaks.plot(
+
+    x,
+
+    y_corr,
+
+    color='black',
+
+    lw=2
+)
+
+ax_peaks.scatter(
+
+    peak_positions,
+
+    peak_heights,
+
+    color='red',
+
+    s=60,
+
+    zorder=5
+)
+
+for peak, height in zip(
+
+    peak_positions,
+
+    peak_heights
+):
+
+    ax_peaks.annotate(
+
+        f"{peak:.0f}",
+
+        xy=(peak, height),
+
+        xytext=(peak+5, height+0.03),
+
+        fontsize=8,
+
+        fontweight='bold'
+    )
+
+ax_peaks.set_xlabel(
+    "Raman shift (cm⁻¹)"
+)
+
+ax_peaks.set_ylabel(
+    "Normalized Intensity"
+)
+
+ax_peaks.grid(alpha=0.2)
+
+plt.tight_layout()
+
+st.pyplot(fig_peaks)
+
+# =================================================
+# PEAK IDENTIFICATION
+# =================================================
+
+identified_peaks = []
+
+for peak, height in zip(
+
+    peak_positions,
+
+    peak_heights
+):
+
+    matched = False
+
+    for known_peak, assignment in BLOOD_RAMAN_DATABASE.items():
+
+        if abs(peak - known_peak) <= 8:
+
+            identified_peaks.append({
+
+                "Detected Peak":
+                    round(peak,1),
+
+                "Reference":
+                    known_peak,
+
+                "Assignment":
+                    assignment,
+
+                "Intensity":
+                    round(height,4)
+            })
+
+            matched = True
+
+    if not matched:
+
+        identified_peaks.append({
+
+            "Detected Peak":
+                round(peak,1),
+
+            "Reference":
+                "-",
+
+            "Assignment":
+                "Unknown",
+
+            "Intensity":
+                round(height,4)
+        })
+
+identified_df = pd.DataFrame(
+    identified_peaks
+)
+
+# =================================================
+# IDENTIFICATION TABLE
+# =================================================
+
+st.subheader(
+    "🧬 Peak Molecular Identification"
+)
+
+st.dataframe(
+
+    identified_df,
+
+    width='stretch'
+)
+
+# =================================================
+# BUILD MODEL
+# =================================================
+
+model = None
+params = None
+
+for i, peak in enumerate(peak_positions):
+
+    prefix = f"p{i}_"
+
+    # =================================================
+    # MODEL SELECTION
+    # =================================================
+
+    if model_type == "Lorentzian":
+
+        peak_model = LorentzianModel(
+            prefix=prefix
         )
 
-        peak_idx, props = find_peaks(
+    elif model_type == "Gaussian":
 
-            y_corr,
-
-            prominence=0.03,
-
-            width=3,
-
-            distance=8
+        peak_model = GaussianModel(
+            prefix=prefix
         )
 
-        peak_positions = x[peak_idx]
+    else:
 
-        peak_heights = y_corr[peak_idx]
-
-        # =================================================
-        # PEAK IDENTIFICATION
-        # =================================================
-
-        identified_peaks = []
-
-        for peak, height in zip(
-
-            peak_positions,
-
-            peak_heights
-        ):
-
-            matched = False
-
-            for known_peak, assignment in BLOOD_RAMAN_DATABASE.items():
-
-                if abs(peak - known_peak) <= 8:
-
-                    identified_peaks.append({
-
-                        "Detected Peak":
-
-                            round(peak,1),
-
-                        "Reference":
-
-                            known_peak,
-
-                        "Assignment":
-
-                            assignment,
-
-                        "Intensity":
-
-                            round(height,4)
-                    })
-
-                    matched = True
-
-            if not matched:
-
-                identified_peaks.append({
-
-                    "Detected Peak":
-
-                        round(peak,1),
-
-                    "Reference":
-
-                        "-",
-
-                    "Assignment":
-
-                        "Unknown",
-
-                    "Intensity":
-
-                        round(height,4)
-                })
-
-        identified_df = pd.DataFrame(
-            identified_peaks
+        peak_model = PseudoVoigtModel(
+            prefix=prefix
         )
 
-        # =================================================
-        # BUILD MODEL
-        # =================================================
+    # =================================================
+    # COMBINE MODELS
+    # =================================================
 
-        model = None
-        params = None
+    if model is None:
 
-        for i, peak in enumerate(peak_positions):
+        model = peak_model
 
-            prefix = f"p{i}_"
+    else:
 
-            if model_type == "Lorentzian":
+        model += peak_model
 
-                peak_model = LorentzianModel(
-                    prefix=prefix
-                )
+    pars = peak_model.make_params()
 
-            elif model_type == "Gaussian":
+    # =================================================
+    # CENTER
+    # =================================================
 
-                peak_model = GaussianModel(
-                    prefix=prefix
-                )
+    pars[prefix+'center'].set(
 
-            else:
+        value=peak,
 
-                peak_model = PseudoVoigtModel(
-                    prefix=prefix
-                )
+        min=peak-8,
 
-            if model is None:
+        max=peak+8
+    )
 
-                model = peak_model
+    # =================================================
+    # SIGMA MAIS SUAVE
+    # =================================================
 
-            else:
+    pars[prefix+'sigma'].set(
 
-                model += peak_model
+        value=12,
 
-            pars = peak_model.make_params()
+        min=3,
 
-            pars[prefix+'center'].set(
+        max=40
+    )
 
-                value=peak,
+    # =================================================
+    # AMPLITUDE
+    # =================================================
 
-                min=peak-8,
+    pars[prefix+'amplitude'].set(
 
-                max=peak+8
-            )
+        value=peak_heights[i],
 
-            pars[prefix+'sigma'].set(
+        min=0
+    )
 
-                value=6,
+    # =================================================
+    # PSEUDOVOIGT
+    # =================================================
 
-                min=1,
+    if model_type == "Pseudo-Voigt":
 
-                max=30
-            )
+        pars[prefix+'fraction'].set(
 
-            pars[prefix+'amplitude'].set(
+            value=0.5,
 
-                value=peak_heights[i],
+            min=0,
 
-                min=0
-            )
-
-            if model_type == "Pseudo-Voigt":
-
-                pars[prefix+'fraction'].set(
-
-                    value=0.5,
-
-                    min=0,
-
-                    max=1
-                )
-
-            if params is None:
-
-                params = pars
-
-            else:
-
-                params.update(pars)
-
-        # =================================================
-        # FIT
-        # =================================================
-
-        result = model.fit(
-
-            y_corr,
-
-            params,
-
-            x=x
+            max=1
         )
 
-        components = result.eval_components(
-            x=x
+    if params is None:
+
+        params = pars
+
+    else:
+
+        params.update(pars)
+
+# =================================================
+# FIT
+# =================================================
+
+result = model.fit(
+
+    y_corr,
+
+    params,
+
+    x=x
+)
+
+components = result.eval_components(
+    x=x
+)
+
+# =================================================
+# RESIDUAL
+# =================================================
+
+residual = y_corr - result.best_fit
+
+rmse = np.sqrt(
+    np.mean(residual**2)
+)
+
+# =================================================
+# SPECTRAL DECONVOLUTION
+# =================================================
+
+st.subheader(
+    "🧠 Spectral Deconvolution"
+)
+
+fig_fit, ax_fit = plt.subplots(
+    figsize=(10,6)
+)
+
+# =================================================
+# EXPERIMENTAL
+# =================================================
+
+ax_fit.plot(
+
+    x,
+
+    y_corr,
+
+    color='gray',
+
+    lw=2.5,
+
+    label='Experimental'
+)
+
+# =================================================
+# GLOBAL FIT
+# =================================================
+
+ax_fit.plot(
+
+    x,
+
+    result.best_fit,
+
+    '--',
+
+    color='red',
+
+    lw=2.5,
+
+    label='Global Fit'
+)
+
+# =================================================
+# COMPONENTS
+# =================================================
+
+colors = plt.cm.Set2.colors
+
+for i, peak in enumerate(peak_positions):
+
+    prefix = f"p{i}_"
+
+    comp = components[prefix]
+
+    ax_fit.fill_between(
+
+        x,
+
+        0,
+
+        comp,
+
+        alpha=0.5,
+
+        color=colors[
+            i % len(colors)
+        ]
+    )
+
+    ax_fit.plot(
+
+        x,
+
+        comp,
+
+        lw=1.2,
+
+        color=colors[
+            i % len(colors)
+        ]
+    )
+
+# =================================================
+# LABELS
+# =================================================
+
+for _, row in identified_df.iterrows():
+
+    peak = row["Detected Peak"]
+
+    label = row["Assignment"]
+
+    idx = np.argmin(
+        np.abs(x - peak)
+    )
+
+    ypos = y_corr[idx]
+
+    ax_fit.annotate(
+
+        f"{peak:.0f}\n{label}",
+
+        xy=(peak, ypos),
+
+        xytext=(
+
+            peak + 5,
+
+            ypos + 0.05
+        ),
+
+        fontsize=9,
+
+        fontweight='bold',
+
+        arrowprops=dict(
+            arrowstyle='->',
+            lw=1
         )
+    )
 
-        # =================================================
-        # RESIDUAL
-        # =================================================
+# =================================================
+# STYLE
+# =================================================
 
-        residual = y_corr - result.best_fit
+ax_fit.set_xlabel(
+    "Raman shift (cm⁻¹)",
+    fontsize=14
+)
 
-        rmse = np.sqrt(
-            np.mean(residual**2)
-        )
+ax_fit.set_ylabel(
+    "Normalized Intensity",
+    fontsize=14
+)
 
-        # =================================================
-        # PUBLICATION-GRADE FIT FIGURE
-        # =================================================
+ax_fit.legend(
+    fontsize=10
+)
 
-        fig_fit, ax_fit = plt.subplots(
-            figsize=(10,6)
-        )
+ax_fit.grid(alpha=0.2)
 
-        ax_fit.plot(
+plt.tight_layout()
 
-            x,
+st.pyplot(fig_fit)
 
-            y_corr,
+# =================================================
+# RESIDUAL FIGURE
+# =================================================
 
-            color='gray',
+st.subheader(
+    "📉 Residual"
+)
 
-            lw=2.5,
+fig_res, ax_res = plt.subplots(
+    figsize=(10,2.5)
+)
 
-            label='Experimental'
-        )
+ax_res.plot(
 
-        ax_fit.plot(
+    x,
 
-            x,
+    residual,
 
-            result.best_fit,
+    color='black'
+)
 
-            '--',
+ax_res.axhline(
 
-            color='red',
+    0,
 
-            lw=2.5,
+    linestyle='--',
 
-            label='Global Fit'
-        )
+    color='red'
+)
 
-        colors = plt.cm.Set2.colors
+ax_res.grid(alpha=0.2)
 
-        for i, peak in enumerate(peak_positions):
+ax_res.set_xlabel(
+    "Raman shift (cm⁻¹)"
+)
 
-            prefix = f"p{i}_"
+ax_res.set_ylabel(
+    "Residual"
+)
 
-            comp = components[prefix]
+plt.tight_layout()
 
-            ax_fit.fill_between(
+st.pyplot(fig_res)
 
-                x,
+# =================================================
+# RMSE
+# =================================================
 
-                0,
-
-                comp,
-
-                alpha=0.5,
-
-                color=colors[
-                    i % len(colors)
-                ]
-            )
-
-            ax_fit.plot(
-
-                x,
-
-                comp,
-
-                lw=1.3,
-
-                color=colors[
-                    i % len(colors)
-                ]
-            )
-
-        # =================================================
-        # LABELS
-        # =================================================
-
-        for _, row in identified_df.iterrows():
-
-            peak = row["Detected Peak"]
-
-            label = row["Assignment"]
-
-            idx = np.argmin(
-                np.abs(x - peak)
-            )
-
-            ypos = y_corr[idx]
-
-            ax_fit.annotate(
-
-                f"{peak:.0f}\n{label}",
-
-                xy=(peak, ypos),
-
-                xytext=(
-
-                    peak + 5,
-
-                    ypos + 0.05
-                ),
-
-                fontsize=9,
-
-                fontweight='bold',
-
-                arrowprops=dict(
-                    arrowstyle='->',
-                    lw=1
-                )
-            )
-
-        ax_fit.set_xlabel(
-            "Raman shift (cm⁻¹)",
-            fontsize=14
-        )
-
-        ax_fit.set_ylabel(
-            "Normalized Intensity",
-            fontsize=14
-        )
-
-        ax_fit.legend(
-            fontsize=10
-        )
-
-        ax_fit.grid(alpha=0.2)
-
-        plt.tight_layout()
-
-        st.pyplot(fig_fit)
-
-        # =================================================
-        # RESIDUAL
-        # =================================================
-
-        st.subheader(
-            "📉 Residual"
-        )
-
-        fig_res, ax_res = plt.subplots(
-            figsize=(10,2.5)
-        )
-
-        ax_res.plot(
-
-            x,
-
-            residual,
-
-            color='black'
-        )
-
-        ax_res.axhline(
-
-            0,
-
-            linestyle='--',
-
-            color='red'
-        )
-
-        ax_res.grid(alpha=0.2)
-
-        ax_res.set_xlabel(
-            "Raman shift (cm⁻¹)"
-        )
-
-        ax_res.set_ylabel(
-            "Residual"
-        )
-
-        plt.tight_layout()
-
-        st.pyplot(fig_res)
-
-        # =================================================
-        # RMSE
-        # =================================================
-
-        st.metric(
-            "RMSE",
-            f"{rmse:.6f}"
-        )
+st.metric(
+    "RMSE",
+    f"{rmse:.6f}"
+)
 
         # =================================================
         # IDENTIFIED PEAKS
