@@ -5,8 +5,6 @@
 
 import streamlit as st
 import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
 
 
 # =========================================================
@@ -20,6 +18,7 @@ from raman_processing import (
 )
 
 from raman_mapping import (
+
     render_mapeamento_molecular_tab
 )
 
@@ -29,15 +28,12 @@ from raman_mapping import (
 # =========================================================
 def render_raman_tab():
 
-    st.header("🧬 Análises Moleculares")
+    st.header("🧬 Raman — SurfaceXLab")
 
     st.markdown("""
-    Processamento espectral Raman com:
-    correção de linha de base,
-    suavização Savitzky–Golay,
-    ajuste Lorentziano,
-    identificação molecular
-    e PCA espectral.
+    Plataforma integrada para processamento
+    espectral Raman, deconvolução Lorentziana,
+    identificação molecular e análise multimodal.
     """)
 
     st.divider()
@@ -55,11 +51,20 @@ def render_raman_tab():
     ])
 
     # =====================================================
-    # SUBABA 1
+    # SUBABA 1 — PROCESSAMENTO
     # =====================================================
     with subtabs[0]:
 
-        st.subheader("📐 Processamento Raman")
+        st.subheader("📐 Processamento Espectral")
+
+        st.markdown("""
+        Upload de espectros Raman para:
+        - correção de baseline;
+        - suavização Savitzky-Golay;
+        - deconvolução Lorentziana;
+        - identificação molecular;
+        - extração de parâmetros físico-químicos.
+        """)
 
         files = st.file_uploader(
 
@@ -77,107 +82,172 @@ def render_raman_tab():
             accept_multiple_files=True
         )
 
-        if files:
+        # =================================================
+        # SEM ARQUIVOS
+        # =================================================
+        if not files:
 
-            all_samples = []
+            st.info("""
+            Faça upload dos espectros Raman
+            para iniciar o processamento.
+            """)
 
-            for file in files:
+            return
 
-                st.divider()
+        # =================================================
+        # DATASET FINAL
+        # =================================================
+        all_samples = []
 
-                st.markdown(f"### 📄 {file.name}")
+        # =================================================
+        # LOOP DOS ARQUIVOS
+        # =================================================
+        for file in files:
 
-                try:
+            st.divider()
 
-                    result = process_raman_spectrum_with_groups(
-                        file
-                    )
-
-                except Exception as e:
-
-                    st.error(
-                        "Erro no processamento Raman"
-                    )
-
-                    st.exception(e)
-
-                    continue
-
-                # =========================================
-                # FIGURAS
-                # =========================================
-                st.pyplot(
-                    result["figures"]["spectrum"]
-                )
-
-                st.pyplot(
-                    result["figures"]["deconvolution"]
-                )
-
-                # =========================================
-                # PARÂMETROS
-                # =========================================
-                st.subheader("📊 Parâmetros Raman")
-
-                summary_df = pd.DataFrame(
-
-                    [result["summary"]]
-                )
-
-                st.dataframe(
-
-                    summary_df,
-
-                    use_container_width=True
-                )
-
-                # =========================================
-                # PICOS
-                # =========================================
-                st.subheader("🧬 Picos Identificados")
-
-                st.dataframe(
-
-                    result["peaks_df"],
-
-                    use_container_width=True
-                )
-
-                # =========================================
-                # SESSION STATE
-                # =========================================
-                all_samples.append(
-
-                    result["summary"]
-                )
+            st.markdown(
+                f"## 📄 {file.name}"
+            )
 
             # =============================================
-            # SALVA DATASET
+            # PROCESSAMENTO
             # =============================================
-            if all_samples:
+            try:
 
-                st.session_state[
-                    "raman_samples"
-                ] = pd.DataFrame(all_samples)
+                result = process_raman_spectrum_with_groups(
+                    file
+                )
 
-                st.success("""
-                Dataset Raman salvo para
-                integração multimodal.
-                """)
+            except Exception as e:
+
+                st.error(
+                    "Erro no processamento Raman"
+                )
+
+                st.exception(e)
+
+                continue
+
+            # =============================================
+            # FIGURA ESPECTRO
+            # =============================================
+            st.subheader(
+                "📈 Espectro Raman"
+            )
+
+            st.pyplot(
+                result["figures"]["spectrum"]
+            )
+
+            # =============================================
+            # FIGURA DECONVOLUÇÃO
+            # =============================================
+            st.subheader(
+                "🧬 Deconvolução Lorentziana"
+            )
+
+            st.pyplot(
+                result["figures"]["deconvolution"]
+            )
+
+            # =============================================
+            # SUMMARY
+            # =============================================
+            st.subheader(
+                "📊 Parâmetros Gerais"
+            )
+
+            summary_df = pd.DataFrame([
+
+                result["summary"]
+            ])
+
+            st.dataframe(
+
+                summary_df,
+
+                width="stretch"
+            )
+
+            # =============================================
+            # PICOS
+            # =============================================
+            st.subheader(
+                "🧪 Tabela de Picos"
+            )
+
+            peaks_df = result["peaks_df"]
+
+            st.dataframe(
+
+                peaks_df,
+
+                width="stretch"
+            )
+
+            # =============================================
+            # DOWNLOAD TABELA
+            # =============================================
+            csv_peaks = peaks_df.to_csv(
+                index=False
+            )
+
+            st.download_button(
+
+                label="⬇ Download Peaks Table",
+
+                data=csv_peaks,
+
+                file_name=f"{file.name}_peaks.csv",
+
+                mime="text/csv"
+            )
+
+            # =============================================
+            # DATASET PCA
+            # =============================================
+            all_samples.append(
+
+                result["summary"]
+            )
+
+        # =================================================
+        # SESSION STATE
+        # =================================================
+        if all_samples:
+
+            raman_df = pd.DataFrame(
+                all_samples
+            )
+
+            st.session_state[
+                "raman_samples"
+            ] = raman_df
+
+            st.success("""
+            Dataset Raman salvo
+            para PCA multimodal.
+            """)
 
     # =====================================================
-    # SUBABA 2
+    # SUBABA 2 — MAPPING
     # =====================================================
     with subtabs[1]:
 
         render_mapeamento_molecular_tab()
 
     # =====================================================
-    # SUBABA 3
+    # SUBABA 3 — PCA
     # =====================================================
     with subtabs[2]:
 
         st.subheader("📊 PCA Raman")
+
+        st.markdown("""
+        Análise multivariada dos parâmetros
+        espectrais Raman extraídos automaticamente.
+        """)
 
         raman_df = st.session_state.get(
 
@@ -186,15 +256,22 @@ def render_raman_tab():
             pd.DataFrame()
         )
 
+        # =============================================
+        # SEM DADOS
+        # =============================================
         if raman_df.empty:
 
             st.warning("""
-            Carregue espectros Raman
-            para executar o PCA.
+            Nenhum dataset Raman encontrado.
+            Execute primeiro o processamento
+            espectral.
             """)
 
             return
 
+        # =============================================
+        # PCA
+        # =============================================
         try:
 
             pca_result = run_raman_pca(
@@ -203,7 +280,9 @@ def render_raman_tab():
 
         except Exception as e:
 
-            st.error("Erro no PCA Raman")
+            st.error(
+                "Erro no PCA Raman"
+            )
 
             st.exception(e)
 
@@ -219,31 +298,37 @@ def render_raman_tab():
         # =============================================
         # SCORES
         # =============================================
-        st.subheader("🧠 Scores PCA")
+        st.subheader(
+            "🧠 Scores PCA"
+        )
 
         st.dataframe(
 
             pca_result["scores"],
 
-            use_container_width=True
+            width="stretch"
         )
 
         # =============================================
         # LOADINGS
         # =============================================
-        st.subheader("📈 Loadings")
+        st.subheader(
+            "📈 Loadings"
+        )
 
         st.dataframe(
 
             pca_result["loadings"],
 
-            use_container_width=True
+            width="stretch"
         )
 
         # =============================================
         # VARIÂNCIA
         # =============================================
-        st.subheader("📊 Variância Explicada")
+        st.subheader(
+            "📊 Variância Explicada"
+        )
 
         explained_df = pd.DataFrame({
 
@@ -260,7 +345,25 @@ def render_raman_tab():
 
             explained_df,
 
-            use_container_width=True
+            width="stretch"
+        )
+
+        # =============================================
+        # EXPORT
+        # =============================================
+        csv_pca = raman_df.to_csv(
+            index=False
+        )
+
+        st.download_button(
+
+            label="⬇ Download Dataset PCA",
+
+            data=csv_pca,
+
+            file_name="raman_pca_dataset.csv",
+
+            mime="text/csv"
         )
 
         st.success("""
