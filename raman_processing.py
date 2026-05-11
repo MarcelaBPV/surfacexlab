@@ -1,6 +1,6 @@
 # =========================================================
 # Raman Processing — SurfaceXLab
-# Pipeline Científico Raman
+# Deconvolução Científica estilo Paper
 # =========================================================
 
 import numpy as np
@@ -10,9 +10,12 @@ import matplotlib.pyplot as plt
 from scipy.optimize import curve_fit
 
 from scipy.signal import (
-    find_peaks,
-    savgol_filter
+    savgol_filter,
+    find_peaks
 )
+
+from scipy.sparse import diags
+from scipy.sparse.linalg import spsolve
 
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
@@ -30,7 +33,7 @@ def read_raman_file(file_like):
     # =====================================================
     # EXCEL
     # =====================================================
-    if name.endswith(".xlsx") or name.endswith(".xls"):
+    if name.endswith((".xlsx", ".xls")):
 
         df = pd.read_excel(file_like)
 
@@ -50,24 +53,12 @@ def read_raman_file(file_like):
 
         except:
 
-            try:
-
-                df = pd.read_csv(
-                    file_like,
-                    sep=None,
-                    engine="python",
-                    encoding="latin1"
-                )
-
-            except:
-
-                df = pd.read_csv(
-                    file_like,
-                    sep=None,
-                    engine="python",
-                    encoding="cp1252"
-                )
-
+            df = pd.read_csv(
+                file_like,
+                sep=None,
+                engine="python",
+                encoding="latin1"
+            )
 
     # =====================================================
     # LIMPEZA
@@ -76,12 +67,6 @@ def read_raman_file(file_like):
         pd.to_numeric,
         errors="coerce"
     ).dropna()
-
-    if df.shape[1] < 2:
-
-        raise ValueError(
-            "Arquivo inválido para Raman"
-        )
 
     df = df.iloc[:, :2]
 
@@ -99,125 +84,70 @@ def read_raman_file(file_like):
 def baseline_als(
     y,
     lam=1e5,
-    p=0.01,
+    p=0.001,
     niter=10
 ):
 
     L = len(y)
 
-    D = np.diff(
-        np.eye(L),
-        n=2,
-        axis=0
+    D = diags(
+        [1, -2, 1],
+        [0, -1, -2],
+        shape=(L, L-2)
     )
-
-    DTD = D.T @ D
 
     w = np.ones(L)
 
     for _ in range(niter):
 
-        W = np.diag(w)
+        W = diags(w, 0)
 
-        Z = np.linalg.solve(
-            W + lam * DTD,
-            w * y
-        )
+        Z = W + lam * D.dot(D.transpose())
 
-        w = (
-            p * (y > Z)
-            +
-            (1-p) * (y < Z)
-        )
+        z = spsolve(Z, w * y)
 
-    return Z
+        w = p * (y > z) + (1-p) * (y < z)
+
+    return z
 
 
 # =========================================================
 # LORENTZIANA
 # =========================================================
-def lorentz(
+def lorentzian(
     x,
-    amplitude,
-    center,
-    gamma
+    amp,
+    cen,
+    wid
 ):
 
-    return amplitude * (
-        gamma**2 /
-        ((x-center)**2 + gamma**2)
+    return amp * (
+        wid**2 /
+        ((x-cen)**2 + wid**2)
     )
 
 
 # =========================================================
-# MULTI-LORENTZ
+# MULTI LORENTZ
 # =========================================================
-def multi_lorentz(x, *params):
+def multi_lorentzian(x, *params):
 
     y = np.zeros_like(x)
 
     for i in range(0, len(params), 3):
 
-        amplitude = params[i]
+        amp = params[i]
+        cen = params[i+1]
+        wid = params[i+2]
 
-        center = params[i+1]
-
-        gamma = params[i+2]
-
-        y += lorentz(
+        y += lorentzian(
             x,
-            amplitude,
-            center,
-            gamma
+            amp,
+            cen,
+            wid
         )
 
     return y
-
-
-# =========================================================
-# VALIDAÇÃO ESPECTRAL
-# =========================================================
-def validate_spectrum(x, y):
-
-    if len(x) < 50:
-
-        return False, "Poucos pontos espectrais"
-
-    if np.max(np.abs(y)) < 1e-6:
-
-        return False, "Intensidade inválida"
-
-    if np.isnan(y).sum() > 0:
-
-        return False, "Valores NaN encontrados"
-
-    return True, "OK"
-
-
-# =========================================================
-# FEATURE ENGINEERING
-# =========================================================
-def extract_raman_features(peaks_df):
-
-    features = {}
-
-    for _, row in peaks_df.iterrows():
-
-        group = row["assignment"]
-
-        features[
-            f"{group}_position"
-        ] = row["position"]
-
-        features[
-            f"{group}_intensity"
-        ] = row["intensity"]
-
-        features[
-            f"{group}_fwhm"
-        ] = row["fwhm"]
-
-    return features
 
 
 # =========================================================
@@ -231,39 +161,26 @@ def process_raman_spectrum_with_groups(file_like):
     df = read_raman_file(file_like)
 
     x = df["shift"].values
-
     y = df["intensity"].values
-
-
-    # =====================================================
-    # VALIDAÇÃO
-    # =====================================================
-    valid, message = validate_spectrum(x, y)
-
-    if not valid:
-
-        raise ValueError(message)
 
 
     # =====================================================
     # SUAVIZAÇÃO
     # =====================================================
     y_smooth = savgol_filter(
+
         y,
-        window_length=11,
+
+        window_length=15,
+
         polyorder=3
     )
 
 
     # =====================================================
-    # BASELINE ALS
+    # BASELINE
     # =====================================================
-    lam = 1e5 if len(y) > 100 else 1e4
-
-    baseline = baseline_als(
-        y_smooth,
-        lam=lam
-    )
+    baseline = baseline_als(y_smooth)
 
     y_corr = y_smooth - baseline
 
@@ -271,31 +188,20 @@ def process_raman_spectrum_with_groups(file_like):
     # =====================================================
     # NORMALIZAÇÃO
     # =====================================================
-    max_int = np.max(np.abs(y_corr))
-
-    if max_int == 0:
-
-        raise ValueError(
-            "Falha na normalização"
-        )
-
-    y_norm = y_corr / max_int
-
-    df["intensity_norm"] = y_norm
+    y_norm = y_corr / np.max(y_corr)
 
 
     # =====================================================
     # DETECÇÃO DE PICOS
     # =====================================================
-    peaks, _ = find_peaks(
+    peaks, properties = find_peaks(
+
         y_norm,
+
         prominence=0.05,
+
         distance=20
     )
-
-    if len(peaks) < 2:
-
-        peaks = np.argsort(y_norm)[-3:]
 
 
     # =====================================================
@@ -303,39 +209,41 @@ def process_raman_spectrum_with_groups(file_like):
     # =====================================================
     p0 = []
 
-    lower_bounds = []
-
-    upper_bounds = []
+    lower = []
+    upper = []
 
     for p in peaks:
 
         p0.extend([
+
             y_norm[p],
             x[p],
-            10
+            12
         ])
 
-        lower_bounds.extend([
+        lower.extend([
+
             0,
-            x[p]-20,
-            1
+            x[p]-15,
+            3
         ])
 
-        upper_bounds.extend([
+        upper.extend([
+
             2,
-            x[p]+20,
-            200
+            x[p]+15,
+            60
         ])
 
 
     # =====================================================
-    # FITTING LORENTZIANO
+    # FITTING
     # =====================================================
     try:
 
         popt, _ = curve_fit(
 
-            multi_lorentz,
+            multi_lorentzian,
 
             x,
 
@@ -343,39 +251,40 @@ def process_raman_spectrum_with_groups(file_like):
 
             p0=p0,
 
-            bounds=(
-                lower_bounds,
-                upper_bounds
-            ),
+            bounds=(lower, upper),
 
-            maxfev=20000
-        )
-
-        y_fit = multi_lorentz(
-            x,
-            *popt
+            maxfev=50000
         )
 
     except:
 
         popt = p0
 
-        y_fit = multi_lorentz(
-            x,
-            *popt
-        )
+
+    # =====================================================
+    # CURVA FIT
+    # =====================================================
+    y_fit = multi_lorentzian(
+
+        x,
+
+        *popt
+    )
+
+
+    # =====================================================
+    # RESÍDUO
+    # =====================================================
+    residual = y_norm - y_fit
 
 
     # =====================================================
     # R²
     # =====================================================
-    residual = y_norm - y_fit
-
-    ss_res = np.sum(
-        residual**2
-    )
+    ss_res = np.sum(residual**2)
 
     ss_tot = np.sum(
+
         (y_norm - np.mean(y_norm))**2
     )
 
@@ -383,151 +292,63 @@ def process_raman_spectrum_with_groups(file_like):
 
 
     # =====================================================
-    # QUALITY FLAG
-    # =====================================================
-    quality_flag = "GOOD"
-
-    if r2 < 0.85:
-
-        quality_flag = "LOW_QUALITY"
-
-
-    # =====================================================
-    # PEAKS DATAFRAME
+    # PEAK TABLE
     # =====================================================
     peaks_data = []
 
     for i in range(0, len(popt), 3):
 
-        position = popt[i+1]
+        amp = popt[i]
+        center = popt[i+1]
+        width = popt[i+2]
 
-        intensity = popt[i]
+        fwhm = 2 * width
 
-        gamma = popt[i+2]
+        matches = classify_peak(center)
 
-        fwhm = 2 * gamma
+        if matches:
 
-        assignments = classify_peak(position)
-
-        if assignments:
-
-            for match in assignments:
+            for match in matches:
 
                 peaks_data.append({
 
-                    "position": position,
+                    "Peak (cm⁻¹)": round(center, 2),
 
-                    "intensity": intensity,
+                    "Intensity": round(amp, 4),
 
-                    "fwhm": fwhm,
+                    "FWHM": round(fwhm, 2),
 
-                    "assignment": match["group"],
+                    "Assignment": match["group"],
 
-                    "category": match["category"],
+                    "Category": match["category"],
 
-                    "description": match["description"]
+                    "Description": match["description"]
                 })
 
         else:
 
             peaks_data.append({
 
-                "position": position,
+                "Peak (cm⁻¹)": round(center, 2),
 
-                "intensity": intensity,
+                "Intensity": round(amp, 4),
 
-                "fwhm": fwhm,
+                "FWHM": round(fwhm, 2),
 
-                "assignment": "Unknown",
+                "Assignment": "Unknown",
 
-                "category": "Unknown",
+                "Category": "Unknown",
 
-                "description": "Unassigned peak"
+                "Description": "Unknown peak"
             })
-
 
     peaks_df = pd.DataFrame(peaks_data)
 
 
     # =====================================================
-    # FEATURE ENGINEERING
+    # FIGURA PAPER STYLE
     # =====================================================
-    fingerprint = extract_raman_features(
-        peaks_df
-    )
-
-
-    # =====================================================
-    # FIGURA 1 — RAW
-    # =====================================================
-    fig_raw, ax_raw = plt.subplots(
-        figsize=(6,4),
-        dpi=300
-    )
-
-    ax_raw.plot(
-        x,
-        y,
-        linewidth=1.2
-    )
-
-    ax_raw.set_title(
-        "Raw Raman Spectrum"
-    )
-
-    ax_raw.set_xlabel(
-        "Raman Shift (cm⁻¹)"
-    )
-
-    ax_raw.set_ylabel(
-        "Intensity"
-    )
-
-    ax_raw.grid(alpha=0.3)
-
-
-    # =====================================================
-    # FIGURA 2 — BASELINE
-    # =====================================================
-    fig_base, ax_base = plt.subplots(
-        figsize=(6,4),
-        dpi=300
-    )
-
-    ax_base.plot(
-        x,
-        y_norm,
-        label="Corrected"
-    )
-
-    ax_base.plot(
-        x,
-        baseline/max_int,
-        "--",
-        label="ASLS Baseline"
-    )
-
-    ax_base.set_title(
-        "Baseline Correction"
-    )
-
-    ax_base.set_xlabel(
-        "Raman Shift (cm⁻¹)"
-    )
-
-    ax_base.set_ylabel(
-        "Normalized Intensity"
-    )
-
-    ax_base.legend()
-
-    ax_base.grid(alpha=0.3)
-
-
-    # =====================================================
-    # FIGURA 3 — FITTING
-    # =====================================================
-    fig_fit, (ax1, ax2) = plt.subplots(
+    fig, (ax1, ax2) = plt.subplots(
 
         2, 1,
 
@@ -538,26 +359,34 @@ def process_raman_spectrum_with_groups(file_like):
         sharex=True,
 
         gridspec_kw={
-            "height_ratios": [3,1]
+            "height_ratios": [4,1]
         }
     )
 
-    # ================================================
-    # FITTING
-    # ================================================
+    # =====================================================
+    # EXPERIMENTAL
+    # =====================================================
     ax1.plot(
+
         x,
+
         y_norm,
-        "k.",
-        markersize=3,
+
+        color="black",
+
+        linewidth=1.2,
+
         label="Experimental"
     )
 
-    colors = plt.cm.tab10.colors
+    # =====================================================
+    # COMPONENTES
+    # =====================================================
+    colors = plt.cm.Set2.colors
 
     for idx, i in enumerate(range(0, len(popt), 3)):
 
-        peak_curve = lorentz(
+        peak_curve = lorentzian(
 
             x,
 
@@ -569,41 +398,98 @@ def process_raman_spectrum_with_groups(file_like):
         )
 
         ax1.plot(
+
             x,
+
             peak_curve,
+
             color=colors[idx % len(colors)],
-            alpha=0.8
+
+            linewidth=1.0,
+
+            alpha=0.9
         )
 
+        # posição do pico
+        peak_pos = popt[i+1]
+
+        peak_amp = popt[i]
+
+        ax1.text(
+
+            peak_pos,
+
+            peak_amp + 0.03,
+
+            f"{int(peak_pos)}",
+
+            fontsize=7,
+
+            ha="center"
+        )
+
+    # =====================================================
+    # FIT TOTAL
+    # =====================================================
     ax1.plot(
+
         x,
+
         y_fit,
-        "r-",
-        linewidth=2,
+
+        color="red",
+
+        linewidth=1.5,
+
         label=f"Fit (R²={r2:.4f})"
     )
 
-    ax1.legend()
+    # =====================================================
+    # PEAKS EXPERIMENTAIS
+    # =====================================================
+    ax1.scatter(
+
+        x[peaks],
+
+        y_norm[peaks],
+
+        color="red",
+
+        s=15,
+
+        zorder=5
+    )
 
     ax1.set_ylabel(
         "Normalized Intensity"
     )
 
-    ax1.grid(alpha=0.3)
+    ax1.legend()
+
+    ax1.grid(alpha=0.2)
 
 
-    # ================================================
+    # =====================================================
     # RESÍDUO
-    # ================================================
+    # =====================================================
     ax2.plot(
+
         x,
+
         residual,
-        color="black"
+
+        color="black",
+
+        linewidth=0.8
     )
 
     ax2.axhline(
+
         0,
-        linestyle="--"
+
+        linestyle="--",
+
+        color="gray"
     )
 
     ax2.set_xlabel(
@@ -614,7 +500,81 @@ def process_raman_spectrum_with_groups(file_like):
         "Residual"
     )
 
-    ax2.grid(alpha=0.3)
+    ax2.grid(alpha=0.2)
+
+
+    # =====================================================
+    # FIGURA RAW
+    # =====================================================
+    fig_raw, ax_raw = plt.subplots(
+
+        figsize=(7,4),
+
+        dpi=300
+    )
+
+    ax_raw.plot(
+
+        x,
+
+        y_corr,
+
+        color="black"
+    )
+
+    ax_raw.scatter(
+
+        x[peaks],
+
+        y_corr[peaks],
+
+        color="red",
+
+        s=15
+    )
+
+    # labels
+    for p in peaks:
+
+        ax_raw.text(
+
+            x[p],
+
+            y_corr[p] + 0.03*np.max(y_corr),
+
+            f"{int(x[p])}",
+
+            fontsize=7,
+
+            ha="center"
+        )
+
+    ax_raw.set_xlabel(
+        "Raman shift (cm⁻¹)"
+    )
+
+    ax_raw.set_ylabel(
+        "Corrected Intensity"
+    )
+
+    ax_raw.grid(alpha=0.2)
+
+
+    # =====================================================
+    # SUMMARY
+    # =====================================================
+    summary = {
+
+        "Sample": file_like.name,
+
+        "R²": round(r2, 4),
+
+        "N Peaks": len(peaks),
+
+        "Main Peak": round(
+            np.max(x[peaks]), 2
+        )
+    }
 
 
     # =====================================================
@@ -622,23 +582,15 @@ def process_raman_spectrum_with_groups(file_like):
     # =====================================================
     return {
 
-        "spectrum_df": df,
+        "summary": summary,
 
         "peaks_df": peaks_df,
 
-        "fingerprint": fingerprint,
-
-        "r2": r2,
-
-        "quality_flag": quality_flag,
-
         "figures": {
 
-            "raw": fig_raw,
+            "spectrum": fig_raw,
 
-            "baseline": fig_base,
-
-            "fit": fig_fit
+            "deconvolution": fig
         }
     }
 
@@ -646,57 +598,87 @@ def process_raman_spectrum_with_groups(file_like):
 # =========================================================
 # PCA RAMAN
 # =========================================================
-def run_raman_pca(samples):
+def run_raman_pca(df):
 
-    fingerprints = []
-
-    labels = []
-
-    for sample_id, sample_data in samples.items():
-
-        if "raman" not in sample_data:
-
-            continue
-
-        fp = sample_data["raman"].get(
-            "fingerprint"
-        )
-
-        if fp is None:
-
-            continue
-
-        fingerprints.append(fp)
-
-        labels.append(sample_id)
-
-    if len(fingerprints) < 2:
-
-        raise ValueError(
-            "Poucas amostras para PCA"
-        )
-
-    df = pd.DataFrame(
-        fingerprints
+    numeric_df = df.select_dtypes(
+        include=[np.number]
     ).fillna(0)
 
-    X = StandardScaler().fit_transform(df)
+    X = StandardScaler().fit_transform(
+        numeric_df
+    )
 
     pca = PCA(n_components=2)
 
     scores = pca.fit_transform(X)
 
     explained = (
-        pca.explained_variance_ratio_
+        pca.explained_variance_ratio_ * 100
     )
+
+    scores_df = pd.DataFrame({
+
+        "PC1": scores[:,0],
+
+        "PC2": scores[:,1]
+    })
+
+    loadings_df = pd.DataFrame(
+
+        pca.components_.T,
+
+        columns=["PC1", "PC2"],
+
+        index=numeric_df.columns
+    )
+
+    # =====================================================
+    # FIGURA PCA
+    # =====================================================
+    fig, ax = plt.subplots(
+
+        figsize=(6,5),
+
+        dpi=300
+    )
+
+    ax.scatter(
+
+        scores[:,0],
+
+        scores[:,1]
+    )
+
+    for i, txt in enumerate(df.index):
+
+        ax.text(
+
+            scores[i,0],
+
+            scores[i,1],
+
+            str(txt),
+
+            fontsize=8
+        )
+
+    ax.set_xlabel(
+        f"PC1 ({explained[0]:.1f}%)"
+    )
+
+    ax.set_ylabel(
+        f"PC2 ({explained[1]:.1f}%)"
+    )
+
+    ax.grid(alpha=0.3)
 
     return {
 
-        "scores": scores,
+        "scores": scores_df,
 
-        "labels": labels,
+        "loadings": loadings_df,
 
-        "explained_variance": explained,
+        "explained": explained,
 
-        "dataframe": df
+        "figure": fig
     }
