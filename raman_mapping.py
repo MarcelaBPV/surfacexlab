@@ -1,6 +1,7 @@
 # =========================================================
 # raman_mapping.py
 # SurfaceXLab — Raman Molecular Mapping
+# FINAL REAL MAPPING VERSION
 # =========================================================
 
 import streamlit as st
@@ -10,6 +11,9 @@ import matplotlib.pyplot as plt
 
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
+
+from scipy.signal import savgol_filter
+from scipy.signal import find_peaks
 
 
 # =========================================================
@@ -22,7 +26,10 @@ def read_mapping_file(file_like):
     # =====================================================
     # EXCEL
     # =====================================================
-    if name.endswith((".xlsx", ".xls")):
+    if name.endswith(
+
+        (".xlsx", ".xls")
+    ):
 
         df = pd.read_excel(file_like)
 
@@ -46,16 +53,26 @@ def read_mapping_file(file_like):
 
         except:
 
+            file_like.seek(0)
+
             df = pd.read_csv(
 
                 file_like,
 
-                sep=None,
-
-                engine="python",
+                delim_whitespace=True,
 
                 encoding="latin1"
             )
+
+    # =====================================================
+    # LIMPEZA
+    # =====================================================
+    df.columns = [
+
+        str(c).strip().lower()
+
+        for c in df.columns
+    ]
 
     return df
 
@@ -65,11 +82,13 @@ def read_mapping_file(file_like):
 # =========================================================
 def render_mapeamento_molecular_tab():
 
-    st.subheader("🗺️ Mapping Molecular Raman")
+    st.subheader(
+        "🗺️ Raman Molecular Mapping"
+    )
 
     st.markdown("""
     Processamento espacial de espectros Raman
-    obtidos ao longo da superfície analisada.
+    adquiridos em múltiplas posições da amostra.
     """)
 
     uploaded_file = st.file_uploader(
@@ -91,8 +110,7 @@ def render_mapeamento_molecular_tab():
     if uploaded_file is None:
 
         st.info("""
-        Faça upload do arquivo contendo
-        os espectros Raman do mapping.
+        Faça upload do arquivo Raman Mapping.
         """)
 
         return
@@ -109,7 +127,7 @@ def render_mapeamento_molecular_tab():
     except Exception as e:
 
         st.error(
-            "Erro ao ler arquivo"
+            "Erro ao ler arquivo."
         )
 
         st.exception(e)
@@ -119,235 +137,378 @@ def render_mapeamento_molecular_tab():
     # =====================================================
     # DATAFRAME
     # =====================================================
-    st.subheader("📄 Dataset Importado")
+    st.subheader(
+        "📄 Dataset Importado"
+    )
 
     st.dataframe(
 
-        df,
+        df.head(),
 
         width="stretch"
     )
 
     # =====================================================
-    # DADOS NUMÉRICOS
+    # IDENTIFICA COLUNAS
     # =====================================================
-    try:
+    x_col = None
+    y_col = None
+    wave_col = None
+    intensity_col = None
 
-        numeric_df = df.select_dtypes(
-            include=[np.number]
-        )
+    for c in df.columns:
 
-        # remove colunas vazias
-        numeric_df = numeric_df.dropna(
+        if c == "x":
 
-            axis=1,
+            x_col = c
 
-            how="all"
-        )
+        elif c == "y":
 
-        # remove linhas vazias
-        numeric_df = numeric_df.dropna(
+            y_col = c
 
-            axis=0,
+        elif "wave" in c:
 
-            how="all"
-        )
+            wave_col = c
 
-        if numeric_df.empty:
+        elif "intensity" in c:
 
-            st.warning("""
-            O arquivo não possui
-            dados numéricos válidos.
-            """)
+            intensity_col = c
 
-            return
+    # =====================================================
+    # VALIDAÇÃO
+    # =====================================================
+    if any(
 
-        data = numeric_df.values
+        v is None
 
-        # =================================================
-        # GARANTE MATRIZ 2D
-        # =================================================
-        if data.ndim == 1:
+        for v in [
 
-            data = data.reshape(1, -1)
+            x_col,
+            y_col,
+            wave_col,
+            intensity_col
+        ]
+    ):
 
-        # evita matriz degenerada
-        if data.shape[0] < 2:
+        st.error("""
+        O arquivo precisa conter:
 
-            data = np.vstack([
-
-                data,
-                data
-            ])
-
-        if data.shape[1] < 2:
-
-            data = np.hstack([
-
-                data,
-                data
-            ])
-
-    except Exception as e:
-
-        st.error(
-            "Erro nos dados numéricos"
-        )
-
-        st.exception(e)
+        x | y | wave | intensity
+        """)
 
         return
 
     # =====================================================
-    # MAPA RAMAN
+    # CONVERSÃO NUMÉRICA
     # =====================================================
-    st.subheader("🧬 Raman Intensity Map")
+    for c in [
 
-    try:
+        x_col,
+        y_col,
+        wave_col,
+        intensity_col
+    ]:
 
-        fig_map, ax_map = plt.subplots(
+        df[c] = pd.to_numeric(
 
-            figsize=(7,5),
+            df[c],
 
-            dpi=300
+            errors="coerce"
         )
 
-        im = ax_map.imshow(
-
-            data,
-
-            aspect="auto",
-
-            origin="lower",
-
-            cmap="inferno"
-        )
-
-        cbar = plt.colorbar(
-
-            im,
-
-            ax=ax_map
-        )
-
-        cbar.set_label(
-            "Raman Intensity"
-        )
-
-        ax_map.set_title(
-            "Raman Intensity Map"
-        )
-
-        ax_map.set_xlabel(
-            "Raman Shift"
-        )
-
-        ax_map.set_ylabel(
-            "Spatial Position"
-        )
-
-        st.pyplot(fig_map)
-
-    except Exception as e:
-
-        st.error(
-            "Erro na reconstrução do mapa Raman"
-        )
-
-        st.exception(e)
-
-        return
+    df = df.dropna()
 
     # =====================================================
-    # ESPECTROS
+    # GRUPOS ESPECTRAIS
     # =====================================================
-    st.subheader("📈 Espectros Raman")
+    grouped = df.groupby(
 
-    try:
+        [x_col, y_col]
+    )
 
-        fig_spec, ax_spec = plt.subplots(
+    total_spectra = len(grouped)
 
-            figsize=(7,5),
+    st.success(
+        f"{total_spectra} espectros detectados."
+    )
 
-            dpi=300
+    # =====================================================
+    # FIGURA ESPECTROS
+    # =====================================================
+    st.subheader(
+        "📈 Raman Spectra"
+    )
+
+    fig_spec, ax_spec = plt.subplots(
+
+        figsize=(10,6),
+
+        dpi=300
+    )
+
+    features = []
+
+    heatmap_data = []
+
+    # =====================================================
+    # LOOP DOS ESPECTROS
+    # =====================================================
+    for idx, (
+
+        (x_pos, y_pos),
+
+        group
+
+    ) in enumerate(grouped):
+
+        group = group.sort_values(
+            wave_col
         )
 
-        max_spectra = min(
-            18,
-            data.shape[0]
-        )
+        wave = group[
+            wave_col
+        ].values
 
-        x_axis = np.arange(
-            data.shape[1]
-        )
+        intensity = group[
+            intensity_col
+        ].values
 
-        for i in range(max_spectra):
+        # =================================================
+        # SUAVIZAÇÃO
+        # =================================================
+        if len(intensity) > 21:
 
-            spectrum = data[i]
+            intensity = savgol_filter(
 
-            spectrum_norm = (
+                intensity,
 
-                spectrum -
-                np.min(spectrum)
+                21,
 
-            ) / (
-
-                np.max(spectrum) -
-                np.min(spectrum) + 1e-9
+                3
             )
 
-            ax_spec.plot(
+        # =================================================
+        # NORMALIZA
+        # =================================================
+        intensity_norm = (
 
-                x_axis,
+            intensity -
+            np.min(intensity)
 
-                spectrum_norm,
+        ) / (
 
-                linewidth=1
+            np.max(intensity) -
+            np.min(intensity) + 1e-9
+        )
+
+        # =================================================
+        # PLOT
+        # =================================================
+        ax_spec.plot(
+
+            wave,
+
+            intensity_norm,
+
+            linewidth=1,
+
+            alpha=0.8
+        )
+
+        # =================================================
+        # PICOS
+        # =================================================
+        peaks, props = find_peaks(
+
+            intensity_norm,
+
+            prominence=0.05
+        )
+
+        # =================================================
+        # FEATURE EXTRACTION
+        # =================================================
+        if len(peaks) > 0:
+
+            peak_wave = wave[
+                peaks[np.argmax(
+                    intensity_norm[peaks]
+                )]
+            ]
+
+            peak_intensity = np.max(
+                intensity_norm
             )
 
-        ax_spec.set_title(
-            "Raman Spectra Mapping"
-        )
+        else:
 
-        ax_spec.set_xlabel(
-            "Raman Shift"
-        )
+            peak_wave = 0
+            peak_intensity = 0
 
-        ax_spec.set_ylabel(
-            "Normalized Intensity"
-        )
+        features.append({
 
-        ax_spec.grid(alpha=0.2)
+            "Spectrum":
 
-        st.pyplot(fig_spec)
+                idx + 1,
 
-    except Exception as e:
+            "X":
 
-        st.error(
-            "Erro na plotagem dos espectros"
-        )
+                x_pos,
 
-        st.exception(e)
+            "Y":
+
+                y_pos,
+
+            "Main Peak":
+
+                peak_wave,
+
+            "Max Intensity":
+
+                peak_intensity
+        })
+
+        heatmap_data.append([
+
+            x_pos,
+
+            y_pos,
+
+            peak_intensity
+        ])
 
     # =====================================================
-    # PCA MAPPING
+    # FIGURA FINAL
     # =====================================================
-    st.subheader("📊 PCA Mapping")
+    ax_spec.set_title(
+        "Raman Spectral Mapping"
+    )
+
+    ax_spec.set_xlabel(
+        "Raman Shift (cm⁻¹)"
+    )
+
+    ax_spec.set_ylabel(
+        "Normalized Intensity"
+    )
+
+    ax_spec.grid(alpha=0.2)
+
+    st.pyplot(fig_spec)
+
+    # =====================================================
+    # FEATURES DF
+    # =====================================================
+    features_df = pd.DataFrame(
+        features
+    )
+
+    # =====================================================
+    # TABELA
+    # =====================================================
+    st.subheader(
+        "📊 Spectral Features"
+    )
+
+    st.dataframe(
+
+        features_df,
+
+        width="stretch"
+    )
+
+    # =====================================================
+    # HEATMAP
+    # =====================================================
+    st.subheader(
+        "🔥 Molecular Distribution"
+    )
+
+    heat_df = pd.DataFrame(
+
+        heatmap_data,
+
+        columns=[
+
+            "X",
+            "Y",
+            "Intensity"
+        ]
+    )
+
+    pivot = heat_df.pivot(
+
+        index="Y",
+
+        columns="X",
+
+        values="Intensity"
+    )
+
+    fig_heat, ax_heat = plt.subplots(
+
+        figsize=(6,5),
+
+        dpi=300
+    )
+
+    im = ax_heat.imshow(
+
+        pivot,
+
+        cmap="inferno",
+
+        origin="lower",
+
+        aspect="auto"
+    )
+
+    cbar = plt.colorbar(
+
+        im,
+
+        ax=ax_heat
+    )
+
+    cbar.set_label(
+        "Intensity"
+    )
+
+    ax_heat.set_title(
+        "Molecular Heatmap"
+    )
+
+    st.pyplot(fig_heat)
+
+    # =====================================================
+    # PCA
+    # =====================================================
+    st.subheader(
+        "📊 PCA Mapping"
+    )
 
     try:
 
-        X = StandardScaler().fit_transform(
-            data
-        )
+        X = features_df[[
+
+            "Main Peak",
+
+            "Max Intensity"
+        ]]
+
+        X_scaled = StandardScaler().fit_transform(X)
 
         pca = PCA(
             n_components=2
         )
 
-        scores = pca.fit_transform(X)
+        scores = pca.fit_transform(
+            X_scaled
+        )
 
         explained = (
-            pca.explained_variance_ratio_ * 100
+            pca.explained_variance_ratio_
+            * 100
         )
 
         fig_pca, ax_pca = plt.subplots(
@@ -364,7 +525,7 @@ def render_mapeamento_molecular_tab():
             scores[:,1]
         )
 
-        for i in range(scores.shape[0]):
+        for i in range(len(scores)):
 
             ax_pca.text(
 
@@ -395,8 +556,8 @@ def render_mapeamento_molecular_tab():
 
     except Exception as e:
 
-        st.error(
-            "Erro no PCA Mapping"
+        st.warning(
+            "PCA não pôde ser executado."
         )
 
         st.exception(e)
@@ -404,19 +565,21 @@ def render_mapeamento_molecular_tab():
     # =====================================================
     # EXPORT
     # =====================================================
-    st.subheader("⬇ Exportar Dados")
+    st.subheader(
+        "⬇ Export"
+    )
 
-    csv = numeric_df.to_csv(
+    csv = features_df.to_csv(
         index=False
     )
 
     st.download_button(
 
-        label="Download Dataset Mapping",
+        label="Download Mapping Features",
 
         data=csv,
 
-        file_name="raman_mapping.csv",
+        file_name="raman_mapping_features.csv",
 
         mime="text/csv"
     )
