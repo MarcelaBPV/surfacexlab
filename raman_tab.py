@@ -32,7 +32,7 @@ def render_raman_tab():
     st.sidebar.header("⚙ Configurações Raman")
 
     # =====================================================
-    # SHIFT RANGE
+    # FAIXA ESPECTRAL
     # =====================================================
     preset = st.sidebar.selectbox(
 
@@ -85,7 +85,7 @@ def render_raman_tab():
     )
 
     # =====================================================
-    # SAVITZKY
+    # SAVITZKY-GOLAY
     # =====================================================
     sg_window = st.sidebar.slider(
 
@@ -238,7 +238,7 @@ def render_raman_tab():
             )
 
             # =============================================
-            # TABELA DE PICOS
+            # PEAK TABLE
             # =============================================
             st.subheader(
                 "📋 Peak Assignment"
@@ -279,9 +279,6 @@ def render_raman_tab():
             all_features
         )
 
-        # =================================================
-        # REMOVE COLUNAS NÃO NUMÉRICAS
-        # =================================================
         numeric_df = features_df.select_dtypes(
             include="number"
         )
@@ -322,9 +319,6 @@ def render_raman_tab():
             aspect="auto"
         )
 
-        # =============================================
-        # LABELS
-        # =============================================
         ax.set_xticks(
             range(len(corr.columns))
         )
