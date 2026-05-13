@@ -24,6 +24,7 @@ from sklearn.decomposition import PCA
 
 from raman_database import classify_peak
 
+
 # =========================================================
 # LEITURA UNIVERSAL
 # =========================================================
@@ -118,7 +119,7 @@ def baseline_als(
 
 
 # =========================================================
-# PSEUDO VOIGT
+# PSEUDO-VOIGT
 # =========================================================
 def pseudo_voigt(
     x,
@@ -151,7 +152,7 @@ def pseudo_voigt(
 
 
 # =========================================================
-# MULTI PSEUDO VOIGT
+# MULTI PSEUDO-VOIGT
 # =========================================================
 def multi_pseudo_voigt(x, *params):
 
@@ -200,7 +201,7 @@ def get_known_bands(
         ]
 
     # =====================================================
-    # CARBONO / GRAFENO
+    # GRAFENO / CARBONO
     # =====================================================
     elif shift_max > 2500:
 
@@ -267,7 +268,7 @@ def process_raman_spectrum_with_groups(
     y = y[mask]
 
     # =====================================================
-    # REMOÇÃO DE COSMIC RAY
+    # REMOÇÃO COSMIC RAY
     # =====================================================
     y_med = medfilt(
         y,
@@ -365,7 +366,7 @@ def process_raman_spectrum_with_groups(
 
             cen0 = band
 
-            sigma0 = 10
+            sigma0 = 6
 
             eta0 = 0.5
 
@@ -386,7 +387,7 @@ def process_raman_spectrum_with_groups(
             upper.extend([
                 2,
                 band + 5,
-                50,
+                25,
                 1
             ])
 
@@ -407,7 +408,7 @@ def process_raman_spectrum_with_groups(
 
             cen0 = x[p]
 
-            sigma0 = 10
+            sigma0 = 6
 
             eta0 = 0.5
 
@@ -428,7 +429,7 @@ def process_raman_spectrum_with_groups(
             upper.extend([
                 2,
                 cen0 + 10,
-                50,
+                25,
                 1
             ])
 
@@ -566,8 +567,10 @@ def process_raman_spectrum_with_groups(
         # =================================================
         # ÁREA
         # =================================================
-        area = np.trapz(
+        area = np.trapezoid(
+
             peak_curve,
+
             x
         )
 
@@ -882,27 +885,6 @@ def run_raman_pca(df):
     )
 
     # =====================================================
-    # DATAFRAMES
-    # =====================================================
-    scores_df = pd.DataFrame({
-
-        "PC1":
-            scores[:,0],
-
-        "PC2":
-            scores[:,1]
-    })
-
-    loadings_df = pd.DataFrame(
-
-        pca.components_.T,
-
-        columns=["PC1", "PC2"],
-
-        index=numeric_df.columns
-    )
-
-    # =====================================================
     # FIGURA
     # =====================================================
     fig, ax = plt.subplots(
@@ -918,19 +900,6 @@ def run_raman_pca(df):
 
         scores[:,1]
     )
-
-    for i, txt in enumerate(df.index):
-
-        ax.text(
-
-            scores[i,0],
-
-            scores[i,1],
-
-            str(txt),
-
-            fontsize=8
-        )
 
     ax.set_xlabel(
         f"PC1 ({explained[0]:.1f}%)"
@@ -951,10 +920,7 @@ def run_raman_pca(df):
     return {
 
         "scores":
-            scores_df,
-
-        "loadings":
-            loadings_df,
+            scores,
 
         "explained":
             explained,
