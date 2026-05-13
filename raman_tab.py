@@ -1,396 +1,329 @@
 # =========================================================
 # raman_tab.py
-# SurfaceXLab — Raman Module
-# VERSÃO FINAL ESTÁVEL
+# SurfaceXLab — Raman Scientific Analysis
 # =========================================================
 
 import streamlit as st
 import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
 
-
-# =========================================================
-# IMPORTS
-# =========================================================
 from raman_processing import (
-
     process_raman_spectrum_with_groups,
-
     run_raman_pca
 )
 
-from raman_mapping import (
-    render_mapeamento_molecular_tab
-)
-
 
 # =========================================================
-# TAB PRINCIPAL
+# TAB RAMAN
 # =========================================================
 def render_raman_tab():
 
-    st.header("🧬 Raman — SurfaceXLab")
+    st.header("🧪 Raman Scientific Analysis")
 
     st.markdown("""
-    Plataforma integrada para processamento
-    espectral Raman, deconvolução Pseudo-Voigt,
-    identificação molecular e análise multimodal.
+    Plataforma científica para processamento Raman,
+    deconvolução pseudo-Voigt, análise SERS,
+    PCA e correlação físico-química.
     """)
 
-    st.divider()
+    # =====================================================
+    # SIDEBAR
+    # =====================================================
+    st.sidebar.header("⚙ Configurações Raman")
 
     # =====================================================
-    # SUBABAS
+    # SHIFT RANGE
     # =====================================================
-    subtabs = st.tabs([
+    preset = st.sidebar.selectbox(
 
-        "📐 Processamento Raman",
+        "Faixa espectral",
 
-        "🗺️ Mapping Molecular",
+        [
 
-        "📊 PCA Raman"
-    ])
+            "Biomédica",
+            "Fingerprint",
+            "CH Stretching",
+            "Custom"
+        ]
+    )
+
+    if preset == "Biomédica":
+
+        shift_min = 1500
+        shift_max = 1700
+
+    elif preset == "Fingerprint":
+
+        shift_min = 400
+        shift_max = 1800
+
+    elif preset == "CH Stretching":
+
+        shift_min = 2800
+        shift_max = 3100
+
+    else:
+
+        shift_min = 400
+        shift_max = 3500
+
+    shift_min = st.sidebar.number_input(
+
+        "Shift mínimo",
+
+        value=float(shift_min)
+    )
+
+    shift_max = st.sidebar.number_input(
+
+        "Shift máximo",
+
+        value=float(shift_max)
+    )
 
     # =====================================================
-    # SUBABA 1
+    # SUAVIZAÇÃO
     # =====================================================
-    with subtabs[0]:
+    sg_window = st.sidebar.slider(
 
-        st.subheader(
-            "📐 Processamento Espectral"
+        "Savitzky Window",
+
+        5,
+        31,
+        11,
+        step=2
+    )
+
+    sg_poly = st.sidebar.slider(
+
+        "Savitzky Polyorder",
+
+        2,
+        5,
+        3
+    )
+
+    # =====================================================
+    # BASELINE
+    # =====================================================
+    baseline_lambda = st.sidebar.number_input(
+
+        "ALS Lambda",
+
+        value=1e7,
+        format="%.1e"
+    )
+
+    baseline_p = st.sidebar.slider(
+
+        "ALS p",
+
+        0.0001,
+        0.01,
+        0.001
+    )
+
+    # =====================================================
+    # PEAK DETECTION
+    # =====================================================
+    prominence = st.sidebar.slider(
+
+        "Peak Prominence",
+
+        0.001,
+        0.2,
+        0.03
+    )
+
+    distance = st.sidebar.slider(
+
+        "Peak Distance",
+
+        1,
+        100,
+        20
+    )
+
+    # =====================================================
+    # UPLOAD
+    # =====================================================
+    files = st.file_uploader(
+
+        "Upload espectros Raman",
+
+        accept_multiple_files=True,
+
+        type=[
+
+            "txt",
+            "csv",
+            "xlsx",
+            "xls"
+        ]
+    )
+
+    if not files:
+
+        st.info(
+            "Faça upload dos espectros Raman."
         )
 
-        st.markdown("""
-        Upload de espectros Raman para:
+        return
 
-        - correção de baseline;
-        - suavização Savitzky-Golay;
-        - deconvolução Pseudo-Voigt;
-        - identificação molecular;
-        - extração automática de parâmetros.
-        """)
-
-        files = st.file_uploader(
-
-            "Upload espectros Raman",
-
-            type=[
-
-                "csv",
-                "txt",
-                "xlsx",
-                "xls",
-                "log"
-            ],
-
-            accept_multiple_files=True
-        )
-
-        # =================================================
-        # SEM ARQUIVOS
-        # =================================================
-        if not files:
-
-            st.info("""
-            Faça upload dos espectros Raman.
-            """)
-
-        else:
-
-            # =============================================
-            # DATASET PCA
-            # =============================================
-            all_samples = []
-
-            # =============================================
-            # LOOP DOS ARQUIVOS
-            # =============================================
-            for file in files:
-
-                st.divider()
-
-                st.markdown(
-                    f"## 📄 {file.name}"
-                )
-
-                # =========================================
-                # PROCESSAMENTO
-                # =========================================
-                try:
-
-                    result = process_raman_spectrum_with_groups(
-                        file
-                    )
-
-                except Exception as e:
-
-                    st.error(
-                        "Erro no processamento Raman"
-                    )
-
-                    st.exception(e)
-
-                    continue
-
-                # =========================================
-                # ESPECTRO
-                # =========================================
-                st.subheader(
-                    "📈 Espectro Raman"
-                )
-
-                st.pyplot(
-                    result["figures"]["spectrum"]
-                )
-
-                # =========================================
-                # DECONVOLUÇÃO
-                # =========================================
-                st.subheader(
-                    "🧬 Deconvolução Pseudo-Voigt"
-                )
-
-                st.pyplot(
-                    result["figures"]["deconvolution"]
-                )
-
-                # =========================================
-                # SUMMARY
-                # =========================================
-                st.subheader(
-                    "📊 Parâmetros Gerais"
-                )
-
-                summary_df = pd.DataFrame([
-
-                    result["summary"]
-                ])
-
-                st.dataframe(
-
-                    summary_df,
-
-                    width="stretch"
-                )
-
-                # =========================================
-                # PICOS
-                # =========================================
-                st.subheader(
-                    "🧪 Tabela de Picos"
-                )
-
-                peaks_df = result["peaks_df"]
-
-                st.dataframe(
-
-                    peaks_df,
-
-                    width="stretch"
-                )
-
-                # =========================================
-                # DOWNLOAD
-                # =========================================
-                csv_peaks = peaks_df.to_csv(
-                    index=False
-                )
-
-                st.download_button(
-
-                    label="⬇ Download Peaks Table",
-
-                    data=csv_peaks,
-
-                    file_name=f"{file.name}_peaks.csv",
-
-                    mime="text/csv"
-                )
-
-                # =========================================
-                # PCA DATASET
-                # =========================================
-                all_samples.append(
-
-                    result["summary"]
-                )
-
-            # =============================================
-            # SESSION STATE
-            # =============================================
-            if len(all_samples) > 0:
-
-                raman_df = pd.DataFrame(
-                    all_samples
-                )
-
-                st.session_state[
-                    "raman_samples"
-                ] = raman_df
-
-                st.success("""
-                Dataset Raman salvo
-                para PCA multimodal.
-                """)
+    all_features = []
 
     # =====================================================
-    # SUBABA 2
+    # PROCESSAMENTO
     # =====================================================
-    with subtabs[1]:
+    for file in files:
 
-        render_mapeamento_molecular_tab()
+        st.divider()
 
-    # =====================================================
-    # SUBABA 3 — PCA
-    # =====================================================
-    with subtabs[2]:
+        st.subheader(f"📈 {file.name}")
 
-        st.subheader("📊 PCA Raman")
-
-        st.markdown("""
-        Análise multivariada dos parâmetros
-        espectrais Raman.
-        """)
-
-        # =================================================
-        # SESSION STATE
-        # =================================================
-        raman_df = st.session_state.get(
-            "raman_samples"
-        )
-
-        # =================================================
-        # SEM DADOS
-        # =================================================
-        if raman_df is None:
-
-            st.warning("""
-            Nenhum dataset Raman encontrado.
-            """)
-
-            return
-
-        # =================================================
-        # GARANTE DATAFRAME
-        # =================================================
-        if not isinstance(
-            raman_df,
-            pd.DataFrame
-        ):
-
-            raman_df = pd.DataFrame(
-                raman_df
-            )
-
-        # =================================================
-        # DATAFRAME VAZIO
-        # =================================================
-        if len(raman_df) == 0:
-
-            st.warning("""
-            Dataset Raman vazio.
-            """)
-
-            return
-
-        # =================================================
-        # PCA
-        # =================================================
         try:
 
-            pca_result = run_raman_pca(
-                raman_df
+            result = process_raman_spectrum_with_groups(
+
+                file_like=file,
+
+                shift_min=shift_min,
+                shift_max=shift_max,
+
+                sg_window=sg_window,
+                sg_poly=sg_poly,
+
+                baseline_lambda=baseline_lambda,
+                baseline_p=baseline_p,
+
+                prominence=prominence,
+                distance=distance
             )
+
+            # =============================================
+            # FIGURAS
+            # =============================================
+            st.pyplot(
+                result["figures"]["deconvolution"]
+            )
+
+            st.pyplot(
+                result["figures"]["spectrum"]
+            )
+
+            # =============================================
+            # SUMMARY
+            # =============================================
+            summary = result["summary"]
+
+            col1, col2, col3 = st.columns(3)
+
+            col1.metric(
+                "R²",
+                summary["R²"]
+            )
+
+            col2.metric(
+                "N Peaks",
+                summary["N Peaks"]
+            )
+
+            col3.metric(
+                "Main Peak",
+                summary["Main Peak"]
+            )
+
+            # =============================================
+            # PEAK TABLE
+            # =============================================
+            st.dataframe(
+
+                result["peaks_df"],
+
+                use_container_width=True
+            )
+
+            # =============================================
+            # FEATURES
+            # =============================================
+            features = result["features"]
+
+            all_features.append(features)
 
         except Exception as e:
 
             st.error(
-                "Erro no PCA Raman"
+                f"Erro no processamento de {file.name}"
             )
 
             st.exception(e)
 
-            return
+    # =====================================================
+    # PCA
+    # =====================================================
+    if len(all_features) > 1:
 
-        # =================================================
-        # FIGURA PCA
-        # =================================================
+        st.divider()
+
+        st.subheader("🧠 PCA Raman")
+
+        features_df = pd.DataFrame(
+            all_features
+        )
+
+        pca_result = run_raman_pca(
+            features_df
+        )
+
         st.pyplot(
             pca_result["figure"]
         )
 
-        # =================================================
-        # SCORES
-        # =================================================
+        # =============================================
+        # MATRIZ DE CORRELAÇÃO
+        # =============================================
         st.subheader(
-            "🧠 Scores PCA"
+            "📊 Correlação Físico-Química"
         )
 
-        st.dataframe(
+        corr = features_df.corr()
 
-            pca_result["scores"],
+        fig_corr, ax = plt.subplots(
 
-            width="stretch"
+            figsize=(10,8),
+            dpi=300
         )
 
-        # =================================================
-        # LOADINGS
-        # =================================================
-        st.subheader(
-            "📈 Loadings"
+        sns.heatmap(
+
+            corr,
+
+            cmap="coolwarm",
+
+            center=0,
+
+            ax=ax
         )
 
-        st.dataframe(
+        plt.tight_layout()
 
-            pca_result["loadings"],
+        st.pyplot(fig_corr)
 
-            width="stretch"
-        )
-
-        # =================================================
-        # VARIÂNCIA
-        # =================================================
-        st.subheader(
-            "📊 Variância Explicada"
-        )
-
-        explained_df = pd.DataFrame({
-
-            "Componente": [
-
-                "PC1",
-                "PC2"
-            ],
-
-            "Variância (%)":
-
-                pca_result["explained"]
-        })
-
-        st.dataframe(
-
-            explained_df,
-
-            width="stretch"
-        )
-
-        # =================================================
-        # EXPORT
-        # =================================================
-        csv_pca = raman_df.to_csv(
+        # =============================================
+        # EXPORTAÇÃO
+        # =============================================
+        csv = features_df.to_csv(
             index=False
         )
 
         st.download_button(
 
-            label="⬇ Download Dataset PCA",
+            "⬇ Exportar Features Raman",
 
-            data=csv_pca,
+            data=csv,
 
-            file_name="raman_pca_dataset.csv",
+            file_name="raman_features.csv",
 
             mime="text/csv"
         )
-
-        st.success("""
-        PCA Raman executado com sucesso.
-        """)
