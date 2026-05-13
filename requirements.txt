@@ -7,3 +7,5 @@ matplotlib>=3.8
 openpyxl
 plotly
 lmfit
+Redeploy
+Reboot app
