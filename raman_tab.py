@@ -6,7 +6,6 @@
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
-import seaborn as sns
 
 from raman_processing import (
     process_raman_spectrum_with_groups,
@@ -68,6 +67,9 @@ def render_raman_tab():
         shift_min = 400
         shift_max = 3500
 
+    # =====================================================
+    # SHIFT CUSTOMIZÁVEL
+    # =====================================================
     shift_min = st.sidebar.number_input(
 
         "Shift mínimo",
@@ -83,7 +85,7 @@ def render_raman_tab():
     )
 
     # =====================================================
-    # SUAVIZAÇÃO
+    # SAVITZKY
     # =====================================================
     sg_window = st.sidebar.slider(
 
@@ -112,6 +114,7 @@ def render_raman_tab():
         "ALS Lambda",
 
         value=1e7,
+
         format="%.1e"
     )
 
@@ -125,7 +128,7 @@ def render_raman_tab():
     )
 
     # =====================================================
-    # PEAK DETECTION
+    # DETECÇÃO DE PICOS
     # =====================================================
     prominence = st.sidebar.slider(
 
@@ -235,8 +238,12 @@ def render_raman_tab():
             )
 
             # =============================================
-            # PEAK TABLE
+            # TABELA DE PICOS
             # =============================================
+            st.subheader(
+                "📋 Peak Assignment"
+            )
+
             st.dataframe(
 
                 result["peaks_df"],
@@ -260,7 +267,7 @@ def render_raman_tab():
             st.exception(e)
 
     # =====================================================
-    # PCA
+    # PCA + CORRELAÇÃO
     # =====================================================
     if len(all_features) > 1:
 
@@ -272,54 +279,96 @@ def render_raman_tab():
             all_features
         )
 
+        # =================================================
+        # REMOVE COLUNAS NÃO NUMÉRICAS
+        # =================================================
+        numeric_df = features_df.select_dtypes(
+            include="number"
+        )
+
+        # =================================================
+        # PCA
+        # =================================================
         pca_result = run_raman_pca(
-            features_df
+            numeric_df
         )
 
         st.pyplot(
             pca_result["figure"]
         )
 
-        # =============================================
-        # MATRIZ DE CORRELAÇÃO
-        # =============================================
+        # =================================================
+        # CORRELAÇÃO
+        # =================================================
         st.subheader(
             "📊 Correlação Físico-Química"
         )
 
-        corr = features_df.corr()
+        corr = numeric_df.corr()
 
         fig_corr, ax = plt.subplots(
 
             figsize=(10,8),
+
             dpi=300
         )
 
-        sns.heatmap(
+        im = ax.imshow(
 
             corr,
 
             cmap="coolwarm",
 
-            center=0,
-
-            ax=ax
+            aspect="auto"
         )
+
+        # =============================================
+        # LABELS
+        # =============================================
+        ax.set_xticks(
+            range(len(corr.columns))
+        )
+
+        ax.set_yticks(
+            range(len(corr.columns))
+        )
+
+        ax.set_xticklabels(
+
+            corr.columns,
+
+            rotation=90,
+
+            fontsize=7
+        )
+
+        ax.set_yticklabels(
+
+            corr.columns,
+
+            fontsize=7
+        )
+
+        fig_corr.colorbar(im)
 
         plt.tight_layout()
 
         st.pyplot(fig_corr)
 
-        # =============================================
+        # =================================================
         # EXPORTAÇÃO
-        # =============================================
+        # =================================================
+        st.subheader(
+            "⬇ Exportação"
+        )
+
         csv = features_df.to_csv(
             index=False
         )
 
         st.download_button(
 
-            "⬇ Exportar Features Raman",
+            "Exportar Features Raman",
 
             data=csv,
 
@@ -327,3 +376,10 @@ def render_raman_tab():
 
             mime="text/csv"
         )
+
+        # =================================================
+        # SESSION STATE
+        # =================================================
+        st.session_state[
+            "raman_features"
+        ] = features_df
