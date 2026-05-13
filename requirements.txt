@@ -8,4 +8,4 @@ openpyxl
 plotly
 lmfit
 Redeploy
-Reboot app
+Reboot
