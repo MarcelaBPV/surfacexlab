@@ -44,16 +44,18 @@ def baseline_als(y, lam=1e5, p=0.01, niter=10):
 
 
 # =========================================================
-# RENDER TAB
+# MAIN TAB
 # =========================================================
 def render_raman_mapping_tab():
 
     st.subheader("🗺️ Raman Molecular Mapping")
 
     st.markdown("""
-    Mapeamento molecular Raman com:
-    
-    - correção de linha de base;
+    Plataforma para reconstrução espacial de espectros Raman
+    adquiridos em múltiplas posições da amostra.
+
+    Funcionalidades:
+    - correção automática de linha de base;
     - suavização espectral;
     - normalização;
     - identificação automática de picos;
@@ -61,19 +63,19 @@ def render_raman_mapping_tab():
     """)
 
     # =====================================================
-    # UPLOAD
+    # FILE UPLOAD
     # =====================================================
     uploaded_file = st.file_uploader(
 
         "Upload Raman Mapping",
 
-        type=["csv", "txt", "xlsx"]
+        type=["txt", "csv", "xlsx"]
     )
 
     if uploaded_file is None:
 
         st.info(
-            "Faça upload do arquivo de mapeamento Raman."
+            "Faça upload do arquivo Raman Mapping."
         )
 
         return
@@ -83,39 +85,34 @@ def render_raman_mapping_tab():
     # =====================================================
     try:
 
+        # ================================================
+        # TXT / CSV
+        # ================================================
         if uploaded_file.name.endswith(
 
-            (".xlsx", ".xls")
+            (".txt", ".csv")
 
         ):
+
+            df = pd.read_csv(
+
+                uploaded_file,
+
+                sep=r"\s+",
+
+                engine="python",
+
+                header=0
+            )
+
+        # ================================================
+        # XLSX
+        # ================================================
+        else:
 
             df = pd.read_excel(
                 uploaded_file
             )
-
-        else:
-
-            try:
-
-                df = pd.read_csv(
-
-                    uploaded_file,
-
-                    sep=None,
-
-                    engine="python"
-                )
-
-            except:
-
-                uploaded_file.seek(0)
-
-                df = pd.read_csv(
-
-                    uploaded_file,
-
-                    delim_whitespace=True
-                )
 
     except Exception as e:
 
@@ -128,7 +125,7 @@ def render_raman_mapping_tab():
         return
 
     # =====================================================
-    # COLUMNS
+    # ORGANIZE COLUMNS
     # =====================================================
     df.columns = [
 
@@ -137,6 +134,34 @@ def render_raman_mapping_tab():
         for c in df.columns
     ]
 
+    # =====================================================
+    # COLUMN FIX
+    # =====================================================
+    rename_map = {
+
+        "wave": "wave",
+
+        "wavenumber": "wave",
+
+        "ramanshift": "wave",
+
+        "intensity": "intensity",
+
+        "x": "x",
+
+        "y": "y"
+    }
+
+    df.rename(
+
+        columns=rename_map,
+
+        inplace=True
+    )
+
+    # =====================================================
+    # CHECK COLUMNS
+    # =====================================================
     required = [
 
         "x",
@@ -152,6 +177,8 @@ def render_raman_mapping_tab():
             st.error(
                 f"Coluna obrigatória ausente: {c}"
             )
+
+            st.write(df.columns)
 
             return
 
@@ -170,19 +197,20 @@ def render_raman_mapping_tab():
     df = df.dropna()
 
     # =====================================================
-    # GROUP
+    # GROUP SPECTRA
     # =====================================================
-    grouped = df.groupby(
+    grouped = list(
 
-        ["x", "y"]
+        df.groupby(["x", "y"])
     )
 
     st.success(
+
         f"{len(grouped)} espectros detectados."
     )
 
     # =====================================================
-    # FIGURE
+    # SPECTRA FIGURE
     # =====================================================
     fig, ax = plt.subplots(
 
@@ -196,7 +224,7 @@ def render_raman_mapping_tab():
     features = []
 
     # =====================================================
-    # LOOP
+    # PROCESS EACH SPECTRUM
     # =====================================================
     for idx, ((x, y), group) in enumerate(grouped):
 
@@ -211,7 +239,7 @@ def render_raman_mapping_tab():
         ].values
 
         # =================================================
-        # BASELINE
+        # BASELINE CORRECTION
         # =================================================
         baseline = baseline_als(
             intensity
@@ -220,7 +248,7 @@ def render_raman_mapping_tab():
         corrected = intensity - baseline
 
         # =================================================
-        # SMOOTH
+        # SMOOTHING
         # =================================================
         if len(corrected) > 21:
 
@@ -254,7 +282,7 @@ def render_raman_mapping_tab():
         )
 
         # =================================================
-        # PEAKS
+        # PEAK DETECTION
         # =================================================
         peaks, props = find_peaks(
 
@@ -283,7 +311,6 @@ def render_raman_mapping_tab():
         else:
 
             peak_wave = 0
-
             peak_intensity = 0
 
         # =================================================
@@ -305,9 +332,7 @@ def render_raman_mapping_tab():
         heatmap.append([
 
             x,
-
             y,
-
             peak_intensity
         ])
 
@@ -333,10 +358,10 @@ def render_raman_mapping_tab():
         )
 
     # =====================================================
-    # FINAL FIGURE
+    # FINAL SPECTRA PLOT
     # =====================================================
     ax.set_title(
-        "Raman Spectra Mapping"
+        "Raman Spectral Mapping"
     )
 
     ax.set_xlabel(
@@ -354,12 +379,12 @@ def render_raman_mapping_tab():
     # =====================================================
     # FEATURES TABLE
     # =====================================================
-    features_df = pd.DataFrame(
-        features
-    )
-
     st.subheader(
         "📊 Spectral Features"
+    )
+
+    features_df = pd.DataFrame(
+        features
     )
 
     st.dataframe(
@@ -384,6 +409,9 @@ def render_raman_mapping_tab():
         ]
     )
 
+    # =====================================================
+    # PIVOT
+    # =====================================================
     pivot = heat_df.pivot(
 
         index="Y",
@@ -393,9 +421,12 @@ def render_raman_mapping_tab():
         values="Intensity"
     )
 
+    # =====================================================
+    # HEATMAP FIGURE
+    # =====================================================
     fig2, ax2 = plt.subplots(
 
-        figsize=(7,6),
+        figsize=(8,6),
 
         dpi=300
     )
