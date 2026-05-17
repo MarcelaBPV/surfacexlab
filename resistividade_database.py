@@ -119,3 +119,120 @@ def classify_resistivity(
 
         "R²": r_squared
     }
+# =========================================================
+# INTERPRETAÇÃO FÍSICO-QUÍMICA
+# =========================================================
+def infer_surface_physics(
+    resistivity,
+    r_squared,
+    slope,
+    nonlinearity_index,
+    dI_dV_std,
+    asymmetry_index=1.0
+):
+
+    # -----------------------------------------------------
+    # HOMOGENEIDADE
+    # -----------------------------------------------------
+    homogeneity = max(
+        0,
+        1 - nonlinearity_index
+    )
+
+    # -----------------------------------------------------
+    # ÓXIDO
+    # -----------------------------------------------------
+    oxide_index = (
+        nonlinearity_index *
+        resistivity *
+        10
+    )
+
+    oxide_index = np.clip(
+        oxide_index,
+        0,
+        1
+    )
+
+    # -----------------------------------------------------
+    # DENSIDADE DE DEFEITOS
+    # -----------------------------------------------------
+    defect_density = (
+        dI_dV_std *
+        nonlinearity_index
+    )
+
+    # -----------------------------------------------------
+    # REGIME DE CONDUÇÃO
+    # -----------------------------------------------------
+    if r_squared >= 0.995:
+
+        conduction_regime = (
+            "Ôhmico metálico"
+        )
+
+    elif nonlinearity_index > 0.25:
+
+        conduction_regime = (
+            "Barreira interfacial"
+        )
+
+    else:
+
+        conduction_regime = (
+            "Semicondutor superficial"
+        )
+
+    # -----------------------------------------------------
+    # COMPATIBILIDADE COATING
+    # -----------------------------------------------------
+    coating_score = (
+        homogeneity * 0.4 +
+        (1 - oxide_index) * 0.3 +
+        r_squared * 0.3
+    ) * 10
+
+    # -----------------------------------------------------
+    # INTERFACE
+    # -----------------------------------------------------
+    if oxide_index > 0.6:
+
+        interface_state = (
+            "Superfície oxidada"
+        )
+
+    elif oxide_index > 0.3:
+
+        interface_state = (
+            "Oxidação parcial"
+        )
+
+    else:
+
+        interface_state = (
+            "Superfície ativa"
+        )
+
+    return {
+
+        "Oxide_Index":
+            oxide_index,
+
+        "Surface_Homogeneity":
+            homogeneity,
+
+        "Defect_Density":
+            defect_density,
+
+        "Conduction_Regime":
+            conduction_regime,
+
+        "Interface_State":
+            interface_state,
+
+        "Coating_Compatibility":
+            coating_score,
+
+        "Asymmetry_Index":
+            asymmetry_index
+    }
