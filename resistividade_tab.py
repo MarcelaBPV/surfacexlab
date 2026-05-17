@@ -1,6 +1,6 @@
 # =========================================================
 # resistividade_tab.py
-# SurfaceXLab — Electrical Module (F200 READY)
+# SurfaceXLab — Electrical Module (Advanced)
 # =========================================================
 
 import streamlit as st
@@ -22,9 +22,10 @@ def render_resistividade_tab(supabase=None):
     st.header("⚡ Caracterização Elétrica Superficial")
 
     st.markdown("""
-    Plataforma para caracterização elétrica interfacial via método
-    de quatro pontas aplicada à análise de materiais metálicos,
-    superfícies tratadas quimicamente e filmes funcionais.
+    Plataforma científica para caracterização elétrica
+    interfacial aplicada à engenharia de superfícies,
+    análise de oxidação, filmes funcionais e previsão
+    de compatibilidade para revestimentos.
 
     O pipeline realiza automaticamente:
 
@@ -32,8 +33,11 @@ def render_resistividade_tab(supabase=None):
     - detecção da região ôhmica;
     - regressão linear científica;
     - cálculo de resistividade;
-    - análise de regimes interfaciais;
+    - análise físico-química interfacial;
     - extração de features elétricas;
+    - índice oxidativo;
+    - análise de homogeneidade;
+    - previsão de coating;
     - PCA multivariado.
     """)
 
@@ -41,46 +45,67 @@ def render_resistividade_tab(supabase=None):
     # SESSION STATE
     # =====================================================
     if "electrical_samples" not in st.session_state:
+
         st.session_state.electrical_samples = {}
 
     if "electrical_features" not in st.session_state:
+
         st.session_state.electrical_features = None
 
     # =====================================================
     # SUBABAS
     # =====================================================
     subtabs = st.tabs([
+
         "📐 Processamento Elétrico",
+
         "📊 PCA Elétrico"
     ])
 
     # =====================================================
-    # SUBABA 1 — PROCESSAMENTO
+    # SUBABA 1
     # =====================================================
     with subtabs[0]:
 
-        st.subheader("📐 Upload e Processamento")
+        st.subheader(
+            "📐 Upload e Processamento"
+        )
 
         uploaded_files = st.file_uploader(
+
             "Upload arquivos elétricos",
-            type=["csv", "txt", "xlsx", "xls"],
+
+            type=[
+                "csv",
+                "txt",
+                "xlsx",
+                "xls"
+            ],
+
             accept_multiple_files=True
         )
 
         thickness_um = st.number_input(
+
             "Espessura da amostra (µm)",
+
             min_value=0.01,
+
             value=1.00,
+
             step=0.1
         )
 
         sample_group = st.selectbox(
+
             "Grupo experimental",
+
             [
                 "F200 - Ácido",
                 "F200 - Alcalino",
                 "F200 - Controle",
                 "Nanotubos",
+                "Filme fino",
                 "Outro"
             ]
         )
@@ -92,7 +117,10 @@ def render_resistividade_tab(supabase=None):
 
             if not uploaded_files:
 
-                st.warning("Selecione ao menos um arquivo.")
+                st.warning(
+                    "Selecione ao menos um arquivo."
+                )
+
                 return
 
             for file in uploaded_files:
@@ -109,8 +137,12 @@ def render_resistividade_tab(supabase=None):
                     # PIPELINE PRINCIPAL
                     # =====================================
                     result = process_resistivity(
+
                         file_like=file,
-                        thickness_m=thickness_um * 1e-6,
+
+                        thickness_m=
+                            thickness_um * 1e-6,
+
                         sample_name=file.name
                     )
 
@@ -122,30 +154,108 @@ def render_resistividade_tab(supabase=None):
                     st.pyplot(result["figure"])
 
                     # =====================================
-                    # DIAGNÓSTICO
+                    # DIAGNÓSTICO AVANÇADO
                     # =====================================
-                    st.subheader("🧠 Diagnóstico Interfacial")
+                    st.subheader(
+                        "🧠 Diagnóstico Físico-Químico"
+                    )
 
                     col1, col2 = st.columns(2)
 
+                    # =====================================
+                    # COLUNA 1
+                    # =====================================
                     col1.info(
                         f"""
-                        **Regime**
+                        ### Estado Interfacial
 
-                        {summary['Regime']}
-                        """
-                    )
+                        {summary['Interface_State']}
 
-                    col2.info(
-                        f"""
-                        **Classe**
+                        ### Regime Elétrico
+
+                        {summary['Conduction_Regime']}
+
+                        ### Classe
 
                         {summary['Classe']}
                         """
                     )
 
                     # =====================================
-                    # MÉTRICAS
+                    # COLUNA 2
+                    # =====================================
+                    col2.info(
+                        f"""
+                        ### Qualidade Ajuste
+
+                        {summary['Qualidade_Ajuste']}
+
+                        ### Homogeneidade
+
+                        {summary['Surface_Homogeneity']:.3f}
+
+                        ### Assimetria
+
+                        {summary['Asymmetry_Index']:.3f}
+                        """
+                    )
+
+                    # =====================================
+                    # SCORE COATING
+                    # =====================================
+                    st.subheader(
+                        "🛡 Compatibilidade para Revestimento"
+                    )
+
+                    coating_score = (
+                        summary[
+                            "Coating_Compatibility"
+                        ]
+                    )
+
+                    st.progress(
+                        float(coating_score / 10)
+                    )
+
+                    st.metric(
+                        "Score Coating",
+                        f"{coating_score:.2f} / 10"
+                    )
+
+                    # =====================================
+                    # INTERPRETAÇÃO
+                    # =====================================
+                    if coating_score >= 8:
+
+                        st.success(
+                            """
+                            Superfície altamente favorável
+                            para revestimentos funcionais.
+                            """
+                        )
+
+                    elif coating_score >= 5:
+
+                        st.warning(
+                            """
+                            Superfície moderadamente
+                            favorável. Recomenda-se
+                            ativação superficial.
+                            """
+                        )
+
+                    else:
+
+                        st.error(
+                            """
+                            Superfície com elevada
+                            influência oxidativa e
+                            interfacial.
+                            """
+                        )
+
+                    # =====================================
+                    # PROPRIEDADES ELÉTRICAS
                     # =====================================
                     st.subheader(
                         "📊 Propriedades Elétricas"
@@ -174,7 +284,36 @@ def render_resistividade_tab(supabase=None):
                     )
 
                     # =====================================
-                    # FEATURES
+                    # INDICADORES INTERFACIAIS
+                    # =====================================
+                    st.subheader(
+                        "⚙ Indicadores Interfaciais"
+                    )
+
+                    k1, k2, k3, k4 = st.columns(4)
+
+                    k1.metric(
+                        "Oxide Index",
+                        f"{summary['Oxide_Index']:.3f}"
+                    )
+
+                    k2.metric(
+                        "Defect Density",
+                        f"{summary['Defect_Density']:.3e}"
+                    )
+
+                    k3.metric(
+                        "Não Linearidade",
+                        f"{summary['nonlinearity_index']:.3f}"
+                    )
+
+                    k4.metric(
+                        "dI/dV Std",
+                        f"{summary['dI_dV_std']:.3e}"
+                    )
+
+                    # =====================================
+                    # FEATURES COMPLETAS
                     # =====================================
                     st.subheader(
                         "📈 Features Elétricas"
@@ -192,12 +331,19 @@ def render_resistividade_tab(supabase=None):
                     # =====================================
                     # SESSION STORAGE
                     # =====================================
-                    feature_df["Sample_Group"] = sample_group
-                    feature_df["Thickness_um"] = thickness_um
+                    feature_df[
+                        "Sample_Group"
+                    ] = sample_group
 
-                    st.session_state.electrical_samples[
-                        file.name
-                    ] = feature_df.iloc[0].to_dict()
+                    feature_df[
+                        "Thickness_um"
+                    ] = thickness_um
+
+                    st.session_state[
+                        "electrical_samples"
+                    ][file.name] = (
+                        feature_df.iloc[0].to_dict()
+                    )
 
                     st.success(
                         "✔ Amostra processada"
@@ -212,7 +358,7 @@ def render_resistividade_tab(supabase=None):
                     st.exception(e)
 
         # =================================================
-        # CONSOLIDADO
+        # DATASET CONSOLIDADO
         # =================================================
         if st.session_state.electrical_samples:
 
@@ -223,7 +369,10 @@ def render_resistividade_tab(supabase=None):
             )
 
             df_all = pd.DataFrame(
-                st.session_state.electrical_samples.values()
+
+                st.session_state[
+                    "electrical_samples"
+                ].values()
             )
 
             st.dataframe(
@@ -232,18 +381,19 @@ def render_resistividade_tab(supabase=None):
             )
 
             # =============================================
-            # FEATURES PCA
+            # PCA FEATURES
             # =============================================
             df_pca = df_all.copy()
 
-            # remove texto
             df_pca = df_pca.select_dtypes(
                 include=[np.number]
             )
 
             df_pca = df_pca.fillna(0)
 
-            st.session_state.electrical_features = df_pca
+            st.session_state[
+                "electrical_features"
+            ] = df_pca
 
             # =============================================
             # EXPORT
@@ -251,9 +401,13 @@ def render_resistividade_tab(supabase=None):
             csv = df_all.to_csv(index=False)
 
             st.download_button(
+
                 label="⬇ Exportar Dataset",
+
                 data=csv,
+
                 file_name="electrical_dataset.csv",
+
                 mime="text/csv"
             )
 
@@ -264,9 +418,13 @@ def render_resistividade_tab(supabase=None):
                 "🗑 Limpar Dataset"
             ):
 
-                st.session_state.electrical_samples = {}
+                st.session_state[
+                    "electrical_samples"
+                ] = {}
 
-                st.session_state.electrical_features = None
+                st.session_state[
+                    "electrical_features"
+                ] = None
 
                 st.rerun()
 
@@ -280,8 +438,9 @@ def render_resistividade_tab(supabase=None):
         )
 
         if (
-            st.session_state.electrical_features
-            is None
+            st.session_state[
+                "electrical_features"
+            ] is None
         ):
 
             st.info(
@@ -291,7 +450,9 @@ def render_resistividade_tab(supabase=None):
             return
 
         df_pca = (
-            st.session_state.electrical_features.copy()
+            st.session_state[
+                "electrical_features"
+            ].copy()
         )
 
         if len(df_pca) < 2:
@@ -323,48 +484,68 @@ def render_resistividade_tab(supabase=None):
         # FIGURA PCA
         # =================================================
         fig, ax = plt.subplots(
+
             figsize=(7,7),
+
             dpi=300
         )
 
         ax.scatter(
+
             scores[:,0],
+
             scores[:,1],
+
             s=120,
+
             edgecolor="black"
         )
 
-        # labels
         labels = list(
-            st.session_state.electrical_samples.keys()
+            st.session_state[
+                "electrical_samples"
+            ].keys()
         )
 
         for i, label in enumerate(labels):
 
             ax.text(
+
                 scores[i,0],
+
                 scores[i,1],
+
                 label,
+
                 fontsize=9
             )
 
-        # loading vectors
-        scale = np.max(np.abs(scores)) * 0.7
+        scale = (
+            np.max(np.abs(scores)) * 0.7
+        )
 
         for i, feature in enumerate(df_pca.columns):
 
             ax.arrow(
+
                 0,
                 0,
+
                 loadings[i,0] * scale,
+
                 loadings[i,1] * scale,
+
                 head_width=0.05
             )
 
             ax.text(
+
                 loadings[i,0] * scale * 1.1,
+
                 loadings[i,1] * scale * 1.1,
+
                 feature,
+
                 fontsize=8
             )
 
@@ -395,10 +576,11 @@ def render_resistividade_tab(supabase=None):
 
         explained_df = pd.DataFrame({
 
-            "Componente": ["PC1", "PC2"],
+            "Componente":
+                ["PC1", "PC2"],
 
-            "Variância (%)": explained.round(2)
-
+            "Variância (%)":
+                explained.round(2)
         })
 
         st.dataframe(
@@ -414,8 +596,11 @@ def render_resistividade_tab(supabase=None):
         )
 
         loading_df = pd.DataFrame(
+
             loadings,
+
             columns=["PC1", "PC2"],
+
             index=df_pca.columns
         )
 
