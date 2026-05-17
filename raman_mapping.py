@@ -1,7 +1,7 @@
 # =========================================================
 # raman_mapping.py
 # Advanced Raman Molecular Mapping
-# Publication Ready
+# Guided Pseudo-Voigt + Biomolecular Raman
 # =========================================================
 
 import streamlit as st
@@ -9,10 +9,10 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-from scipy.signal import savgol_filter, find_peaks
-from scipy import sparse
-from scipy.sparse.linalg import spsolve
 from scipy.optimize import curve_fit
+from scipy.signal import savgol_filter, medfilt
+from scipy.sparse import diags
+from scipy.sparse.linalg import spsolve
 
 # =========================================================
 # RAMAN DATABASE
@@ -33,117 +33,159 @@ RAMAN_DATABASE = {
     "Tirosina": [830,850,1175,1615],
 
     "Lipídios": [1060,1265,1300,1440,1655,1735],
-    "Fosfolipídios": [718,1065,1090,1302,1445],
-    "Colesterol": [701,1440,1670],
 
     "DNA": [725,785,1092,1335,1578],
     "RNA": [813,1100,1338,1485],
 
-    "Glicose": [911,1060,1125,1375],
-    "Lactato": [853,1045,1455],
-
     "Hemácias": [754,1212,1375,1547,1582],
-    "Leucócitos": [785,1090,1445,1655],
-    "Plaquetas": [1003,1245,1450,1660],
-
-    "Carbono D": [1320,1345,1360],
-    "Carbono G": [1560,1580,1600],
 
     "SERS Hotspots": [1550,1580,1605]
 }
-
-# =========================================================
-# BASELINE ALS
-# =========================================================
-def baseline_als(y, lam=1e5, p=0.01, niter=10):
-
-    L = len(y)
-
-    D = sparse.diags(
-        [1, -2, 1],
-        [0, -1, -2],
-        shape=(L, L)
-    )
-
-    D = lam * D.dot(D.transpose())
-
-    w = np.ones(L)
-
-    for i in range(niter):
-
-        W = sparse.spdiags(w, 0, L, L)
-
-        Z = W + D
-
-        z = spsolve(Z, w * y)
-
-        w = p * (y > z) + (1 - p) * (y < z)
-
-    return z
-
-# =========================================================
-# PSEUDO VOIGT
-# =========================================================
-def pseudo_voigt(x, A, x0, sigma, gamma, eta):
-
-    gaussian = np.exp(
-        -((x - x0)**2) / (2 * sigma**2)
-    )
-
-    lorentz = 1 / (
-        1 + ((x - x0)/gamma)**2
-    )
-
-    return A * (
-        eta * lorentz +
-        (1 - eta) * gaussian
-    )
-
-# =========================================================
-# MULTI PSEUDO VOIGT
-# =========================================================
-def multi_pseudo_voigt(x, *params):
-
-    y = np.zeros_like(x)
-
-    n_peaks = len(params) // 5
-
-    for i in range(n_peaks):
-
-        A = params[i*5]
-        x0 = params[i*5 + 1]
-        sigma = params[i*5 + 2]
-        gamma = params[i*5 + 3]
-        eta = params[i*5 + 4]
-
-        y += pseudo_voigt(
-            x,
-            A,
-            x0,
-            sigma,
-            gamma,
-            eta
-        )
-
-    return y
 
 # =========================================================
 # PEAK IDENTIFICATION
 # =========================================================
 def identify_peak(shift):
 
-    for molecule, peaks in RAMAN_DATABASE.items():
+    matches = []
+
+    for group, peaks in RAMAN_DATABASE.items():
 
         for p in peaks:
 
             if abs(shift - p) <= 10:
 
-                return molecule
+                matches.append(group)
 
-    return "Não identificado"
+    if matches:
+
+        return ", ".join(matches)
+
+    return "Unknown"
 
 # =========================================================
-# MAIN FUNCTION
+# BASELINE ALS
+# =========================================================
+def baseline_als(
+
+    y,
+
+    lam=1e7,
+
+    p=0.001,
+
+    niter=20
+):
+
+    L = len(y)
+
+    D = diags(
+
+        [1,-2,1],
+
+        [0,-1,-2],
+
+        shape=(L,L-2)
+    )
+
+    w = np.ones(L)
+
+    for _ in range(niter):
+
+        W = diags(w,0)
+
+        Z = W + lam * D.dot(D.transpose())
+
+        z = spsolve(Z,w*y)
+
+        w = p*(y>z) + (1-p)*(y<z)
+
+    return z
+
+# =========================================================
+# PSEUDO VOIGT
+# =========================================================
+def pseudo_voigt(
+
+    x,
+
+    amp,
+
+    cen,
+
+    sigma,
+
+    eta
+):
+
+    lorentz = (
+
+        sigma**2 /
+
+        ((x-cen)**2 + sigma**2)
+    )
+
+    gauss = np.exp(
+
+        -((x-cen)**2) /
+
+        (2*sigma**2)
+    )
+
+    return amp * (
+
+        eta * lorentz +
+
+        (1-eta) * gauss
+    )
+
+# =========================================================
+# MULTI VOIGT
+# =========================================================
+def multi_pseudo_voigt(x,*params):
+
+    y = np.zeros_like(x)
+
+    for i in range(0,len(params),4):
+
+        amp = params[i]
+        cen = params[i+1]
+        sigma = params[i+2]
+        eta = params[i+3]
+
+        y += pseudo_voigt(
+
+            x,
+
+            amp,
+
+            cen,
+
+            sigma,
+
+            eta
+        )
+
+    return y
+
+# =========================================================
+# KNOWN BLOOD BANDS
+# =========================================================
+def get_blood_bands():
+
+    return [
+
+        1538,
+        1560,
+        1580,
+        1601,
+        1621,
+        1635,
+        1655
+    ]
+
+# =========================================================
+# MAIN
 # =========================================================
 def render_raman_mapping_tab():
 
@@ -152,23 +194,20 @@ def render_raman_mapping_tab():
     # =====================================================
     # SIDEBAR
     # =====================================================
-    st.sidebar.header("⚙️ Configuration")
+    st.sidebar.header("⚙️ Mapping Settings")
 
     shift_min = st.sidebar.number_input(
-        "Shift mínimo",
+
+        "Shift Min",
+
         value=1500
     )
 
     shift_max = st.sidebar.number_input(
-        "Shift máximo",
-        value=1700
-    )
 
-    prominence = st.sidebar.slider(
-        "Peak prominence",
-        0.01,
-        0.5,
-        0.05
+        "Shift Max",
+
+        value=1800
     )
 
     # =====================================================
@@ -178,12 +217,12 @@ def render_raman_mapping_tab():
 
         "Upload Raman Mapping",
 
-        type=["txt", "csv", "xlsx"]
+        type=["xlsx","csv","txt"]
     )
 
     if uploaded_file is None:
 
-        st.info("Faça upload do arquivo Raman.")
+        st.info("Upload Raman mapping file.")
         return
 
     # =====================================================
@@ -192,36 +231,32 @@ def render_raman_mapping_tab():
     try:
 
         if uploaded_file.name.endswith(
-            (".txt", ".csv")
+
+            (".xlsx",".xls")
         ):
-
-            df = pd.read_csv(
-
-                uploaded_file,
-
-                sep=r"\s+",
-
-                engine="python"
-            )
-
-        else:
 
             df = pd.read_excel(
                 uploaded_file
             )
 
+        else:
+
+            df = pd.read_csv(
+                uploaded_file
+            )
+
     except Exception as e:
 
-        st.error("Erro ao ler arquivo.")
+        st.error("Error reading file.")
         st.exception(e)
         return
 
     # =====================================================
-    # ORGANIZE
+    # STANDARDIZE
     # =====================================================
     df.columns = [
 
-        str(c).strip().lower()
+        str(c).lower().strip()
 
         for c in df.columns
     ]
@@ -238,21 +273,26 @@ def render_raman_mapping_tab():
 
         if c not in df.columns:
 
-            st.error(f"Faltando coluna: {c}")
+            st.error(f"Missing column: {c}")
             st.write(df.columns)
             return
 
+    # =====================================================
+    # NUMERIC
+    # =====================================================
     for c in required:
 
         df[c] = pd.to_numeric(
+
             df[c],
+
             errors="coerce"
         )
 
     df = df.dropna()
 
     # =====================================================
-    # FILTER
+    # REGION
     # =====================================================
     df = df[
 
@@ -266,11 +306,12 @@ def render_raman_mapping_tab():
     # =====================================================
     grouped = list(
 
-        df.groupby(["x", "y"])
+        df.groupby(["x","y"])
     )
 
     st.success(
-        f"{len(grouped)} espectros detectados."
+
+        f"{len(grouped)} spectra detected."
     )
 
     # =====================================================
@@ -278,7 +319,7 @@ def render_raman_mapping_tab():
     # =====================================================
     heatmap = []
 
-    for idx, ((x, y), group) in enumerate(grouped):
+    for idx, ((x,y), group) in enumerate(grouped):
 
         intensity = group[
             "intensity"
@@ -290,8 +331,6 @@ def render_raman_mapping_tab():
             y,
             np.max(intensity)
         ])
-
-    st.subheader("🔥 Raman Intensity Map")
 
     heat_df = pd.DataFrame(
 
@@ -313,11 +352,13 @@ def render_raman_mapping_tab():
         values="Intensity"
     )
 
+    st.subheader("🔥 Raman Intensity Map")
+
     fig_map, ax_map = plt.subplots(
 
         figsize=(10,5),
 
-        dpi=600
+        dpi=400
     )
 
     im = ax_map.imshow(
@@ -334,16 +375,24 @@ def render_raman_mapping_tab():
     )
 
     cbar = plt.colorbar(
+
         im,
+
         ax=ax_map
     )
 
     cbar.set_label(
+
         "Relative Raman Intensity"
     )
 
-    ax_map.set_xlabel("X Position")
-    ax_map.set_ylabel("Y Position")
+    ax_map.set_xlabel(
+        "X Position"
+    )
+
+    ax_map.set_ylabel(
+        "Y Position"
+    )
 
     ax_map.spines["top"].set_visible(False)
     ax_map.spines["right"].set_visible(False)
@@ -355,118 +404,127 @@ def render_raman_mapping_tab():
     # =====================================================
     # SELECT SPECTRUM
     # =====================================================
-    st.subheader("🔬 Detailed Raman Spectrum")
+    st.subheader("🔬 Spectrum Analysis")
 
-    selected_spectrum = st.selectbox(
+    selected = st.selectbox(
 
-        "Selecionar espectro",
+        "Choose Spectrum",
 
         options=list(range(len(grouped))),
 
-        format_func=lambda x: f"Espectro {x}"
+        format_func=lambda x:
+            f"Spectrum {x+1}"
     )
 
-    idx, ((x, y), group) = list(
+    idx, ((x_pos,y_pos), group) = list(
+
         enumerate(grouped)
-    )[selected_spectrum]
+
+    )[selected]
 
     group = group.sort_values(
         "wave"
     )
 
-    wave = group["wave"].values
+    x = group["wave"].values
 
-    intensity = group[
-        "intensity"
-    ].values
+    y = group["intensity"].values
 
     # =====================================================
-    # BASELINE
+    # COSMIC RAY REMOVAL
     # =====================================================
-    baseline = baseline_als(
-        intensity
+    y_med = medfilt(
+
+        y,
+
+        kernel_size=5
     )
 
-    corrected = intensity - baseline
+    diff = np.abs(y - y_med)
+
+    threshold = 5*np.std(diff)
+
+    y = np.where(
+
+        diff > threshold,
+
+        y_med,
+
+        y
+    )
 
     # =====================================================
-    # SMOOTHING
+    # SMOOTH
     # =====================================================
-    smooth = savgol_filter(
+    y_smooth = savgol_filter(
 
-        corrected,
+        y,
 
-        21,
+        11,
 
         3
     )
 
     # =====================================================
-    # NORMALIZATION
+    # BASELINE
     # =====================================================
-    norm = (
-
-        smooth - np.min(smooth)
-
-    ) / (
-
-        np.max(smooth)
-
-        - np.min(smooth)
-
-        + 1e-9
+    baseline = baseline_als(
+        y_smooth
     )
 
-    # =====================================================
-    # PEAK DETECTION
-    # =====================================================
-    peaks, props = find_peaks(
+    y_corr = y_smooth - baseline
 
-        norm,
-
-        prominence=prominence
-    )
+    y_corr = y_corr - np.min(y_corr)
 
     # =====================================================
-    # INITIAL PARAMETERS
+    # NORMALIZE
     # =====================================================
-    initial_params = []
+    y_norm = y_corr / np.max(y_corr)
 
-    for peak in peaks:
+    # =====================================================
+    # GUIDED BANDS
+    # =====================================================
+    bands = get_blood_bands()
 
-        initial_params.extend([
+    p0 = []
+    lower = []
+    upper = []
 
-            norm[peak],
-            wave[peak],
-            5,
-            5,
+    for band in bands:
+
+        idx_band = np.argmin(
+            np.abs(x-band)
+        )
+
+        amp0 = max(
+
+            y_norm[idx_band],
+
+            0.05
+        )
+
+        p0.extend([
+
+            amp0,
+            band,
+            6,
             0.5
         ])
 
-    # =====================================================
-    # FIT BOUNDS
-    # =====================================================
-    lower_bounds = []
-    upper_bounds = []
-
-    for peak in peaks:
-
-        lower_bounds.extend([
+        lower.extend([
 
             0,
-            wave[peak] - 15,
-            0.1,
-            0.1,
-            0
+            band-5,
+            2,
+            0.2
         ])
 
-        upper_bounds.extend([
+        upper.extend([
 
             2,
-            wave[peak] + 15,
-            30,
-            30,
-            1
+            band+5,
+            20,
+            0.8
         ])
 
     # =====================================================
@@ -474,59 +532,52 @@ def render_raman_mapping_tab():
     # =====================================================
     try:
 
-        popt, _ = curve_fit(
+        popt,_ = curve_fit(
 
             multi_pseudo_voigt,
 
-            wave,
+            x,
 
-            norm,
+            y_norm,
 
-            p0=initial_params,
+            p0=p0,
 
-            bounds=(
+            bounds=(lower,upper),
 
-                lower_bounds,
-
-                upper_bounds
-            ),
-
-            maxfev=30000
-        )
-
-        fit = multi_pseudo_voigt(
-            wave,
-            *popt
+            maxfev=100000
         )
 
     except:
 
-        fit = norm
-        popt = initial_params
+        popt = np.array(p0)
 
     # =====================================================
-    # RESIDUAL
+    # FIT FINAL
     # =====================================================
-    residual = norm - fit
+    y_fit = multi_pseudo_voigt(
 
+        x,
+
+        *popt
+    )
+
+    residual = y_norm - y_fit
+
+    # =====================================================
+    # R²
+    # =====================================================
     ss_res = np.sum(residual**2)
 
     ss_tot = np.sum(
 
-        (norm - np.mean(norm))**2
+        (y_norm - np.mean(y_norm))**2
     )
 
-    r2 = 1 - (ss_res / ss_tot)
+    r2 = 1 - (ss_res/ss_tot)
 
     # =====================================================
-    # FIGURE STYLE
+    # FIGURE
     # =====================================================
-    plt.rcParams.update({
-
-        "font.size": 12,
-        "axes.linewidth": 1.2
-    })
-
     fig = plt.figure(
 
         figsize=(10,7),
@@ -537,7 +588,6 @@ def render_raman_mapping_tab():
     gs = fig.add_gridspec(
 
         2,
-
         1,
 
         height_ratios=[4,1],
@@ -554,13 +604,13 @@ def render_raman_mapping_tab():
     # =====================================================
     ax1.plot(
 
-        wave,
+        x,
 
-        norm,
+        y_norm,
 
         color="black",
 
-        linewidth=2.2,
+        linewidth=1.8,
 
         label="Experimental"
     )
@@ -570,115 +620,104 @@ def render_raman_mapping_tab():
     # =====================================================
     ax1.plot(
 
-        wave,
+        x,
 
-        fit,
+        y_fit,
 
         "--",
 
         color="red",
 
-        linewidth=2,
+        linewidth=1.5,
 
         label=f"Fit (R²={r2:.4f})"
     )
 
     # =====================================================
-    # PEAK TABLE
+    # COLORS
     # =====================================================
-    peak_table = []
-
-    n_peaks = len(popt)//5
-
     colors = [
 
         "#f94144",
-        "#f3722c",
-        "#f9c74f",
-        "#90be6d",
-        "#43aa8b",
         "#577590",
+        "#43aa8b",
+        "#f9c74f",
         "#9b5de5",
-        "#f15bb5"
+        "#f3722c",
+        "#90be6d"
     ]
+
+    peak_table = []
 
     # =====================================================
     # COMPONENTS
     # =====================================================
-    for i in range(n_peaks):
+    for idx,i in enumerate(
 
-        A = popt[i*5]
-        x0 = popt[i*5 + 1]
-        sigma = popt[i*5 + 2]
-        gamma = popt[i*5 + 3]
-        eta = popt[i*5 + 4]
+        range(0,len(popt),4)
+    ):
 
-        component = pseudo_voigt(
+        amp = popt[i]
+        cen = popt[i+1]
+        sigma = popt[i+2]
+        eta = popt[i+3]
 
-            wave,
+        peak_curve = pseudo_voigt(
 
-            A,
+            x,
 
-            x0,
+            amp,
+
+            cen,
 
             sigma,
-
-            gamma,
 
             eta
         )
 
-        molecule = identify_peak(x0)
-
         # =================================================
-        # FWHM
-        # =================================================
-        fwhm = 0.5346 * (2*gamma) + np.sqrt(
-
-            0.2166*(2*gamma)**2 +
-
-            (2.355*sigma)**2
-        )
-
-        # =================================================
-        # COMPONENT PLOT
+        # COMPONENT
         # =================================================
         ax1.fill_between(
 
-            wave,
+            x,
 
             0,
 
-            component,
+            peak_curve,
 
-            alpha=0.35,
+            alpha=0.30,
 
-            color=colors[i % len(colors)]
+            color=colors[
+                idx % len(colors)
+            ]
         )
 
         ax1.plot(
 
-            wave,
+            x,
 
-            component,
+            peak_curve,
 
-            linewidth=1.2,
+            linewidth=1.0,
 
-            color=colors[i % len(colors)]
+            color=colors[
+                idx % len(colors)
+            ]
         )
 
         # =================================================
-        # PEAK NUMBER
+        # PEAK NUMBER ONLY
         # =================================================
         ax1.text(
 
-            x0,
+            cen,
 
-            np.max(component) + 0.02,
+            np.max(peak_curve)+0.02,
 
-            f"{i+1}",
+            f"{idx+1}",
 
-            fontsize=9,
+            fontsize=8,
 
             ha="center",
 
@@ -686,39 +725,80 @@ def render_raman_mapping_tab():
         )
 
         # =================================================
+        # FWHM
+        # =================================================
+        fwhm = 2.355 * sigma
+
+        # =================================================
         # TABLE
         # =================================================
         peak_table.append({
 
-            "Peak ID": i+1,
+            "Peak ID":
+                idx+1,
 
-            "Peak (cm⁻¹)": round(x0,2),
+            "Peak (cm⁻¹)":
+                round(cen,2),
 
-            "Assignment": molecule,
+            "Assignment":
+                identify_peak(cen),
 
-            "Intensity": round(A,4),
+            "Intensity":
+                round(amp,4),
 
-            "FWHM": round(fwhm,2),
+            "FWHM":
+                round(fwhm,2),
 
-            "σ Gaussian": round(sigma,2),
+            "Lorentzian %":
+                round(eta*100,2),
 
-            "γ Lorentzian": round(gamma,2),
-
-            "η Mixing": round(eta,2)
+            "Gaussian %":
+                round((1-eta)*100,2)
         })
+
+    # =====================================================
+    # STYLE
+    # =====================================================
+    ax1.set_ylabel(
+        "Normalized Intensity"
+    )
+
+    ax2.set_ylabel(
+        "Residual"
+    )
+
+    ax2.set_xlabel(
+        "Raman Shift (cm⁻¹)"
+    )
+
+    ax1.grid(alpha=0.15)
+    ax2.grid(alpha=0.15)
+
+    ax1.legend(
+
+        loc="upper right",
+
+        frameon=True
+    )
+
+    ax1.spines["top"].set_visible(False)
+    ax1.spines["right"].set_visible(False)
+
+    ax2.spines["top"].set_visible(False)
+    ax2.spines["right"].set_visible(False)
 
     # =====================================================
     # RESIDUAL
     # =====================================================
     ax2.plot(
 
-        wave,
+        x,
 
         residual,
 
-        color="gray",
+        color="black",
 
-        linewidth=1.5
+        linewidth=1
     )
 
     ax2.axhline(
@@ -727,67 +807,7 @@ def render_raman_mapping_tab():
 
         linestyle="--",
 
-        linewidth=1,
-
-        color="steelblue"
-    )
-
-    # =====================================================
-    # STYLE
-    # =====================================================
-    ax1.spines["top"].set_visible(False)
-    ax1.spines["right"].set_visible(False)
-
-    ax2.spines["top"].set_visible(False)
-    ax2.spines["right"].set_visible(False)
-
-    # =====================================================
-    # LABELS
-    # =====================================================
-    ax1.set_ylabel(
-        "Normalized Intensity",
-        fontsize=15
-    )
-
-    ax2.set_ylabel(
-        "Residual",
-        fontsize=13
-    )
-
-    ax2.set_xlabel(
-        "Raman Shift (cm⁻¹)",
-        fontsize=15
-    )
-
-    # =====================================================
-    # GRID
-    # =====================================================
-    ax1.grid(alpha=0.15)
-    ax2.grid(alpha=0.15)
-
-    # =====================================================
-    # LEGEND
-    # =====================================================
-    ax1.legend(
-
-        fontsize=11,
-
-        loc="upper right",
-
-        frameon=True
-    )
-
-    # =====================================================
-    # LIMITS
-    # =====================================================
-    ax1.set_xlim(
-        shift_min,
-        shift_max
-    )
-
-    ax2.set_xlim(
-        shift_min,
-        shift_max
+        color="gray"
     )
 
     plt.tight_layout()
@@ -797,14 +817,10 @@ def render_raman_mapping_tab():
     # =====================================================
     # TABLE
     # =====================================================
-    st.markdown("### Peak Assignments")
+    st.subheader("📊 Peak Assignments")
 
     peak_df = pd.DataFrame(
         peak_table
-    )
-
-    peak_df = peak_df.sort_values(
-        "Peak (cm⁻¹)"
     )
 
     st.dataframe(
@@ -813,23 +829,5 @@ def render_raman_mapping_tab():
 
         use_container_width=True,
 
-        height=350
-    )
-
-    # =====================================================
-    # DOWNLOAD
-    # =====================================================
-    csv = peak_df.to_csv(
-        index=False
-    )
-
-    st.download_button(
-
-        "⬇ Download Peak Assignments",
-
-        data=csv,
-
-        file_name=f"raman_peaks_{selected_spectrum}.csv",
-
-        mime="text/csv"
+        height=300
     )
