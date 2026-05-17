@@ -527,7 +527,7 @@ def render_raman_mapping_tab():
 
         pivot,
 
-        cmap="inferno",
+        cmap="magma",
 
         interpolation="bicubic",
 
