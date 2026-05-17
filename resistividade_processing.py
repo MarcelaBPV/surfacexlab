@@ -278,6 +278,26 @@ def process_resistivity(
     features = extract_surface_features(df)
 
     # =====================================================
+    # ASSIMETRIA
+    # =====================================================
+    positive_current = np.mean(
+        df[df["V"] > 0]["I_smooth"]
+    )
+
+    negative_current = np.mean(
+        np.abs(
+            df[df["V"] < 0]["I_smooth"]
+        )
+    )
+
+    asymmetry_index = (
+        positive_current /
+        negative_current
+        if negative_current != 0
+        else 1
+    )
+
+    # =====================================================
     # CLASSIFICAÇÃO FÍSICA
     # =====================================================
     classification = classify_resistivity(
