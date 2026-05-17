@@ -161,7 +161,7 @@ def render_raman_mapping_tab():
 
     shift_max = st.sidebar.number_input(
         "Shift máximo",
-        value=1800
+        value=1700
     )
 
     prominence = st.sidebar.slider(
