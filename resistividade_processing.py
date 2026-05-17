@@ -1,5 +1,7 @@
 # =========================================================
-# PROCESSAMENTO ELÉTRICO 
+# resistividade_processing.py
+# SurfaceXLab — Pipeline Elétrico Avançado
+# Método 4 Pontas — Física Correta
 # =========================================================
 
 import numpy as np
@@ -34,11 +36,17 @@ def read_iv_file(file_like):
 
         df = pd.read_table(file_like)
 
+    # =====================================================
+    # NORMALIZA COLUNAS
+    # =====================================================
     df.columns = [
         c.lower().strip()
         for c in df.columns
     ]
 
+    # =====================================================
+    # DETECÇÃO AUTOMÁTICA
+    # =====================================================
     current_cols = [
 
         c for c in df.columns
@@ -59,12 +67,25 @@ def read_iv_file(file_like):
         )
     ]
 
-    if not current_cols or not voltage_cols:
+    if not current_cols:
 
         raise ValueError(
-            "Colunas de corrente/tensão não encontradas."
+            """
+            Coluna de corrente não encontrada.
+            """
         )
 
+    if not voltage_cols:
+
+        raise ValueError(
+            """
+            Coluna de tensão não encontrada.
+            """
+        )
+
+    # =====================================================
+    # SELEÇÃO
+    # =====================================================
     df = df[[
         current_cols[0],
         voltage_cols[0]
@@ -72,6 +93,9 @@ def read_iv_file(file_like):
 
     df.columns = ["I", "V"]
 
+    # =====================================================
+    # CONVERSÃO
+    # =====================================================
     df["I"] = pd.to_numeric(
         df["I"],
         errors="coerce"
@@ -82,10 +106,21 @@ def read_iv_file(file_like):
         errors="coerce"
     )
 
+    # =====================================================
+    # LIMPEZA
+    # =====================================================
     df = df.dropna()
 
     df = df[np.isfinite(df["I"])]
     df = df[np.isfinite(df["V"])]
+
+    if len(df) < 3:
+
+        raise ValueError(
+            """
+            Poucos pontos experimentais.
+            """
+        )
 
     return df
 
@@ -97,15 +132,24 @@ def preprocess_iv_data(df):
 
     df = df.copy()
 
+    # =====================================================
+    # REMOVE DUPLICADOS
+    # =====================================================
     df = df.drop_duplicates()
 
-    df = df.sort_values("V")
+    # =====================================================
+    # ORDENA CORRENTE
+    # =====================================================
+    df = df.sort_values("I")
 
+    # =====================================================
+    # SUAVIZAÇÃO
+    # =====================================================
     if len(df) > 11:
 
-        df["I_smooth"] = savgol_filter(
+        df["V_smooth"] = savgol_filter(
 
-            df["I"],
+            df["V"],
 
             window_length=11,
 
@@ -114,106 +158,108 @@ def preprocess_iv_data(df):
 
     else:
 
-        df["I_smooth"] = df["I"]
+        df["V_smooth"] = df["V"]
 
     return df
 
 
 # =========================================================
-# REGIÃO ÔHMICA
+# DETECÇÃO REGIÃO ÔHMICA
 # =========================================================
 def detect_linear_region(df):
 
-    V = df["V"].values
+    I = df["I"].values
 
-    I = df["I_smooth"].values
+    V = df["V_smooth"].values
 
-    # -----------------------------------------------------
-    # REMOVE NAN
-    # -----------------------------------------------------
+    # =====================================================
+    # LIMPEZA
+    # =====================================================
     mask = (
-        np.isfinite(V) &
-        np.isfinite(I)
+        np.isfinite(I) &
+        np.isfinite(V)
     )
 
-    V = V[mask]
     I = I[mask]
+    V = V[mask]
 
-    # -----------------------------------------------------
+    # =====================================================
     # DADOS INSUFICIENTES
-    # -----------------------------------------------------
-    if len(V) < 5:
+    # =====================================================
+    if len(I) < 5:
 
-        return V, I
+        return I, V
 
-    # -----------------------------------------------------
+    # =====================================================
     # REGIÃO CENTRAL
-    # -----------------------------------------------------
-    lower = np.percentile(V, 20)
+    # =====================================================
+    lower = np.percentile(I, 20)
 
-    upper = np.percentile(V, 80)
+    upper = np.percentile(I, 80)
 
     mask_lin = (
-        (V >= lower) &
-        (V <= upper)
+        (I >= lower) &
+        (I <= upper)
     )
 
-    V_lin = V[mask_lin]
     I_lin = I[mask_lin]
 
-    # -----------------------------------------------------
+    V_lin = V[mask_lin]
+
+    # =====================================================
     # FALLBACK
-    # -----------------------------------------------------
-    if (
-        len(np.unique(V_lin)) < 2
-    ):
+    # =====================================================
+    if len(np.unique(I_lin)) < 2:
 
-        return V, I
+        return I, V
 
-    return V_lin, I_lin
+    return I_lin, V_lin
+
+
 # =========================================================
-# AJUSTE
+# AJUSTE 4 PONTAS
+# V = f(I)
 # =========================================================
-def robust_linear_fit(V, I):
+def robust_linear_fit(I, V):
 
-    # -----------------------------------------------------
-    # REMOVE NAN/INF
-    # -----------------------------------------------------
+    # =====================================================
+    # LIMPEZA
+    # =====================================================
     mask = (
-        np.isfinite(V) &
-        np.isfinite(I)
+        np.isfinite(I) &
+        np.isfinite(V)
     )
 
-    V = V[mask]
     I = I[mask]
 
-    # -----------------------------------------------------
-    # VALIDAÇÕES
-    # -----------------------------------------------------
-    if len(V) < 2:
+    V = V[mask]
+
+    # =====================================================
+    # VALIDAÇÃO
+    # =====================================================
+    if len(I) < 2:
 
         raise ValueError(
-            "Poucos pontos para regressão linear."
+            """
+            Poucos pontos para regressão.
+            """
         )
 
-    # todos iguais
-    if np.all(V == V[0]):
+    if np.std(I) == 0:
 
         raise ValueError(
-            "Valores de tensão idênticos."
+            """
+            Corrente constante detectada.
+
+            O método 4 pontas requer
+            sweep de corrente.
+            """
         )
 
-    # sem variação
-    if np.std(V) == 0:
-
-        raise ValueError(
-            "Sem variação de tensão."
-        )
-
-    # -----------------------------------------------------
+    # =====================================================
     # REGRESSÃO
-    # -----------------------------------------------------
-    result = linregress(V, I)
+    # =====================================================
+    result = linregress(I, V)
 
     slope = result.slope
 
@@ -223,23 +269,38 @@ def robust_linear_fit(V, I):
 
     R2 = r_value ** 2
 
-    I_fit = (
-        slope * V +
+    # =====================================================
+    # RESISTÊNCIA
+    # =====================================================
+    resistance = slope
+
+    # =====================================================
+    # CURVA AJUSTADA
+    # =====================================================
+    V_fit = (
+        slope * I +
         intercept
     )
 
     return (
+
         slope,
+
         intercept,
+
         R2,
-        I_fit
+
+        V_fit,
+
+        resistance
     )
+
 
 # =========================================================
 # RESISTIVIDADE 4 PONTAS
 # =========================================================
 def calculate_resistivity_4p(
-    R,
+    resistance,
     thickness
 ):
 
@@ -249,7 +310,7 @@ def calculate_resistivity_4p(
 
     rho = (
         correction_factor *
-        R *
+        resistance *
         thickness
     )
 
@@ -261,70 +322,102 @@ def calculate_resistivity_4p(
 # =========================================================
 def extract_surface_features(df):
 
-    V = df["V"].values
+    I = df["I"].values
 
-    I = df["I_smooth"].values
+    V = df["V_smooth"].values
 
-    dI_dV = np.gradient(I, V)
+    # =====================================================
+    # DERIVADAS
+    # =====================================================
+    dV_dI = np.gradient(V, I)
 
-    d2I_dV2 = np.gradient(dI_dV, V)
+    d2V_dI2 = np.gradient(dV_dI, I)
 
+    # =====================================================
+    # NÃO LINEARIDADE
+    # =====================================================
+    denominator = np.mean(
+        np.abs(dV_dI)
+    )
+
+    if denominator == 0:
+
+        nonlinearity = 0
+
+    else:
+
+        nonlinearity = (
+            np.std(dV_dI) /
+            denominator
+        )
+
+    # =====================================================
+    # FEATURES
+    # =====================================================
     features = {
 
-        "I_max":
-            np.max(I),
+        "V_max":
+            np.max(V),
 
-        "I_min":
-            np.min(I),
+        "V_min":
+            np.min(V),
 
-        "I_mean":
-            np.mean(I),
+        "V_mean":
+            np.mean(V),
 
-        "I_std":
-            np.std(I),
+        "V_std":
+            np.std(V),
 
-        "dI_dV_mean":
-            np.mean(dI_dV),
+        "dV_dI_mean":
+            np.mean(dV_dI),
 
-        "dI_dV_std":
-            np.std(dI_dV),
+        "dV_dI_std":
+            np.std(dV_dI),
 
-        "d2I_dV2_mean":
-            np.mean(d2I_dV2),
+        "d2V_dI2_mean":
+            np.mean(d2V_dI2),
 
-        "d2I_dV2_std":
-            np.std(d2I_dV2),
+        "d2V_dI2_std":
+            np.std(d2V_dI2),
 
         "nonlinearity_index":
-
-            np.std(dI_dV) /
-
-            np.mean(np.abs(dI_dV))
+            nonlinearity
     }
 
     return features
 
 
 # =========================================================
-# FIGURA CIENTÍFICA
+# PLOT CIENTÍFICO
 # =========================================================
 def generate_publication_plot(
+
     df,
-    V_fit,
+
     I_fit,
+
+    V_fit,
+
     R2,
+
     sample_name
 ):
 
     fig, ax = plt.subplots(
+
         figsize=(6,4),
+
         dpi=300
     )
 
+    # =====================================================
+    # EXPERIMENTAL
+    # =====================================================
     ax.scatter(
 
-        df["V"],
         df["I"],
+
+        df["V"],
 
         s=18,
 
@@ -333,22 +426,29 @@ def generate_publication_plot(
         label="Experimental"
     )
 
+    # =====================================================
+    # AJUSTE
+    # =====================================================
     ax.plot(
 
-        V_fit,
         I_fit,
+
+        V_fit,
 
         linewidth=2,
 
         label=f"Linear Fit (R²={R2:.4f})"
     )
 
-    ax.set_xlabel("Voltage (V)")
+    # =====================================================
+    # LABELS
+    # =====================================================
+    ax.set_xlabel("Current (A)")
 
-    ax.set_ylabel("Current (A)")
+    ax.set_ylabel("Voltage (V)")
 
     ax.set_title(
-        f"I–V Curve — {sample_name}"
+        f"4-Point Probe — {sample_name}"
     )
 
     ax.grid(alpha=0.25)
@@ -385,43 +485,49 @@ def process_resistivity(
     # =====================================================
     # REGIÃO ÔHMICA
     # =====================================================
-    V_lin, I_lin = detect_linear_region(df)
+    I_lin, V_lin = detect_linear_region(df)
 
     # =====================================================
     # AJUSTE
     # =====================================================
-    slope, intercept, R2, I_fit = robust_linear_fit(
+    (
+        slope,
+        intercept,
+        R2,
+        V_fit,
+        resistance
+    ) = robust_linear_fit(
 
-        V_lin,
+        I_lin,
 
-        I_lin
+        V_lin
     )
-
-    # =====================================================
-    # RESISTÊNCIA
-    # =====================================================
-    R = np.nan
-
-    if slope != 0:
-
-        R = 1 / slope
 
     # =====================================================
     # RESISTIVIDADE
     # =====================================================
     rho = calculate_resistivity_4p(
 
-        R,
+        resistance,
 
         thickness_m
     )
 
+    # =====================================================
+    # CONDUTIVIDADE
+    # =====================================================
     sigma = (
+
         1 / rho
+
         if rho > 0
+
         else np.nan
     )
 
+    # =====================================================
+    # RESISTÊNCIA DE FOLHA
+    # =====================================================
     sheet_resistance = (
         rho / thickness_m
     )
@@ -434,29 +540,29 @@ def process_resistivity(
     # =====================================================
     # ASSIMETRIA
     # =====================================================
-    positive_current = np.mean(
-        df[df["V"] > 0]["I_smooth"]
+    positive_voltage = np.mean(
+        df[df["I"] > 0]["V_smooth"]
     )
 
-    negative_current = np.mean(
+    negative_voltage = np.mean(
         np.abs(
-            df[df["V"] < 0]["I_smooth"]
+            df[df["I"] < 0]["V_smooth"]
         )
     )
 
-    asymmetry_index = (
+    if negative_voltage == 0:
 
-        positive_current /
+        asymmetry_index = 1
 
-        negative_current
+    else:
 
-        if negative_current != 0
-
-        else 1
-    )
+        asymmetry_index = (
+            positive_voltage /
+            negative_voltage
+        )
 
     # =====================================================
-    # CLASSIFICAÇÃO ELÉTRICA
+    # CLASSIFICAÇÃO
     # =====================================================
     classification = classify_resistivity(
 
@@ -479,10 +585,14 @@ def process_resistivity(
         slope=slope,
 
         nonlinearity_index=
-            features["nonlinearity_index"],
+            features[
+                "nonlinearity_index"
+            ],
 
         dI_dV_std=
-            features["dI_dV_std"],
+            features[
+                "dV_dI_std"
+            ],
 
         asymmetry_index=
             asymmetry_index
@@ -495,9 +605,9 @@ def process_resistivity(
 
         df=df,
 
-        V_fit=V_lin,
+        I_fit=I_lin,
 
-        I_fit=I_fit,
+        V_fit=V_fit,
 
         R2=R2,
 
@@ -513,7 +623,7 @@ def process_resistivity(
             sample_name,
 
         "Resistance_Ohm":
-            R,
+            resistance,
 
         "Resistivity_Ohm_m":
             rho,
@@ -524,10 +634,10 @@ def process_resistivity(
         "Sheet_Resistance_Ohm_sq":
             sheet_resistance,
 
-        "Slope_A_V":
+        "Slope_V_A":
             slope,
 
-        "Intercept_A":
+        "Intercept_V":
             intercept,
 
         "R_squared":
@@ -540,6 +650,9 @@ def process_resistivity(
         **surface_physics
     }
 
+    # =====================================================
+    # RETURN
+    # =====================================================
     return {
 
         "dataframe":
