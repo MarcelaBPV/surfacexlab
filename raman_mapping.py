@@ -18,238 +18,37 @@ from scipy.optimize import curve_fit
 # =========================================================
 RAMAN_DATABASE = {
 
-    # =====================================================
-    # HEMOGLOBIN / HEME
-    # =====================================================
-    "Hemoglobina": [
-        1547,
-        1562,
-        1582,
-        1604,
-        1620
-    ],
+    "Hemoglobina": [1547,1562,1582,1604,1620],
+    "Grupo Heme": [754,1212,1375,1547,1562,1582],
+    "Porfirinas": [750,1127,1310,1580,1622],
 
-    "Grupo Heme": [
-        754,
-        1212,
-        1375,
-        1547,
-        1562,
-        1582
-    ],
+    "Proteínas": [1003,1208,1448,1605,1655],
+    "Amida I": [1635,1650,1660,1670],
+    "Amida II": [1540,1555,1570],
+    "Amida III": [1230,1245,1265,1280],
 
-    "Porfirinas": [
-        750,
-        1127,
-        1310,
-        1580,
-        1622
-    ],
+    "Fenilalanina": [1003,1032,1208,1585],
+    "Triptofano": [758,880,1010,1340,1555],
+    "Tirosina": [830,850,1175,1615],
 
-    # =====================================================
-    # PROTEINS
-    # =====================================================
-    "Proteínas": [
-        1003,
-        1208,
-        1448,
-        1605,
-        1655
-    ],
+    "Lipídios": [1060,1265,1300,1440,1655,1735],
+    "Fosfolipídios": [718,1065,1090,1302,1445],
+    "Colesterol": [701,1440,1670],
 
-    "Amida I": [
-        1635,
-        1650,
-        1660,
-        1670
-    ],
+    "DNA": [725,785,1092,1335,1578],
+    "RNA": [813,1100,1338,1485],
 
-    "Amida II": [
-        1540,
-        1555,
-        1570
-    ],
+    "Glicose": [911,1060,1125,1375],
+    "Lactato": [853,1045,1455],
 
-    "Amida III": [
-        1230,
-        1245,
-        1265,
-        1280
-    ],
+    "Hemácias": [754,1212,1375,1547,1582],
+    "Leucócitos": [785,1090,1445,1655],
+    "Plaquetas": [1003,1245,1450,1660],
 
-    "Fenilalanina": [
-        1003,
-        1032,
-        1208,
-        1585
-    ],
+    "Carbono D": [1320,1345,1360],
+    "Carbono G": [1560,1580,1600],
 
-    "Triptofano": [
-        758,
-        880,
-        1010,
-        1340,
-        1555
-    ],
-
-    "Tirosina": [
-        830,
-        850,
-        1175,
-        1615
-    ],
-
-    # =====================================================
-    # LIPIDS
-    # =====================================================
-    "Lipídios": [
-        1060,
-        1265,
-        1300,
-        1440,
-        1655,
-        1735
-    ],
-
-    "Fosfolipídios": [
-        718,
-        1065,
-        1090,
-        1302,
-        1445
-    ],
-
-    "Colesterol": [
-        701,
-        1440,
-        1670
-    ],
-
-    # =====================================================
-    # NUCLEIC ACIDS
-    # =====================================================
-    "DNA": [
-        725,
-        785,
-        1092,
-        1335,
-        1578
-    ],
-
-    "RNA": [
-        813,
-        1100,
-        1338,
-        1485
-    ],
-
-    "Nucleotídeos": [
-        725,
-        780,
-        1095,
-        1340
-    ],
-
-    # =====================================================
-    # GLUCOSE / METABOLITES
-    # =====================================================
-    "Glicose": [
-        911,
-        1060,
-        1125,
-        1375
-    ],
-
-    "Lactato": [
-        853,
-        1045,
-        1455
-    ],
-
-    "Ureia": [
-        1005,
-        1160,
-        1460
-    ],
-
-    "Creatinina": [
-        680,
-        846,
-        908,
-        1420
-    ],
-
-    # =====================================================
-    # CELLULAR COMPONENTS
-    # =====================================================
-    "Hemácias": [
-        754,
-        1212,
-        1375,
-        1547,
-        1582
-    ],
-
-    "Leucócitos": [
-        785,
-        1090,
-        1445,
-        1655
-    ],
-
-    "Plaquetas": [
-        1003,
-        1245,
-        1450,
-        1660
-    ],
-
-    # =====================================================
-    # OXIDATIVE STRESS
-    # =====================================================
-    "Espécies Oxidativas": [
-        875,
-        1450,
-        1660
-    ],
-
-    "Peroxidação Lipídica": [
-        1265,
-        1302,
-        1440,
-        1655,
-        1745
-    ],
-
-    # =====================================================
-    # CARBON
-    # =====================================================
-    "Carbono D": [
-        1320,
-        1345,
-        1360
-    ],
-
-    "Carbono G": [
-        1560,
-        1580,
-        1600
-    ],
-
-    # =====================================================
-    # SERS
-    # =====================================================
-    "Nanotubos de Carbono": [
-        1340,
-        1580,
-        1610
-    ],
-
-    "SERS Hotspots": [
-        1550,
-        1580,
-        1605
-    ]
+    "SERS Hotspots": [1550,1580,1605]
 }
 
 # =========================================================
@@ -347,12 +146,12 @@ def identify_peak(shift):
 # =========================================================
 def render_raman_mapping_tab():
 
-    st.title("🧬 Advanced Raman Molecular Mapping")
+    st.title("🧬 Raman Molecular Mapping")
 
     # =====================================================
     # SIDEBAR
     # =====================================================
-    st.sidebar.header("⚙️ Raman Mapping")
+    st.sidebar.header("⚙️ Configuration")
 
     shift_min = st.sidebar.number_input(
         "Shift mínimo",
@@ -387,12 +186,14 @@ def render_raman_mapping_tab():
         return
 
     # =====================================================
-    # READ
+    # READ FILE
     # =====================================================
     try:
 
         if uploaded_file.name.endswith(
+
             (".txt", ".csv")
+
         ):
 
             df = pd.read_csv(
@@ -474,7 +275,7 @@ def render_raman_mapping_tab():
     )
 
     # =====================================================
-    # HEATMAP
+    # HEATMAP DATA
     # =====================================================
     heatmap = []
 
@@ -492,7 +293,7 @@ def render_raman_mapping_tab():
         ])
 
     # =====================================================
-    # HEATMAP FIGURE
+    # HEATMAP
     # =====================================================
     st.subheader("🔥 Raman Intensity Map")
 
@@ -518,9 +319,9 @@ def render_raman_mapping_tab():
 
     fig_map, ax_map = plt.subplots(
 
-        figsize=(12,6),
+        figsize=(10,5),
 
-        dpi=300
+        dpi=600
     )
 
     im = ax_map.imshow(
@@ -542,27 +343,31 @@ def render_raman_mapping_tab():
     )
 
     cbar.set_label(
-        "Relative Raman Intensity"
-    )
-
-    ax_map.set_title(
-        "Spatial Raman Molecular Distribution"
+        "Relative Raman Intensity",
+        fontsize=12
     )
 
     ax_map.set_xlabel(
-        "X Position"
+        "X Position",
+        fontsize=13
     )
 
     ax_map.set_ylabel(
-        "Y Position"
+        "Y Position",
+        fontsize=13
     )
+
+    ax_map.spines["top"].set_visible(False)
+    ax_map.spines["right"].set_visible(False)
+
+    plt.tight_layout()
 
     st.pyplot(fig_map)
 
     # =====================================================
     # SELECT SPECTRUM
     # =====================================================
-    st.subheader("🔬 Detailed Spectrum Analysis")
+    st.subheader("🔬 Detailed Raman Spectrum")
 
     selected_spectrum = st.selectbox(
 
@@ -609,7 +414,7 @@ def render_raman_mapping_tab():
     )
 
     # =====================================================
-    # NORMALIZE
+    # NORMALIZATION
     # =====================================================
     norm = (
 
@@ -625,7 +430,7 @@ def render_raman_mapping_tab():
     )
 
     # =====================================================
-    # PEAKS
+    # PEAK DETECTION
     # =====================================================
     peaks, props = find_peaks(
 
@@ -635,7 +440,7 @@ def render_raman_mapping_tab():
     )
 
     # =====================================================
-    # INITIAL PARAMS
+    # INITIAL PARAMETERS
     # =====================================================
     initial_params = []
 
@@ -665,7 +470,7 @@ def render_raman_mapping_tab():
 
             p0=initial_params,
 
-            maxfev=20000
+            maxfev=30000
         )
 
         fit = multi_pseudo_voigt(
@@ -693,13 +498,21 @@ def render_raman_mapping_tab():
     r2 = 1 - (ss_res / ss_tot)
 
     # =====================================================
-    # FIGURE
+    # PUBLICATION STYLE FIGURE
     # =====================================================
+    plt.rcParams.update({
+
+        "font.size": 12,
+        "axes.linewidth": 1.2,
+        "xtick.major.width": 1,
+        "ytick.major.width": 1
+    })
+
     fig = plt.figure(
 
-        figsize=(14,8),
+        figsize=(10,7),
 
-        dpi=300
+        dpi=600
     )
 
     gs = fig.add_gridspec(
@@ -710,7 +523,7 @@ def render_raman_mapping_tab():
 
         height_ratios=[4,1],
 
-        hspace=0.15
+        hspace=0.08
     )
 
     ax1 = fig.add_subplot(gs[0])
@@ -718,7 +531,7 @@ def render_raman_mapping_tab():
     ax2 = fig.add_subplot(gs[1])
 
     # =====================================================
-    # MAIN CURVES
+    # EXPERIMENTAL
     # =====================================================
     ax1.plot(
 
@@ -728,11 +541,14 @@ def render_raman_mapping_tab():
 
         color="black",
 
-        linewidth=1.5,
+        linewidth=2,
 
         label="Experimental"
     )
 
+    # =====================================================
+    # FIT
+    # =====================================================
     ax1.plot(
 
         wave,
@@ -743,13 +559,13 @@ def render_raman_mapping_tab():
 
         color="red",
 
-        linewidth=1.5,
+        linewidth=2,
 
         label=f"Fit (R²={r2:.4f})"
     )
 
     # =====================================================
-    # TABLE
+    # PEAK TABLE
     # =====================================================
     peak_table = []
 
@@ -757,6 +573,18 @@ def render_raman_mapping_tab():
     # COMPONENTS
     # =====================================================
     n_peaks = len(popt)//5
+
+    colors = [
+
+        "#f94144",
+        "#f3722c",
+        "#f9c74f",
+        "#90be6d",
+        "#43aa8b",
+        "#577590",
+        "#9b5de5",
+        "#f15bb5"
+    ]
 
     for i in range(n_peaks):
 
@@ -783,6 +611,9 @@ def render_raman_mapping_tab():
 
         molecule = identify_peak(x0)
 
+        # =================================================
+        # FWHM
+        # =================================================
         fwhm = 0.5346 * (2*gamma) + np.sqrt(
 
             0.2166*(2*gamma)**2 +
@@ -790,58 +621,69 @@ def render_raman_mapping_tab():
             (2.355*sigma)**2
         )
 
+        # =================================================
+        # COMPONENT PLOT
+        # =================================================
         ax1.fill_between(
 
             wave,
 
             component,
 
-            alpha=0.4
+            alpha=0.45,
+
+            color=colors[i % len(colors)]
         )
 
+        ax1.plot(
+
+            wave,
+
+            component,
+
+            linewidth=1,
+
+            color=colors[i % len(colors)]
+        )
+
+        # =================================================
+        # PEAK NUMBER ONLY
+        # =================================================
         ax1.text(
 
             x0,
 
-            np.max(component),
+            np.max(component) + 0.015,
 
-            f"{int(x0)}",
+            f"{i+1}",
 
-            fontsize=8
+            fontsize=9,
+
+            ha="center",
+
+            fontweight="bold"
         )
 
-        ax1.annotate(
-
-            molecule,
-
-            (
-
-                x0,
-
-                np.max(component)
-
-            ),
-
-            fontsize=8,
-
-            rotation=90
-        )
-
+        # =================================================
+        # TABLE
+        # =================================================
         peak_table.append({
+
+            "Peak ID": i+1,
 
             "Peak (cm⁻¹)": round(x0,2),
 
-            "Molecular Group": molecule,
+            "Assignment": molecule,
 
             "Intensity": round(A,4),
 
             "FWHM": round(fwhm,2),
 
-            "Gaussian σ": round(sigma,2),
+            "σ": round(sigma,2),
 
-            "Lorentzian γ": round(gamma,2),
+            "γ": round(gamma,2),
 
-            "η Mixing": round(eta,2)
+            "η": round(eta,2)
         })
 
     # =====================================================
@@ -855,7 +697,7 @@ def render_raman_mapping_tab():
 
         color="gray",
 
-        linewidth=0.8
+        linewidth=1.2
     )
 
     ax2.axhline(
@@ -864,51 +706,112 @@ def render_raman_mapping_tab():
 
         linestyle="--",
 
-        linewidth=0.5
+        linewidth=1,
+
+        color="steelblue"
     )
+
+    # =====================================================
+    # STYLE
+    # =====================================================
+    ax1.spines["top"].set_visible(False)
+    ax1.spines["right"].set_visible(False)
+
+    ax2.spines["top"].set_visible(False)
+    ax2.spines["right"].set_visible(False)
 
     # =====================================================
     # LABELS
     # =====================================================
-    ax1.set_title(
-
-        f"Raman Spectrum {selected_spectrum} | X={x} | Y={y}"
-    )
-
     ax1.set_ylabel(
-        "Normalized Intensity"
-    )
 
-    ax1.legend()
+        "Normalized Intensity",
 
-    ax1.grid(alpha=0.2)
-
-    ax2.set_xlabel(
-        "Raman Shift (cm⁻¹)"
+        fontsize=15
     )
 
     ax2.set_ylabel(
-        "Residual"
+
+        "Residual",
+
+        fontsize=13
     )
 
-    ax2.grid(alpha=0.2)
+    ax2.set_xlabel(
+
+        "Raman Shift (cm⁻¹)",
+
+        fontsize=15
+    )
+
+    # =====================================================
+    # GRID
+    # =====================================================
+    ax1.grid(alpha=0.15)
+    ax2.grid(alpha=0.15)
+
+    # =====================================================
+    # LEGEND
+    # =====================================================
+    ax1.legend(
+
+        fontsize=11,
+
+        loc="upper left",
+
+        frameon=True
+    )
+
+    # =====================================================
+    # LIMITS
+    # =====================================================
+    ax1.set_xlim(
+        shift_min,
+        shift_max
+    )
+
+    ax2.set_xlim(
+        shift_min,
+        shift_max
+    )
+
+    # =====================================================
+    # TICKS
+    # =====================================================
+    ax1.tick_params(
+        axis='both',
+        labelsize=12
+    )
+
+    ax2.tick_params(
+        axis='both',
+        labelsize=11
+    )
+
+    plt.tight_layout()
 
     st.pyplot(fig)
 
     # =====================================================
-    # TABLE
+    # PEAK TABLE
     # =====================================================
-    st.subheader("📊 Identified Raman Peaks")
+    st.markdown("### Peak Assignments")
 
     peak_df = pd.DataFrame(
         peak_table
+    )
+
+    peak_df = peak_df.sort_values(
+        "Peak (cm⁻¹)"
     )
 
     st.dataframe(
 
         peak_df,
 
-        use_container_width=True
+        use_container_width=True,
+
+        height=350
     )
 
     # =====================================================
@@ -920,11 +823,11 @@ def render_raman_mapping_tab():
 
     st.download_button(
 
-        "⬇ Download Peak Table",
+        "⬇ Download Peak Assignments",
 
         data=csv,
 
-        file_name=f"raman_peaks_spectrum_{selected_spectrum}.csv",
+        file_name=f"raman_peak_assignments_{selected_spectrum}.csv",
 
         mime="text/csv"
     )
