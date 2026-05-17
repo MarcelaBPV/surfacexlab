@@ -1,6 +1,6 @@
 # =========================================================
-# Raman Molecular Mapping — Independent Module
-# SurfaceXLab
+# raman_mapping.py
+# SurfaceXLab — Raman Molecular Mapping
 # =========================================================
 
 import streamlit as st
@@ -12,29 +12,6 @@ from scipy.signal import savgol_filter, find_peaks
 from scipy import sparse
 from scipy.sparse.linalg import spsolve
 
-# =========================================================
-# PAGE CONFIG
-# =========================================================
-st.set_page_config(
-    page_title="Raman Molecular Mapping",
-    layout="wide"
-)
-
-st.title("🧬 Raman Molecular Mapping")
-
-st.markdown("""
-Módulo independente para reconstrução espacial de mapas
-moleculares Raman a partir de espectros adquiridos ao
-longo da superfície da amostra.
-
-Fluxo aplicado:
-- Upload dos espectros;
-- Correção de linha de base;
-- Suavização espectral;
-- Normalização;
-- Identificação automática de picos;
-- Reconstrução espacial do mapa molecular.
-""")
 
 # =========================================================
 # BASELINE ALS
@@ -65,299 +42,396 @@ def baseline_als(y, lam=1e5, p=0.01, niter=10):
 
     return z
 
-# =========================================================
-# FILE UPLOAD
-# =========================================================
-uploaded_file = st.file_uploader(
-    "Upload arquivo Raman",
-    type=["csv", "txt", "xlsx"]
-)
-
-if uploaded_file is None:
-
-    st.info("Faça upload do arquivo Raman Mapping.")
-    st.stop()
 
 # =========================================================
-# READ FILE
+# RENDER TAB
 # =========================================================
-try:
+def render_raman_mapping_tab():
 
-    if uploaded_file.name.endswith((".xlsx", ".xls")):
+    st.subheader("🗺️ Raman Molecular Mapping")
 
-        df = pd.read_excel(uploaded_file)
+    st.markdown("""
+    Mapeamento molecular Raman com:
+    
+    - correção de linha de base;
+    - suavização espectral;
+    - normalização;
+    - identificação automática de picos;
+    - reconstrução espacial molecular.
+    """)
 
-    else:
+    # =====================================================
+    # UPLOAD
+    # =====================================================
+    uploaded_file = st.file_uploader(
 
-        try:
+        "Upload Raman Mapping",
 
-            df = pd.read_csv(
-                uploaded_file,
-                sep=None,
-                engine="python"
-            )
-
-        except:
-
-            uploaded_file.seek(0)
-
-            df = pd.read_csv(
-                uploaded_file,
-                delim_whitespace=True
-            )
-
-except Exception as e:
-
-    st.error("Erro ao carregar arquivo.")
-    st.exception(e)
-    st.stop()
-
-# =========================================================
-# COLUMN CLEAN
-# =========================================================
-df.columns = [
-    str(c).strip().lower()
-    for c in df.columns
-]
-
-# =========================================================
-# REQUIRED COLUMNS
-# =========================================================
-required = ["x", "y", "wave", "intensity"]
-
-for c in required:
-
-    if c not in df.columns:
-
-        st.error(f"Coluna obrigatória ausente: {c}")
-        st.stop()
-
-# =========================================================
-# NUMERIC CONVERSION
-# =========================================================
-for c in required:
-
-    df[c] = pd.to_numeric(
-        df[c],
-        errors="coerce"
+        type=["csv", "txt", "xlsx"]
     )
 
-df = df.dropna()
+    if uploaded_file is None:
 
-# =========================================================
-# GROUP SPECTRA
-# =========================================================
-grouped = df.groupby(["x", "y"])
-
-st.success(
-    f"{len(grouped)} espectros detectados."
-)
-
-# =========================================================
-# FIGURE — ALL SPECTRA
-# =========================================================
-fig, ax = plt.subplots(
-    figsize=(12,7),
-    dpi=300
-)
-
-heatmap = []
-
-features = []
-
-# =========================================================
-# LOOP
-# =========================================================
-for idx, ((x, y), group) in enumerate(grouped):
-
-    group = group.sort_values("wave")
-
-    wave = group["wave"].values
-    intensity = group["intensity"].values
-
-    # =====================================================
-    # BASELINE
-    # =====================================================
-    baseline = baseline_als(intensity)
-
-    corrected = intensity - baseline
-
-    # =====================================================
-    # SMOOTH
-    # =====================================================
-    if len(corrected) > 21:
-
-        smooth = savgol_filter(
-            corrected,
-            21,
-            3
+        st.info(
+            "Faça upload do arquivo de mapeamento Raman."
         )
 
-    else:
-
-        smooth = corrected
+        return
 
     # =====================================================
-    # NORMALIZATION
+    # READ FILE
     # =====================================================
-    norm = (
-        smooth - np.min(smooth)
-    ) / (
-        np.max(smooth) - np.min(smooth) + 1e-9
+    try:
+
+        if uploaded_file.name.endswith(
+
+            (".xlsx", ".xls")
+
+        ):
+
+            df = pd.read_excel(
+                uploaded_file
+            )
+
+        else:
+
+            try:
+
+                df = pd.read_csv(
+
+                    uploaded_file,
+
+                    sep=None,
+
+                    engine="python"
+                )
+
+            except:
+
+                uploaded_file.seek(0)
+
+                df = pd.read_csv(
+
+                    uploaded_file,
+
+                    delim_whitespace=True
+                )
+
+    except Exception as e:
+
+        st.error(
+            "Erro ao carregar arquivo."
+        )
+
+        st.exception(e)
+
+        return
+
+    # =====================================================
+    # COLUMNS
+    # =====================================================
+    df.columns = [
+
+        str(c).strip().lower()
+
+        for c in df.columns
+    ]
+
+    required = [
+
+        "x",
+        "y",
+        "wave",
+        "intensity"
+    ]
+
+    for c in required:
+
+        if c not in df.columns:
+
+            st.error(
+                f"Coluna obrigatória ausente: {c}"
+            )
+
+            return
+
+    # =====================================================
+    # NUMERIC
+    # =====================================================
+    for c in required:
+
+        df[c] = pd.to_numeric(
+
+            df[c],
+
+            errors="coerce"
+        )
+
+    df = df.dropna()
+
+    # =====================================================
+    # GROUP
+    # =====================================================
+    grouped = df.groupby(
+
+        ["x", "y"]
+    )
+
+    st.success(
+        f"{len(grouped)} espectros detectados."
     )
 
     # =====================================================
-    # PEAKS
+    # FIGURE
     # =====================================================
-    peaks, props = find_peaks(
-        norm,
-        prominence=0.05
+    fig, ax = plt.subplots(
+
+        figsize=(12,7),
+
+        dpi=300
     )
 
-    # =====================================================
-    # MAIN PEAK
-    # =====================================================
-    if len(peaks) > 0:
+    heatmap = []
 
-        peak_idx = peaks[
-            np.argmax(norm[peaks])
-        ]
-
-        peak_wave = wave[peak_idx]
-        peak_intensity = norm[peak_idx]
-
-    else:
-
-        peak_wave = 0
-        peak_intensity = 0
+    features = []
 
     # =====================================================
-    # STORE FEATURES
+    # LOOP
     # =====================================================
-    features.append({
+    for idx, ((x, y), group) in enumerate(grouped):
 
-        "Spectrum": idx + 1,
-        "X": x,
-        "Y": y,
-        "Main Peak": peak_wave,
-        "Max Intensity": peak_intensity
-    })
+        group = group.sort_values(
+            "wave"
+        )
+
+        wave = group["wave"].values
+
+        intensity = group[
+            "intensity"
+        ].values
+
+        # =================================================
+        # BASELINE
+        # =================================================
+        baseline = baseline_als(
+            intensity
+        )
+
+        corrected = intensity - baseline
+
+        # =================================================
+        # SMOOTH
+        # =================================================
+        if len(corrected) > 21:
+
+            smooth = savgol_filter(
+
+                corrected,
+
+                21,
+
+                3
+            )
+
+        else:
+
+            smooth = corrected
+
+        # =================================================
+        # NORMALIZATION
+        # =================================================
+        norm = (
+
+            smooth - np.min(smooth)
+
+        ) / (
+
+            np.max(smooth)
+
+            - np.min(smooth)
+
+            + 1e-9
+        )
+
+        # =================================================
+        # PEAKS
+        # =================================================
+        peaks, props = find_peaks(
+
+            norm,
+
+            prominence=0.05
+        )
+
+        # =================================================
+        # MAIN PEAK
+        # =================================================
+        if len(peaks) > 0:
+
+            peak_idx = peaks[
+                np.argmax(norm[peaks])
+            ]
+
+            peak_wave = wave[
+                peak_idx
+            ]
+
+            peak_intensity = norm[
+                peak_idx
+            ]
+
+        else:
+
+            peak_wave = 0
+
+            peak_intensity = 0
+
+        # =================================================
+        # FEATURES
+        # =================================================
+        features.append({
+
+            "Spectrum": idx + 1,
+
+            "X": x,
+
+            "Y": y,
+
+            "Main Peak": peak_wave,
+
+            "Max Intensity": peak_intensity
+        })
+
+        heatmap.append([
+
+            x,
+
+            y,
+
+            peak_intensity
+        ])
+
+        # =================================================
+        # PLOT
+        # =================================================
+        ax.plot(
+
+            wave,
+
+            norm,
+
+            linewidth=1
+        )
+
+        ax.scatter(
+
+            wave[peaks],
+
+            norm[peaks],
+
+            s=10
+        )
+
+    # =====================================================
+    # FINAL FIGURE
+    # =====================================================
+    ax.set_title(
+        "Raman Spectra Mapping"
+    )
+
+    ax.set_xlabel(
+        "Raman Shift (cm⁻¹)"
+    )
+
+    ax.set_ylabel(
+        "Normalized Intensity"
+    )
+
+    ax.grid(alpha=0.2)
+
+    st.pyplot(fig)
+
+    # =====================================================
+    # FEATURES TABLE
+    # =====================================================
+    features_df = pd.DataFrame(
+        features
+    )
+
+    st.subheader(
+        "📊 Spectral Features"
+    )
+
+    st.dataframe(
+        features_df
+    )
 
     # =====================================================
     # HEATMAP
     # =====================================================
-    heatmap.append([
-
-        x,
-        y,
-        peak_intensity
-    ])
-
-    # =====================================================
-    # PLOT
-    # =====================================================
-    ax.plot(
-        wave,
-        norm,
-        linewidth=1
+    st.subheader(
+        "🔥 Raman Molecular Map"
     )
 
-    # =====================================================
-    # PEAK MARKERS
-    # =====================================================
-    ax.scatter(
-        wave[peaks],
-        norm[peaks],
-        s=10
+    heat_df = pd.DataFrame(
+
+        heatmap,
+
+        columns=[
+            "X",
+            "Y",
+            "Intensity"
+        ]
     )
 
-# =========================================================
-# FINAL FIGURE
-# =========================================================
-ax.set_title(
-    "Raman Spectra Mapping"
-)
+    pivot = heat_df.pivot(
 
-ax.set_xlabel(
-    "Raman Shift (cm⁻¹)"
-)
+        index="Y",
 
-ax.set_ylabel(
-    "Normalized Intensity"
-)
+        columns="X",
 
-ax.grid(alpha=0.2)
+        values="Intensity"
+    )
 
-st.pyplot(fig)
+    fig2, ax2 = plt.subplots(
 
-# =========================================================
-# FEATURES TABLE
-# =========================================================
-features_df = pd.DataFrame(features)
+        figsize=(7,6),
 
-st.subheader("📊 Spectral Features")
+        dpi=300
+    )
 
-st.dataframe(features_df)
+    im = ax2.imshow(
 
-# =========================================================
-# HEATMAP
-# =========================================================
-st.subheader("🔥 Raman Molecular Map")
+        pivot,
 
-heat_df = pd.DataFrame(
-    heatmap,
-    columns=[
-        "X",
-        "Y",
-        "Intensity"
-    ]
-)
+        cmap="inferno",
 
-pivot = heat_df.pivot(
-    index="Y",
-    columns="X",
-    values="Intensity"
-)
+        origin="lower",
 
-fig2, ax2 = plt.subplots(
-    figsize=(7,6),
-    dpi=300
-)
+        aspect="auto"
+    )
 
-im = ax2.imshow(
-    pivot,
-    cmap="inferno",
-    origin="lower",
-    aspect="auto"
-)
+    cbar = plt.colorbar(
 
-cbar = plt.colorbar(
-    im,
-    ax=ax2
-)
+        im,
 
-cbar.set_label(
-    "Relative Raman Intensity"
-)
+        ax=ax2
+    )
 
-ax2.set_title(
-    "Spatial Molecular Distribution"
-)
+    cbar.set_label(
+        "Relative Raman Intensity"
+    )
 
-ax2.set_xlabel("X Position")
+    ax2.set_title(
+        "Spatial Molecular Distribution"
+    )
 
-ax2.set_ylabel("Y Position")
+    ax2.set_xlabel(
+        "X Position"
+    )
 
-st.pyplot(fig2)
+    ax2.set_ylabel(
+        "Y Position"
+    )
 
-# =========================================================
-# DOWNLOAD
-# =========================================================
-csv = features_df.to_csv(index=False)
-
-st.download_button(
-    label="⬇ Download Features",
-    data=csv,
-    file_name="raman_mapping_features.csv",
-    mime="text/csv"
-)
+    st.pyplot(fig2)
