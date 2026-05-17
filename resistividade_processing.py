@@ -1,7 +1,7 @@
 # =========================================================
 # resistividade_processing.py
 # SurfaceXLab — Pipeline Elétrico Avançado
-# Método 4 Pontas — Física Correta
+# Método 4 Pontas + Caracterização Interfacial
 # =========================================================
 
 import numpy as np
@@ -20,101 +20,174 @@ from resistividade_database import (
 
 
 # =========================================================
-# LEITURA UNIVERSAL
+# LEITURA UNIVERSAL AVANÇADA
 # =========================================================
 def read_iv_file(file_like):
 
-    try:
+    # =====================================================
+    # LEITURA CSV
+    # =====================================================
+    df = pd.read_csv(
 
-        df = pd.read_csv(
-            file_like,
-            sep=None,
-            engine="python"
-        )
+        file_like,
 
-    except:
+        sep=";",
 
-        df = pd.read_table(file_like)
+        engine="python"
+    )
 
     # =====================================================
-    # NORMALIZA COLUNAS
+    # NORMALIZA NOMES
     # =====================================================
     df.columns = [
-        c.lower().strip()
+
+        c.strip().lower()
+
         for c in df.columns
     ]
 
     # =====================================================
-    # DETECÇÃO AUTOMÁTICA
+    # DETECÇÃO COLUNAS
     # =====================================================
-    current_cols = [
+    voltage_col = None
 
-        c for c in df.columns
+    current_col = None
 
-        if (
-            "i" in c or
-            "current" in c
-        )
-    ]
+    resistance_col = None
 
-    voltage_cols = [
+    for col in df.columns:
 
-        c for c in df.columns
+        if "voltage" in col:
 
-        if (
-            "v" in c or
-            "voltage" in c
-        )
-    ]
+            voltage_col = col
 
-    if not current_cols:
+        if "current" in col:
 
-        raise ValueError(
-            """
-            Coluna de corrente não encontrada.
-            """
-        )
+            current_col = col
 
-    if not voltage_cols:
+        if "resistance" in col:
+
+            resistance_col = col
+
+    # =====================================================
+    # VALIDAÇÃO
+    # =====================================================
+    if voltage_col is None:
 
         raise ValueError(
-            """
-            Coluna de tensão não encontrada.
-            """
+            "Coluna de tensão não encontrada."
+        )
+
+    if current_col is None:
+
+        raise ValueError(
+            "Coluna de corrente não encontrada."
         )
 
     # =====================================================
     # SELEÇÃO
     # =====================================================
-    df = df[[
-        current_cols[0],
-        voltage_cols[0]
-    ]]
+    selected_cols = [
 
-    df.columns = ["I", "V"]
+        current_col,
+
+        voltage_col
+    ]
+
+    if resistance_col is not None:
+
+        selected_cols.append(
+            resistance_col
+        )
+
+    df = df[selected_cols]
 
     # =====================================================
-    # CONVERSÃO
+    # RENOMEIA
     # =====================================================
-    df["I"] = pd.to_numeric(
-        df["I"],
-        errors="coerce"
+    rename_dict = {
+
+        current_col: "I",
+
+        voltage_col: "V"
+    }
+
+    if resistance_col is not None:
+
+        rename_dict[
+            resistance_col
+        ] = "R_inst"
+
+    df = df.rename(
+        columns=rename_dict
     )
 
-    df["V"] = pd.to_numeric(
-        df["V"],
-        errors="coerce"
-    )
+    # =====================================================
+    # CORREÇÃO FORMATO CIENTÍFICO
+    # =====================================================
+    numeric_cols = ["I", "V"]
+
+    if "R_inst" in df.columns:
+
+        numeric_cols.append(
+            "R_inst"
+        )
+
+    for col in numeric_cols:
+
+        df[col] = (
+
+            df[col]
+
+            .astype(str)
+
+            .str.strip()
+
+            # converte espaço decimal
+            .str.replace(
+                r'(?<=\d)\s+(?=\d)',
+                '.',
+                regex=True
+            )
+
+            .str.replace(",", ".")
+        )
+
+        df[col] = pd.to_numeric(
+
+            df[col],
+
+            errors="coerce"
+        )
 
     # =====================================================
-    # LIMPEZA
+    # REMOVE NAN
     # =====================================================
     df = df.dropna()
 
+    # =====================================================
+    # REMOVE INF
+    # =====================================================
     df = df[np.isfinite(df["I"])]
+
     df = df[np.isfinite(df["V"])]
 
-    if len(df) < 3:
+    # =====================================================
+    # CONVERSÃO AUTOMÁTICA UNIDADES
+    # =====================================================
+    max_current = np.abs(df["I"]).max()
+
+    # µA -> A
+    if max_current > 1:
+
+        df["I"] = (
+            df["I"] * 1e-6
+        )
+
+    # =====================================================
+    # VALIDAÇÃO
+    # =====================================================
+    if len(df) < 5:
 
         raise ValueError(
             """
@@ -181,6 +254,7 @@ def detect_linear_region(df):
     )
 
     I = I[mask]
+
     V = V[mask]
 
     # =====================================================
@@ -218,7 +292,6 @@ def detect_linear_region(df):
 
 # =========================================================
 # AJUSTE 4 PONTAS
-# V = f(I)
 # =========================================================
 def robust_linear_fit(I, V):
 
@@ -249,10 +322,7 @@ def robust_linear_fit(I, V):
 
         raise ValueError(
             """
-            Corrente constante detectada.
-
-            O método 4 pontas requer
-            sweep de corrente.
+            Sweep de corrente inválido.
             """
         )
 
@@ -275,7 +345,7 @@ def robust_linear_fit(I, V):
     resistance = slope
 
     # =====================================================
-    # CURVA AJUSTADA
+    # AJUSTE
     # =====================================================
     V_fit = (
         slope * I +
@@ -388,7 +458,7 @@ def extract_surface_features(df):
 
 
 # =========================================================
-# PLOT CIENTÍFICO
+# FIGURA CIENTÍFICA
 # =========================================================
 def generate_publication_plot(
 
@@ -441,8 +511,17 @@ def generate_publication_plot(
     )
 
     # =====================================================
-    # LABELS
+    # FORMAT
     # =====================================================
+    ax.ticklabel_format(
+
+        style='sci',
+
+        axis='both',
+
+        scilimits=(0,0)
+    )
+
     ax.set_xlabel("Current (A)")
 
     ax.set_ylabel("Voltage (V)")
@@ -526,7 +605,7 @@ def process_resistivity(
     )
 
     # =====================================================
-    # RESISTÊNCIA DE FOLHA
+    # RESISTÊNCIA FOLHA
     # =====================================================
     sheet_resistance = (
         rho / thickness_m
@@ -574,7 +653,7 @@ def process_resistivity(
     )
 
     # =====================================================
-    # INTERPRETAÇÃO FÍSICO-QUÍMICA
+    # INTERPRETAÇÃO SUPERFICIAL
     # =====================================================
     surface_physics = infer_surface_physics(
 
