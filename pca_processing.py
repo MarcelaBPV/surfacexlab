@@ -1,10 +1,11 @@
 # =========================================================
 # pca_processing.py
-# SurfaceXLab — PCA Multimodal
+# SurfaceXLab — PCA Científico
 # =========================================================
 
-import pandas as pd
 import numpy as np
+import pandas as pd
+
 import matplotlib.pyplot as plt
 
 from sklearn.preprocessing import StandardScaler
@@ -12,76 +13,37 @@ from sklearn.decomposition import PCA
 
 
 # =========================================================
-# CONSOLIDAÇÃO MULTIMODAL
-# =========================================================
-def build_multimodal_dataframe(
-
-    raman_df,
-    electrical_df,
-    tensio_df,
-    perfil_df
-
-):
-
-    # =====================================================
-    # PADRONIZA NOMES
-    # =====================================================
-    raman_df = raman_df.copy()
-    electrical_df = electrical_df.copy()
-    tensio_df = tensio_df.copy()
-    perfil_df = perfil_df.copy()
-
-    # índice = amostra
-    raman_df = raman_df.set_index("Amostra")
-    electrical_df = electrical_df.set_index("Amostra")
-    tensio_df = tensio_df.set_index("Amostra")
-    perfil_df = perfil_df.set_index("Amostra")
-
-    # =====================================================
-    # CONCATENA
-    # =====================================================
-    df = pd.concat(
-
-        [
-            raman_df,
-            electrical_df,
-            tensio_df,
-            perfil_df
-        ],
-
-        axis=1
-    )
-
-    # remove duplicadas
-    df = df.loc[:, ~df.columns.duplicated()]
-
-    # apenas numéricos
-    df = df.select_dtypes(include=[np.number])
-
-    # remove NaN
-    df = df.fillna(0)
-
-    return df
-
-
-# =========================================================
 # PCA
 # =========================================================
-def run_multimodal_pca(df):
+def run_pca_analysis(df):
+
+    # =====================================================
+    # PREPARAÇÃO
+    # =====================================================
+    sample_col = df.columns[0]
+
+    labels = df[sample_col]
+
+    X = df.drop(columns=[sample_col])
+
+    # remove °
+    X = X.replace("°", "", regex=True)
+
+    X = X.apply(pd.to_numeric)
 
     # =====================================================
     # NORMALIZAÇÃO
     # =====================================================
     scaler = StandardScaler()
 
-    X = scaler.fit_transform(df.values)
+    X_scaled = scaler.fit_transform(X)
 
     # =====================================================
     # PCA
     # =====================================================
     pca = PCA(n_components=2)
 
-    scores = pca.fit_transform(X)
+    scores = pca.fit_transform(X_scaled)
 
     loadings = pca.components_.T
 
@@ -90,124 +52,127 @@ def run_multimodal_pca(df):
     )
 
     # =====================================================
-    # DATAFRAMES
+    # FIGURA PUBLICAÇÃO
     # =====================================================
-    score_df = pd.DataFrame(
-
-        scores,
-
-        columns=["PC1", "PC2"],
-
-        index=df.index
-    )
-
-    loading_df = pd.DataFrame(
-
-        loadings,
-
-        columns=["PC1", "PC2"],
-
-        index=df.columns
-    )
-
-    return {
-
-        "scores": score_df,
-
-        "loadings": loading_df,
-
-        "explained": explained
-    }
-
-
-# =========================================================
-# PLOT PCA
-# =========================================================
-def generate_pca_plot(
-
-    scores,
-    loadings,
-    explained
-
-):
-
     fig, ax = plt.subplots(
-
-        figsize=(7,7),
-        dpi=300
+        figsize=(7, 6),
+        dpi=500
     )
 
     # =====================================================
     # SCORES
     # =====================================================
     ax.scatter(
-
-        scores["PC1"],
-        scores["PC2"],
-        s=100
+        scores[:, 0],
+        scores[:, 1],
+        s=90,
+        linewidth=1.2
     )
 
     # labels
-    for idx in scores.index:
+    for i, label in enumerate(labels):
 
         ax.text(
-
-            scores.loc[idx, "PC1"],
-            scores.loc[idx, "PC2"],
-            idx,
-            fontsize=9
+            scores[i, 0] + 0.04,
+            scores[i, 1] + 0.04,
+            label,
+            fontsize=11
         )
 
     # =====================================================
     # LOADINGS
     # =====================================================
-    scale = np.max(np.abs(scores.values)) * 0.7
+    scale = 2.2
 
-    for idx in loadings.index:
-
-        x = loadings.loc[idx, "PC1"] * scale
-        y = loadings.loc[idx, "PC2"] * scale
+    for i, var in enumerate(X.columns):
 
         ax.arrow(
-
             0,
             0,
-            x,
-            y,
-
+            loadings[i, 0] * scale,
+            loadings[i, 1] * scale,
+            linewidth=1.6,
             head_width=0.05,
             length_includes_head=True
         )
 
         ax.text(
-
-            x * 1.1,
-            y * 1.1,
-            idx,
-            fontsize=8
+            loadings[i, 0] * scale * 1.12,
+            loadings[i, 1] * scale * 1.12,
+            var,
+            fontsize=10,
+            fontweight="bold"
         )
 
     # =====================================================
-    # ESTILO
+    # ESTILO CIENTÍFICO
     # =====================================================
-    ax.axhline(0, linewidth=0.8)
+    ax.axhline(
+        0,
+        linewidth=0.8
+    )
 
-    ax.axvline(0, linewidth=0.8)
+    ax.axvline(
+        0,
+        linewidth=0.8
+    )
 
     ax.set_xlabel(
-        f"PC1 ({explained[0]:.1f}%)"
+        f"PC1 ({explained[0]:.1f}%)",
+        fontsize=12
     )
 
     ax.set_ylabel(
-        f"PC2 ({explained[1]:.1f}%)"
+        f"PC2 ({explained[1]:.1f}%)",
+        fontsize=12
     )
 
     ax.set_title(
-        "PCA Multimodal — SurfaceXLab"
+        "PCA Multimodal das Amostras Nanoestruturadas",
+        fontsize=13,
+        pad=15
     )
 
-    ax.grid(alpha=0.3)
+    # remove caixa
+    ax.spines["top"].set_visible(False)
+
+    ax.spines["right"].set_visible(False)
+
+    # grid leve
+    ax.grid(
+        alpha=0.15,
+        linestyle="--"
+    )
 
     plt.tight_layout()
 
-    return fig
+    # =====================================================
+    # SAVE
+    # =====================================================
+    fig.savefig(
+        "pca_publicacao.png",
+        dpi=600,
+        bbox_inches="tight"
+    )
+
+    # =====================================================
+    # LOADINGS DF
+    # =====================================================
+    loadings_df = pd.DataFrame({
+
+        "Variável": X.columns,
+        "PC1": loadings[:, 0],
+        "PC2": loadings[:, 1]
+
+    })
+
+    return {
+
+        "fig": fig,
+
+        "pc1": explained[0],
+
+        "pc2": explained[1],
+
+        "loadings": loadings_df
+    }
