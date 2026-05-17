@@ -1,6 +1,6 @@
 # =========================================================
 # raman_mapping.py
-# Advanced Raman Molecular Mapping
+# SurfaceXLab — Advanced Raman Molecular Mapping
 # Guided Pseudo-Voigt + Biomolecular Raman
 # =========================================================
 
