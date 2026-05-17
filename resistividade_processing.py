@@ -145,6 +145,43 @@ def detect_linear_region(df):
 # =========================================================
 def robust_linear_fit(V, I):
 
+    # -----------------------------------------------------
+    # REMOVE NAN/INF
+    # -----------------------------------------------------
+    mask = (
+        np.isfinite(V) &
+        np.isfinite(I)
+    )
+
+    V = V[mask]
+    I = I[mask]
+
+    # -----------------------------------------------------
+    # VALIDAÇÕES
+    # -----------------------------------------------------
+    if len(V) < 2:
+
+        raise ValueError(
+            "Poucos pontos para regressão linear."
+        )
+
+    # todos iguais
+    if np.all(V == V[0]):
+
+        raise ValueError(
+            "Valores de tensão idênticos."
+        )
+
+    # sem variação
+    if np.std(V) == 0:
+
+        raise ValueError(
+            "Sem variação de tensão."
+        )
+
+    # -----------------------------------------------------
+    # REGRESSÃO
+    # -----------------------------------------------------
     result = linregress(V, I)
 
     slope = result.slope
@@ -166,7 +203,6 @@ def robust_linear_fit(V, I):
         R2,
         I_fit
     )
-
 
 # =========================================================
 # RESISTIVIDADE 4 PONTAS
