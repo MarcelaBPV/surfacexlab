@@ -188,7 +188,7 @@ def run_pca_analysis(df):
 
             xytext=(6, 4),
 
-            fontsize=10
+            fontsize=6
         )
 
     # =====================================================
