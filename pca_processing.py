@@ -186,7 +186,7 @@ def run_pca_analysis(df):
 
             textcoords="offset points",
 
-            xytext=(4, 4),
+            xytext=(2, 4),
 
             fontsize=6
         )
