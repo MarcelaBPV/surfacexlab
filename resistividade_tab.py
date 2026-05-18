@@ -85,6 +85,9 @@ def render_resistividade_tab(supabase=None):
             accept_multiple_files=True
         )
 
+        # =================================================
+        # ESPESSURA
+        # =================================================
         thickness_um = st.number_input(
 
             "Espessura da amostra (µm)",
@@ -96,6 +99,9 @@ def render_resistividade_tab(supabase=None):
             step=0.1
         )
 
+        # =================================================
+        # GRUPO
+        # =================================================
         sample_group = st.selectbox(
 
             "Grupo experimental",
@@ -111,6 +117,36 @@ def render_resistividade_tab(supabase=None):
         )
 
         # =================================================
+        # MODO EXPERIMENTAL
+        # =================================================
+        measurement_mode_ui = st.selectbox(
+
+            "Modo experimental",
+
+            [
+
+                "Voltage Sweep (Agilent / SMU)",
+
+                "Current Sweep (4-Point Probe)"
+            ]
+        )
+
+        # =================================================
+        # CONVERSÃO
+        # =================================================
+        if "Voltage" in measurement_mode_ui:
+
+            measurement_mode = (
+                "voltage_sweep"
+            )
+
+        else:
+
+            measurement_mode = (
+                "current_sweep"
+            )
+
+        # =================================================
         # PROCESSAMENTO
         # =================================================
         if st.button("▶ Processar amostras"):
@@ -123,6 +159,9 @@ def render_resistividade_tab(supabase=None):
 
                 return
 
+            # =============================================
+            # LOOP
+            # =============================================
             for file in uploaded_files:
 
                 st.markdown("---")
@@ -143,7 +182,9 @@ def render_resistividade_tab(supabase=None):
                         thickness_m=
                             thickness_um * 1e-6,
 
-                        sample_name=file.name
+                        sample_name=file.name,
+
+                        mode=measurement_mode
                     )
 
                     summary = result["summary"]
@@ -154,7 +195,18 @@ def render_resistividade_tab(supabase=None):
                     st.pyplot(result["figure"])
 
                     # =====================================
-                    # DIAGNÓSTICO AVANÇADO
+                    # MODO
+                    # =====================================
+                    st.info(
+                        f"""
+                        Modo experimental:
+
+                        {summary['Measurement_Mode']}
+                        """
+                    )
+
+                    # =====================================
+                    # DIAGNÓSTICO
                     # =====================================
                     st.subheader(
                         "🧠 Diagnóstico Físico-Químico"
@@ -308,12 +360,12 @@ def render_resistividade_tab(supabase=None):
                     )
 
                     k4.metric(
-                        "dI/dV Std",
-                        f"{summary['dI_dV_std']:.3e}"
+                        "Derivative Std",
+                        f"{summary['derivative_std']:.3e}"
                     )
 
                     # =====================================
-                    # FEATURES COMPLETAS
+                    # FEATURES
                     # =====================================
                     st.subheader(
                         "📈 Features Elétricas"
@@ -352,10 +404,10 @@ def render_resistividade_tab(supabase=None):
                 except Exception as e:
 
                     st.error(
-                        "Erro durante processamento"
+                        "⚠ Falha no processamento"
                     )
 
-                    st.exception(e)
+                    st.warning(str(e))
 
         # =================================================
         # DATASET CONSOLIDADO
@@ -381,7 +433,7 @@ def render_resistividade_tab(supabase=None):
             )
 
             # =============================================
-            # PCA FEATURES
+            # PCA
             # =============================================
             df_pca = df_all.copy()
 
@@ -429,7 +481,7 @@ def render_resistividade_tab(supabase=None):
                 st.rerun()
 
     # =====================================================
-    # SUBABA 2 — PCA
+    # SUBABA PCA
     # =====================================================
     with subtabs[1]:
 
@@ -463,9 +515,9 @@ def render_resistividade_tab(supabase=None):
 
             return
 
-        # =================================================
+        # =============================================
         # PCA
-        # =================================================
+        # =============================================
         X = StandardScaler().fit_transform(
             df_pca.values
         )
@@ -480,9 +532,9 @@ def render_resistividade_tab(supabase=None):
             pca.explained_variance_ratio_ * 100
         )
 
-        # =================================================
+        # =============================================
         # FIGURA PCA
-        # =================================================
+        # =============================================
         fig, ax = plt.subplots(
 
             figsize=(7,7),
@@ -567,9 +619,9 @@ def render_resistividade_tab(supabase=None):
 
         st.pyplot(fig)
 
-        # =================================================
+        # =============================================
         # VARIÂNCIA
-        # =================================================
+        # =============================================
         st.subheader(
             "📈 Variância Explicada"
         )
@@ -588,9 +640,9 @@ def render_resistividade_tab(supabase=None):
             use_container_width=True
         )
 
-        # =================================================
+        # =============================================
         # LOADINGS
-        # =================================================
+        # =============================================
         st.subheader(
             "🧬 Importância das Variáveis"
         )
