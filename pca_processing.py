@@ -1,6 +1,6 @@
 # =========================================================
 # pca_processing.py
-# SurfaceXLab — PCA Científico
+# SurfaceXLab — PCA Científico Publication Grade
 # =========================================================
 
 import pandas as pd
@@ -13,7 +13,7 @@ from sklearn.decomposition import PCA
 
 
 # =========================================================
-# PCA
+# PCA MULTIMODAL
 # =========================================================
 def run_pca_analysis(df):
 
@@ -22,10 +22,14 @@ def run_pca_analysis(df):
     # =====================================================
     sample_col = df.columns[0]
 
-    labels = df[sample_col]
+    labels = df[sample_col].astype(str)
 
     X = df.drop(columns=[sample_col])
 
+    # remove símbolos
+    X = X.replace("°", "", regex=True)
+
+    # converte numérico
     X = X.apply(pd.to_numeric)
 
     # =====================================================
@@ -62,15 +66,17 @@ def run_pca_analysis(df):
     ax.scatter(
         scores[:, 0],
         scores[:, 1],
-        s=90,
-        linewidth=1.2
+        s=110,
+        linewidth=1.2,
+        zorder=3
     )
 
+    # labels amostras
     for i, label in enumerate(labels):
 
         ax.text(
-            scores[i, 0] + 0.04,
-            scores[i, 1] + 0.04,
+            scores[i, 0] + 0.05,
+            scores[i, 1] + 0.05,
             label,
             fontsize=11
         )
@@ -78,7 +84,7 @@ def run_pca_analysis(df):
     # =====================================================
     # LOADINGS
     # =====================================================
-    scale = 2.3
+    scale = 2.4
 
     for i, var in enumerate(X.columns):
 
@@ -87,9 +93,10 @@ def run_pca_analysis(df):
             0,
             loadings[i, 0] * scale,
             loadings[i, 1] * scale,
-            linewidth=1.6,
-            head_width=0.05,
-            length_includes_head=True
+            linewidth=1.8,
+            head_width=0.06,
+            length_includes_head=True,
+            zorder=2
         )
 
         ax.text(
@@ -101,12 +108,21 @@ def run_pca_analysis(df):
         )
 
     # =====================================================
-    # ESTILO PUBLICAÇÃO
+    # EIXOS
     # =====================================================
-    ax.axhline(0, linewidth=0.8)
+    ax.axhline(
+        0,
+        linewidth=0.8
+    )
 
-    ax.axvline(0, linewidth=0.8)
+    ax.axvline(
+        0,
+        linewidth=0.8
+    )
 
+    # =====================================================
+    # LABELS
+    # =====================================================
     ax.set_xlabel(
         f"PC1 ({explained[0]:.1f}%)",
         fontsize=12
@@ -123,6 +139,9 @@ def run_pca_analysis(df):
         pad=15
     )
 
+    # =====================================================
+    # ESTILO PUBLICAÇÃO
+    # =====================================================
     ax.spines["top"].set_visible(False)
 
     ax.spines["right"].set_visible(False)
@@ -134,18 +153,38 @@ def run_pca_analysis(df):
 
     plt.tight_layout()
 
+    # =====================================================
+    # SAVE FIGURE
+    # =====================================================
     fig.savefig(
         "pca_nanotubos.png",
         dpi=600,
         bbox_inches="tight"
     )
 
+    # =====================================================
+    # LOADINGS DF
+    # =====================================================
+    loadings_df = pd.DataFrame({
+
+        "Variável": X.columns,
+
+        "PC1": np.round(loadings[:, 0], 4),
+
+        "PC2": np.round(loadings[:, 1], 4)
+
+    })
+
+    # =====================================================
+    # RETURN
+    # =====================================================
     return {
 
         "fig": fig,
 
         "pc1": explained[0],
 
-        "pc2": explained[1]
+        "pc2": explained[1],
 
+        "loadings": loadings_df
     }
