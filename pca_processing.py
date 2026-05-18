@@ -232,7 +232,7 @@ def run_pca_analysis(df):
 
             xytext=(8, 4),
 
-            fontsize=9
+            fontsize=6
         )
 
     # =====================================================
@@ -259,14 +259,14 @@ def run_pca_analysis(df):
 
         f"PC1 ({explained[0]:.1f}%)",
 
-        fontsize=11
+        fontsize=8
     )
 
     ax.set_ylabel(
 
         f"PC2 ({explained[1]:.1f}%)",
 
-        fontsize=11
+        fontsize=8
     )
 
     # =====================================================
