@@ -3,8 +3,8 @@
 # SurfaceXLab — PCA Científico
 # =========================================================
 
-import numpy as np
 import pandas as pd
+import numpy as np
 
 import matplotlib.pyplot as plt
 
@@ -25,9 +25,6 @@ def run_pca_analysis(df):
     labels = df[sample_col]
 
     X = df.drop(columns=[sample_col])
-
-    # remove °
-    X = X.replace("°", "", regex=True)
 
     X = X.apply(pd.to_numeric)
 
@@ -52,7 +49,7 @@ def run_pca_analysis(df):
     )
 
     # =====================================================
-    # FIGURA PUBLICAÇÃO
+    # FIGURA CIENTÍFICA
     # =====================================================
     fig, ax = plt.subplots(
         figsize=(7, 6),
@@ -69,7 +66,6 @@ def run_pca_analysis(df):
         linewidth=1.2
     )
 
-    # labels
     for i, label in enumerate(labels):
 
         ax.text(
@@ -82,7 +78,7 @@ def run_pca_analysis(df):
     # =====================================================
     # LOADINGS
     # =====================================================
-    scale = 2.2
+    scale = 2.3
 
     for i, var in enumerate(X.columns):
 
@@ -105,17 +101,11 @@ def run_pca_analysis(df):
         )
 
     # =====================================================
-    # ESTILO CIENTÍFICO
+    # ESTILO PUBLICAÇÃO
     # =====================================================
-    ax.axhline(
-        0,
-        linewidth=0.8
-    )
+    ax.axhline(0, linewidth=0.8)
 
-    ax.axvline(
-        0,
-        linewidth=0.8
-    )
+    ax.axvline(0, linewidth=0.8)
 
     ax.set_xlabel(
         f"PC1 ({explained[0]:.1f}%)",
@@ -128,17 +118,15 @@ def run_pca_analysis(df):
     )
 
     ax.set_title(
-        "PCA Multimodal das Amostras Nanoestruturadas",
+        "PCA Multimodal — Nanotubos de Carbono",
         fontsize=13,
         pad=15
     )
 
-    # remove caixa
     ax.spines["top"].set_visible(False)
 
     ax.spines["right"].set_visible(False)
 
-    # grid leve
     ax.grid(
         alpha=0.15,
         linestyle="--"
@@ -146,25 +134,11 @@ def run_pca_analysis(df):
 
     plt.tight_layout()
 
-    # =====================================================
-    # SAVE
-    # =====================================================
     fig.savefig(
-        "pca_publicacao.png",
+        "pca_nanotubos.png",
         dpi=600,
         bbox_inches="tight"
     )
-
-    # =====================================================
-    # LOADINGS DF
-    # =====================================================
-    loadings_df = pd.DataFrame({
-
-        "Variável": X.columns,
-        "PC1": loadings[:, 0],
-        "PC2": loadings[:, 1]
-
-    })
 
     return {
 
@@ -172,7 +146,6 @@ def run_pca_analysis(df):
 
         "pc1": explained[0],
 
-        "pc2": explained[1],
+        "pc2": explained[1]
 
-        "loadings": loadings_df
     }
