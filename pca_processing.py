@@ -1,9 +1,7 @@
 # =========================================================
 # pca_processing.py
-# SurfaceXLab — PCA Científico Publication Grade
-# Compatível com:
-# - Upload Manual
-# - Integração Automática
+# SurfaceXLab — PCA Científico
+# Estilo Origin / Publication Grade
 # =========================================================
 
 import pandas as pd
@@ -55,14 +53,14 @@ def run_pca_analysis(df):
         regex=True
     )
 
-    # remove °
+    # remove símbolo °
     X = X.replace(
         "°",
         "",
         regex=True
     )
 
-    # remove vírgula decimal
+    # troca vírgula decimal
     X = X.replace(
         ",",
         ".",
@@ -139,12 +137,19 @@ def run_pca_analysis(df):
     )
 
     # =====================================================
-    # FIGURA PUBLICATION GRADE
+    # FIGURA CIENTÍFICA — ESTILO ORIGIN
     # =====================================================
     fig, ax = plt.subplots(
-        figsize=(7, 6),
-        dpi=500
+
+        figsize=(6, 6),
+
+        dpi=600
     )
+
+    # fundo branco
+    fig.patch.set_facecolor("white")
+
+    ax.set_facecolor("white")
 
     # =====================================================
     # SCORES
@@ -155,11 +160,9 @@ def run_pca_analysis(df):
 
         scores[:, 1],
 
-        s=120,
+        s=55,
 
-        linewidth=1.3,
-
-        alpha=0.9,
+        linewidth=0.8,
 
         zorder=3
     )
@@ -169,107 +172,136 @@ def run_pca_analysis(df):
     # =====================================================
     for i, label in enumerate(labels):
 
-        ax.text(
-
-            scores[i, 0] + 0.05,
-
-            scores[i, 1] + 0.05,
+        ax.annotate(
 
             label,
 
-            fontsize=11
+            (
+
+                scores[i, 0],
+
+                scores[i, 1]
+
+            ),
+
+            textcoords="offset points",
+
+            xytext=(6, 4),
+
+            fontsize=10
         )
 
     # =====================================================
     # LOADINGS
     # =====================================================
-    scale = 2.4
+    scale = 2.2
 
     for i, var in enumerate(X.columns):
+
+        x = loadings[i, 0] * scale
+
+        y = loadings[i, 1] * scale
 
         ax.arrow(
 
             0,
             0,
 
-            loadings[i, 0] * scale,
+            x,
+            y,
 
-            loadings[i, 1] * scale,
+            linewidth=1.0,
 
-            linewidth=1.8,
-
-            head_width=0.06,
+            head_width=0.045,
 
             length_includes_head=True,
 
             zorder=2
         )
 
-        ax.text(
-
-            loadings[i, 0] * scale * 1.15,
-
-            loadings[i, 1] * scale * 1.15,
+        # =================================================
+        # LABELS DOS VETORES
+        # =================================================
+        ax.annotate(
 
             var,
 
-            fontsize=10,
+            (x, y),
 
-            fontweight="bold"
+            textcoords="offset points",
+
+            xytext=(8, 4),
+
+            fontsize=9
         )
 
     # =====================================================
     # EIXOS
     # =====================================================
     ax.axhline(
+
         0,
+
         linewidth=0.8
     )
 
     ax.axvline(
+
         0,
+
         linewidth=0.8
     )
 
     # =====================================================
-    # LABELS
+    # LABELS EIXOS
     # =====================================================
     ax.set_xlabel(
 
         f"PC1 ({explained[0]:.1f}%)",
 
-        fontsize=12
+        fontsize=11
     )
 
     ax.set_ylabel(
 
         f"PC2 ({explained[1]:.1f}%)",
 
-        fontsize=12
-    )
-
-    ax.set_title(
-
-        "PCA Multimodal",
-
-        fontsize=13,
-
-        pad=15
+        fontsize=11
     )
 
     # =====================================================
-    # ESTILO CIENTÍFICO
+    # ESTILO ORIGIN
     # =====================================================
+
+    # remove topo/direita
     ax.spines["top"].set_visible(False)
 
     ax.spines["right"].set_visible(False)
 
-    ax.grid(
+    # espessura fina
+    ax.spines["left"].set_linewidth(1)
 
-        alpha=0.15,
+    ax.spines["bottom"].set_linewidth(1)
 
-        linestyle="--"
+    # ticks menores
+    ax.tick_params(
+
+        axis='both',
+
+        which='major',
+
+        labelsize=10,
+
+        width=1,
+
+        length=5
     )
+
+    # remove grid
+    ax.grid(False)
+
+    # proporção quadrada
+    ax.set_box_aspect(1)
 
     plt.tight_layout()
 
@@ -278,7 +310,7 @@ def run_pca_analysis(df):
     # =====================================================
     fig.savefig(
 
-        "pca_multimodal.png",
+        "pca_multimodal.tiff",
 
         dpi=600,
 
