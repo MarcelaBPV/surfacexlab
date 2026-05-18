@@ -1,272 +1,431 @@
 # =========================================================
-# pca_processing.py
-# SurfaceXLab — PCA Científico Publication Grade
+# pca_tab.py
+# SurfaceXLab — PCA Multimodal
+# Upload Manual + Integração Automática
 # =========================================================
 
+import streamlit as st
 import pandas as pd
-import numpy as np
 
-import matplotlib.pyplot as plt
-
-from sklearn.preprocessing import StandardScaler
-from sklearn.decomposition import PCA
+from pca_processing import run_pca_analysis
 
 
 # =========================================================
-# PCA MULTIMODAL
+# TAB PCA
 # =========================================================
-def run_pca_analysis(df):
+def render_pca_tab():
+
+    st.header("📊 PCA Multimodal")
+
+    st.markdown("""
+    Integração multimodal de parâmetros
+    espectroscópicos, elétricos,
+    interfaciais e topográficos.
+    """)
 
     # =====================================================
-    # VALIDAÇÃO DAS COLUNAS
+    # MODO
     # =====================================================
-    required_cols = [
+    mode = st.radio(
+
+        "Modo de análise",
+
+        [
+
+            "📂 Upload Manual",
+            "🔗 Integração Automática"
+
+        ],
+
+        horizontal=True
+    )
+
+    st.divider()
+
+    # =====================================================
+    # =====================================================
+    # MODO 1 — UPLOAD MANUAL
+    # =====================================================
+    # =====================================================
+    if mode == "📂 Upload Manual":
+
+        with st.expander(
+            "📋 Exemplo da matriz experimental"
+        ):
+
+            example_df = pd.DataFrame({
+
+                "Amostra": [
+                    "C",
+                    "LD",
+                    "MD",
+                    "HD"
+                ],
+
+                "Rrms": [
+                    0.3,
+                    1.5,
+                    2.4,
+                    1.0
+                ],
+
+                "ID_IG": [
+                    0.44,
+                    0.55,
+                    0.52,
+                    0.60
+                ],
+
+                "I2D_IG": [
+                    0.23,
+                    0.37,
+                    0.61,
+                    0.71
+                ],
+
+                "Theta": [
+                    119,
+                    133,
+                    140,
+                    152
+                ]
+
+            })
+
+            st.dataframe(
+                example_df,
+                use_container_width=True
+            )
+
+        # =================================================
+        # UPLOAD
+        # =================================================
+        uploaded = st.file_uploader(
+
+            "Upload matriz PCA (.csv ou .xlsx)",
+
+            type=[
+                "csv",
+                "xlsx"
+            ]
+        )
+
+        if uploaded is None:
+
+            st.info(
+                "Faça upload da matriz experimental"
+            )
+
+            return
+
+        # =================================================
+        # LEITURA
+        # =================================================
+        try:
+
+            if uploaded.name.endswith(".csv"):
+
+                df = pd.read_csv(uploaded)
+
+            else:
+
+                df = pd.read_excel(uploaded)
+
+            st.subheader(
+                "📋 Matriz Experimental"
+            )
+
+            st.dataframe(
+                df,
+                use_container_width=True
+            )
+
+            st.session_state[
+                "pca_samples"
+            ] = df
+
+        except Exception as e:
+
+            st.error(
+                "Erro na leitura do arquivo"
+            )
+
+            st.exception(e)
+
+            return
+
+        # =================================================
+        # PCA
+        # =================================================
+        run_pca(df)
+
+    # =====================================================
+    # =====================================================
+    # MODO 2 — INTEGRAÇÃO AUTOMÁTICA
+    # =====================================================
+    # =====================================================
+    else:
+
+        st.subheader(
+            "🔗 Integração automática dos módulos"
+        )
+
+        # =================================================
+        # CHECKBOXES
+        # =================================================
+        use_raman = st.checkbox(
+            "🧬 Raman",
+            value=True
+        )
+
+        use_electrical = st.checkbox(
+            "⚡ Resistividade",
+            value=True
+        )
+
+        use_tensiometry = st.checkbox(
+            "💧 Tensiometria",
+            value=True
+        )
+
+        use_profilometry = st.checkbox(
+            "📏 Perfilometria",
+            value=True
+        )
+
+        # =================================================
+        # GERAR MATRIZ
+        # =================================================
+        if st.button(
+            "📊 Gerar PCA Multimodal"
+        ):
+
+            try:
+
+                integrated_df = build_multimodal_dataframe(
+
+                    use_raman,
+                    use_electrical,
+                    use_tensiometry,
+                    use_profilometry
+
+                )
+
+                if integrated_df.empty:
+
+                    st.warning(
+                        "Nenhum dado disponível."
+                    )
+
+                    return
+
+                st.subheader(
+                    "📋 Matriz Integrada"
+                )
+
+                st.dataframe(
+                    integrated_df,
+                    use_container_width=True
+                )
+
+                st.session_state[
+                    "pca_samples"
+                ] = integrated_df
+
+                # =========================================
+                # PCA
+                # =========================================
+                run_pca(
+                    integrated_df
+                )
+
+            except Exception as e:
+
+                st.error(
+                    "Erro na integração multimodal"
+                )
+
+                st.exception(e)
+
+
+# =========================================================
+# EXECUTA PCA
+# =========================================================
+def run_pca(df):
+
+    try:
+
+        result = run_pca_analysis(df)
+
+        st.divider()
+
+        st.subheader(
+            "📈 PCA Scores + Loadings"
+        )
+
+        st.pyplot(
+            result["fig"]
+        )
+
+        # =================================================
+        # VARIÂNCIA
+        # =================================================
+        col1, col2 = st.columns(2)
+
+        col1.metric(
+
+            "PC1",
+
+            f'{result["pc1"]:.1f}%'
+        )
+
+        col2.metric(
+
+            "PC2",
+
+            f'{result["pc2"]:.1f}%'
+        )
+
+        # =================================================
+        # LOADINGS
+        # =================================================
+        st.subheader(
+            "📌 Loadings"
+        )
+
+        st.dataframe(
+
+            result["loadings"],
+
+            use_container_width=True
+        )
+
+        # =================================================
+        # DOWNLOAD FIGURA
+        # =================================================
+        with open(
+            "pca_nanotubos.png",
+            "rb"
+        ) as f:
+
+            st.download_button(
+
+                "📥 Download Figura PCA",
+
+                f,
+
+                file_name="PCA_multimodal.png"
+            )
+
+    except Exception as e:
+
+        st.error(
+            "Erro no processamento PCA"
+        )
+
+        st.exception(e)
+
+
+# =========================================================
+# INTEGRAÇÃO AUTOMÁTICA
+# =========================================================
+def build_multimodal_dataframe(
+
+    use_raman,
+    use_electrical,
+    use_tensiometry,
+    use_profilometry
+
+):
+
+    data = {}
+
+    # =====================================================
+    # RAMAN
+    # =====================================================
+    if use_raman:
+
+        raman_df = st.session_state.get(
+            "raman_samples"
+        )
+
+        if isinstance(raman_df, pd.DataFrame):
+
+            if "ID/IG" in raman_df.columns:
+
+                data["ID_IG"] = raman_df[
+                    "ID/IG"
+                ]
+
+    # =====================================================
+    # ELÉTRICO
+    # =====================================================
+    if use_electrical:
+
+        elec_df = st.session_state.get(
+            "electrical_samples"
+        )
+
+        if isinstance(elec_df, pd.DataFrame):
+
+            if "Resistividade" in elec_df.columns:
+
+                data["Resistividade"] = elec_df[
+                    "Resistividade"
+                ]
+
+    # =====================================================
+    # TENSIOMETRIA
+    # =====================================================
+    if use_tensiometry:
+
+        tens_df = st.session_state.get(
+            "tensiometria_samples"
+        )
+
+        if isinstance(tens_df, pd.DataFrame):
+
+            if "Theta final (°)" in tens_df.columns:
+
+                data["Theta"] = tens_df[
+                    "Theta final (°)"
+                ]
+
+    # =====================================================
+    # PERFILOMETRIA
+    # =====================================================
+    if use_profilometry:
+
+        prof_df = st.session_state.get(
+            "perfilometria_samples"
+        )
+
+        if isinstance(prof_df, pd.DataFrame):
+
+            if "Rq" in prof_df.columns:
+
+                data["Rrms"] = prof_df[
+                    "Rq"
+                ]
+
+    # =====================================================
+    # DATAFRAME FINAL
+    # =====================================================
+    integrated_df = pd.DataFrame(data)
+
+    integrated_df.insert(
+
+        0,
 
         "Amostra",
-        "Rrms",
-        "ID_IG",
-        "I2D_IG",
-        "Theta"
 
-    ]
+        [
 
-    missing = [
-
-        c for c in required_cols
-        if c not in df.columns
-
-    ]
-
-    if missing:
-
-        raise ValueError(
-            f"Colunas ausentes: {missing}"
-        )
-
-    # =====================================================
-    # PREPARAÇÃO
-    # =====================================================
-    labels = df["Amostra"].astype(str)
-
-    X = df[[
-        "Rrms",
-        "ID_IG",
-        "I2D_IG",
-        "Theta"
-    ]].copy()
-
-    # =====================================================
-    # LIMPEZA DOS DADOS
-    # =====================================================
-
-    # remove espaços vazios
-    X = X.replace(
-        r'^\s*$',
-        np.nan,
-        regex=True
+            f"S{i+1}"
+            for i in range(
+                len(integrated_df)
+            )
+        ]
     )
 
-    # remove símbolo °
-    X = X.replace(
-        "°",
-        "",
-        regex=True
-    )
-
-    # converte numérico
-    X = X.apply(
-        pd.to_numeric,
-        errors="coerce"
-    )
-
-    # remove linhas totalmente vazias
-    X = X.dropna(
-        how="all"
-    )
-
-    # garante alinhamento labels
-    labels = labels.loc[X.index]
-
-    # substitui NaN restantes
-    X = X.fillna(0)
-
-    # =====================================================
-    # VALIDAÇÃO FINAL
-    # =====================================================
-    if len(X) < 2:
-
-        raise ValueError(
-            "Número insuficiente de amostras válidas."
-        )
-
-    # =====================================================
-    # NORMALIZAÇÃO
-    # =====================================================
-    scaler = StandardScaler()
-
-    X_scaled = scaler.fit_transform(X)
-
-    # =====================================================
-    # PCA
-    # =====================================================
-    pca = PCA(
-        n_components=2
-    )
-
-    scores = pca.fit_transform(
-        X_scaled
-    )
-
-    loadings = pca.components_.T
-
-    explained = (
-        pca.explained_variance_ratio_ * 100
-    )
-
-    # =====================================================
-    # FIGURA CIENTÍFICA
-    # =====================================================
-    fig, ax = plt.subplots(
-        figsize=(7, 6),
-        dpi=500
-    )
-
-    # =====================================================
-    # SCORES
-    # =====================================================
-    ax.scatter(
-        scores[:, 0],
-        scores[:, 1],
-        s=120,
-        linewidth=1.2,
-        alpha=0.9,
-        zorder=3
-    )
-
-    # labels amostras
-    for i, label in enumerate(labels):
-
-        ax.text(
-            scores[i, 0] + 0.05,
-            scores[i, 1] + 0.05,
-            label,
-            fontsize=11
-        )
-
-    # =====================================================
-    # LOADINGS
-    # =====================================================
-    scale = 2.4
-
-    for i, var in enumerate(X.columns):
-
-        ax.arrow(
-            0,
-            0,
-            loadings[i, 0] * scale,
-            loadings[i, 1] * scale,
-            linewidth=1.8,
-            head_width=0.06,
-            length_includes_head=True,
-            zorder=2
-        )
-
-        ax.text(
-            loadings[i, 0] * scale * 1.15,
-            loadings[i, 1] * scale * 1.15,
-            var,
-            fontsize=10,
-            fontweight="bold"
-        )
-
-    # =====================================================
-    # EIXOS
-    # =====================================================
-    ax.axhline(
-        0,
-        linewidth=0.8
-    )
-
-    ax.axvline(
-        0,
-        linewidth=0.8
-    )
-
-    # =====================================================
-    # LABELS
-    # =====================================================
-    ax.set_xlabel(
-        f"PC1 ({explained[0]:.1f}%)",
-        fontsize=12
-    )
-
-    ax.set_ylabel(
-        f"PC2 ({explained[1]:.1f}%)",
-        fontsize=12
-    )
-
-    ax.set_title(
-        "PCA Multimodal — Nanotubos de Carbono",
-        fontsize=13,
-        pad=15
-    )
-
-    # =====================================================
-    # ESTILO PUBLICAÇÃO
-    # =====================================================
-    ax.spines["top"].set_visible(False)
-
-    ax.spines["right"].set_visible(False)
-
-    ax.grid(
-        alpha=0.15,
-        linestyle="--"
-    )
-
-    plt.tight_layout()
-
-    # =====================================================
-    # SAVE FIGURE
-    # =====================================================
-    fig.savefig(
-        "pca_nanotubos.png",
-        dpi=600,
-        bbox_inches="tight"
-    )
-
-    # =====================================================
-    # LOADINGS DATAFRAME
-    # =====================================================
-    loadings_df = pd.DataFrame({
-
-        "Variável": X.columns,
-
-        "PC1": np.round(
-            loadings[:, 0],
-            4
-        ),
-
-        "PC2": np.round(
-            loadings[:, 1],
-            4
-        )
-
-    })
-
-    # =====================================================
-    # RETURN
-    # =====================================================
-    return {
-
-        "fig": fig,
-
-        "pc1": explained[0],
-
-        "pc2": explained[1],
-
-        "loadings": loadings_df,
-
-        "scores": scores,
-
-        "explained_variance": explained
-    }
+    return integrated_df
