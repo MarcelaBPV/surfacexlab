@@ -1,6 +1,6 @@
 # =========================================================
 # resistividade_tab.py
-# SurfaceXLab — Electrical Module (Advanced)
+# SurfaceXLab — Electrical Module FINAL
 # =========================================================
 
 import streamlit as st
@@ -20,19 +20,19 @@ from resistividade_processing import (
     build_alkaline_group_plot
 )
 
-
 # =========================================================
 # TAB PRINCIPAL
 # =========================================================
 def render_resistividade_tab(supabase=None):
 
-    st.header("⚡ Caracterização Elétrica Superficial")
+    st.header(
+        "⚡ Caracterização Elétrica Superficial"
+    )
 
     st.markdown("""
-    Plataforma científica para caracterização elétrica
-    interfacial aplicada à engenharia de superfícies,
-    análise de oxidação, filmes funcionais e previsão
-    de compatibilidade para revestimentos.
+    Plataforma científica para caracterização
+    elétrica interfacial aplicada à engenharia
+    de superfícies e integração multimodal.
     """)
 
     # =====================================================
@@ -40,11 +40,15 @@ def render_resistividade_tab(supabase=None):
     # =====================================================
     if "electrical_samples" not in st.session_state:
 
-        st.session_state.electrical_samples = {}
+        st.session_state[
+            "electrical_samples"
+        ] = {}
 
     if "electrical_features" not in st.session_state:
 
-        st.session_state.electrical_features = None
+        st.session_state[
+            "electrical_features"
+        ] = None
 
     # =====================================================
     # SUBTABS
@@ -65,14 +69,21 @@ def render_resistividade_tab(supabase=None):
             "📐 Upload e Processamento"
         )
 
+        # =================================================
+        # UPLOAD
+        # =================================================
         uploaded_files = st.file_uploader(
 
             "Upload arquivos elétricos",
 
             type=[
+
                 "csv",
+
                 "txt",
+
                 "xlsx",
+
                 "xls"
             ],
 
@@ -102,7 +113,7 @@ def render_resistividade_tab(supabase=None):
 
             [
 
-                "Voltage Sweep (Agilent / SMU)",
+                "Voltage Sweep (SMU)",
 
                 "Current Sweep (4-Point Probe)"
             ]
@@ -137,7 +148,7 @@ def render_resistividade_tab(supabase=None):
                 return
 
             # =============================================
-            # DICIONÁRIO PROCESSADO
+            # DICIONÁRIO
             # =============================================
             processed = {}
 
@@ -155,7 +166,7 @@ def render_resistividade_tab(supabase=None):
                 try:
 
                     # =====================================
-                    # PROCESSAMENTO
+                    # PROCESSA
                     # =====================================
                     result = process_resistivity(
 
@@ -187,26 +198,41 @@ def render_resistividade_tab(supabase=None):
                         "📊 Propriedades Elétricas"
                     )
 
-                    m1, m2, m3, m4 = st.columns(4)
+                    c1, c2, c3, c4, c5 = st.columns(5)
 
-                    m1.metric(
+                    c1.metric(
+
                         "ρ (Ω·m)",
+
                         f"{summary['Resistivity_Ohm_m']:.2e}"
                     )
 
-                    m2.metric(
+                    c2.metric(
+
                         "σ (S/m)",
+
                         f"{summary['Conductivity_S_m']:.2e}"
                     )
 
-                    m3.metric(
+                    c3.metric(
+
                         "R (Ω)",
+
                         f"{summary['Resistance_Ohm']:.2e}"
                     )
 
-                    m4.metric(
+                    c4.metric(
+
                         "R²",
+
                         f"{summary['R_squared']:.4f}"
+                    )
+
+                    c5.metric(
+
+                        "Histerese",
+
+                        f"{summary['Hysteresis']:.2e}"
                     )
 
                     # =====================================
@@ -217,7 +243,9 @@ def render_resistividade_tab(supabase=None):
                     )
 
                     st.dataframe(
+
                         feature_df,
+
                         use_container_width=True
                     )
 
@@ -243,11 +271,19 @@ def render_resistividade_tab(supabase=None):
                     st.warning(str(e))
 
             # =============================================
-            # FIGURA 28
+            # FIGURA 28 — ÁCIDO
             # =============================================
             acid_exists = any(
 
-                k.upper().startswith("A")
+                (
+
+                    k.upper().startswith("A")
+
+                    and
+
+                    "_D" in k.upper()
+
+                )
 
                 for k in processed.keys()
             )
@@ -270,20 +306,29 @@ def render_resistividade_tab(supabase=None):
                     """
                     Figura 28 – Curvas I×V das amostras
                     de FC200 submetidas ao tratamento
-                    ácido em diferentes tempos de exposição,
-                    evidenciando a evolução progressiva
-                    da resposta elétrica superficial e o
-                    aumento da resistividade associado
-                    aos processos de passivação interfacial.
+                    ácido em diferentes tempos de
+                    exposição, evidenciando alterações
+                    progressivas da resposta elétrica
+                    superficial associadas aos processos
+                    de reorganização interfacial e
+                    passivação química.
                     """
                 )
 
             # =============================================
-            # FIGURA 29
+            # FIGURA 29 — ALCALINO
             # =============================================
             alkaline_exists = any(
 
-                k.upper().startswith("B")
+                (
+
+                    k.upper().startswith("B")
+
+                    and
+
+                    "_D" in k.upper()
+
+                )
 
                 for k in processed.keys()
             )
@@ -307,10 +352,10 @@ def render_resistividade_tab(supabase=None):
                     Figura 29 – Curvas I×V das amostras
                     de FC200 submetidas ao tratamento
                     alcalino em diferentes tempos de
-                    exposição, evidenciando comportamento
-                    elétrico mais homogêneo e menor
-                    variação da resposta interfacial
-                    em comparação ao grupo tratado
+                    exposição, mostrando comportamento
+                    elétrico mais estável e menor
+                    variabilidade interfacial em
+                    comparação ao grupo tratado
                     em meio ácido.
                     """
                 )
@@ -334,7 +379,9 @@ def render_resistividade_tab(supabase=None):
             )
 
             st.dataframe(
+
                 df_all,
+
                 use_container_width=True
             )
 
@@ -354,7 +401,7 @@ def render_resistividade_tab(supabase=None):
             ] = df_pca
 
             # =============================================
-            # EXPORT
+            # EXPORTA
             # =============================================
             csv = df_all.to_csv(index=False)
 
@@ -364,7 +411,8 @@ def render_resistividade_tab(supabase=None):
 
                 data=csv,
 
-                file_name="electrical_dataset.csv",
+                file_name=
+                    "electrical_dataset.csv",
 
                 mime="text/csv"
             )
@@ -396,6 +444,7 @@ def render_resistividade_tab(supabase=None):
         )
 
         if (
+
             st.session_state[
                 "electrical_features"
             ] is None
@@ -407,7 +456,11 @@ def render_resistividade_tab(supabase=None):
 
             return
 
+        # =================================================
+        # DATASET
+        # =================================================
         df_pca = (
+
             st.session_state[
                 "electrical_features"
             ].copy()
@@ -421,9 +474,9 @@ def render_resistividade_tab(supabase=None):
 
             return
 
-        # =============================================
+        # =================================================
         # PCA
-        # =============================================
+        # =================================================
         X = StandardScaler().fit_transform(
             df_pca.values
         )
@@ -435,31 +488,38 @@ def render_resistividade_tab(supabase=None):
         loadings = pca.components_.T
 
         explained = (
-            pca.explained_variance_ratio_ * 100
+
+            pca.explained_variance_ratio_
+
+            * 100
         )
 
-        # =============================================
+        # =================================================
         # FIGURA PCA
-        # =============================================
+        # =================================================
         fig, ax = plt.subplots(
 
-            figsize=(7,7),
+            figsize=(7,6),
 
-            dpi=300
+            dpi=600
         )
 
+        # =================================================
+        # SCATTER
+        # =================================================
         ax.scatter(
 
             scores[:,0],
 
             scores[:,1],
 
-            s=120,
+            s=60,
 
-            edgecolor="black"
+            edgecolor='black'
         )
 
         labels = list(
+
             st.session_state[
                 "electrical_samples"
             ].keys()
@@ -469,17 +529,23 @@ def render_resistividade_tab(supabase=None):
 
             ax.text(
 
-                scores[i,0],
+                scores[i,0] + 0.03,
 
-                scores[i,1],
+                scores[i,1] + 0.03,
 
                 label,
 
-                fontsize=9
+                fontsize=10
             )
 
+        # =================================================
+        # LOADINGS
+        # =================================================
         scale = (
-            np.max(np.abs(scores)) * 0.7
+
+            np.max(np.abs(scores))
+
+            * 0.7
         )
 
         for i, feature in enumerate(df_pca.columns):
@@ -493,41 +559,75 @@ def render_resistividade_tab(supabase=None):
 
                 loadings[i,1] * scale,
 
-                head_width=0.05
+                head_width=0.04,
+
+                linewidth=1.2
             )
 
             ax.text(
 
-                loadings[i,0] * scale * 1.1,
+                loadings[i,0] * scale * 1.05,
 
-                loadings[i,1] * scale * 1.1,
+                loadings[i,1] * scale * 1.05,
 
                 feature,
 
-                fontsize=8
+                fontsize=9
             )
 
+        # =================================================
+        # EIXOS
+        # =================================================
+        ax.axhline(
+
+            y=0,
+
+            linewidth=0.8
+        )
+
+        ax.axvline(
+
+            x=0,
+
+            linewidth=0.8
+        )
+
+        # =================================================
+        # REMOVE GRID
+        # =================================================
+        ax.grid(False)
+
+        # =================================================
+        # REMOVE BORDAS
+        # =================================================
+        ax.spines['top'].set_visible(False)
+
+        ax.spines['right'].set_visible(False)
+
+        # =================================================
+        # LABELS
+        # =================================================
         ax.set_xlabel(
-            f"PC1 ({explained[0]:.1f}%)"
+
+            f"PC1 [{explained[0]:.1f}%]",
+
+            fontsize=12
         )
 
         ax.set_ylabel(
-            f"PC2 ({explained[1]:.1f}%)"
-        )
 
-        ax.set_title(
-            "PCA — Propriedades Elétricas"
-        )
+            f"PC2 [{explained[1]:.1f}%]",
 
-        ax.grid(alpha=0.3)
+            fontsize=12
+        )
 
         plt.tight_layout()
 
         st.pyplot(fig)
 
-        # =============================================
+        # =================================================
         # VARIÂNCIA
-        # =============================================
+        # =================================================
         st.subheader(
             "📈 Variância Explicada"
         )
@@ -542,13 +642,15 @@ def render_resistividade_tab(supabase=None):
         })
 
         st.dataframe(
+
             explained_df,
+
             use_container_width=True
         )
 
-        # =============================================
+        # =================================================
         # LOADINGS
-        # =============================================
+        # =================================================
         st.subheader(
             "🧬 Importância das Variáveis"
         )
@@ -563,6 +665,8 @@ def render_resistividade_tab(supabase=None):
         )
 
         st.dataframe(
+
             loading_df,
+
             use_container_width=True
         )
