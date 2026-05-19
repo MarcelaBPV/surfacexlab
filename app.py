@@ -44,7 +44,7 @@ st.set_page_config(
 
     page_title=APP_NAME,
 
-    page_icon="🔬",
+    page_icon="",
 
     layout="wide",
 
@@ -170,7 +170,7 @@ def get_total_module(module_key):
 # =========================================================
 # HEADER
 # =========================================================
-st.title("🔬 SurfaceXLab")
+st.title("*SurfaceXLab*")
 
 st.caption(
     "Plataforma integrada para caracterização "
@@ -184,7 +184,7 @@ st.divider()
 # =========================================================
 with st.sidebar:
 
-    st.header("🧪 Gerenciamento de Amostras")
+    st.header(" *Gerenciamento de Amostras")
 
     sample_id = st.text_input(
         "ID da Amostra"
@@ -240,7 +240,7 @@ with st.sidebar:
 # =========================================================
 # DASHBOARD
 # =========================================================
-st.subheader("📊 Visão Geral")
+st.subheader("*Visão Geral")
 
 col1, col2, col3, col4, col5, col6 = st.columns(6)
 
@@ -301,17 +301,17 @@ st.divider()
 # =========================================================
 tabs = st.tabs([
 
-    "🧬 Raman",
+    "1 Raman",
 
-    "⚡ Resistividade",
+    "2 Resistividade",
 
-    "💧 Tensiometria",
+    "3 Tensiometria",
 
-    "📏 Perfilometria",
+    "4 Perfilometria",
 
-    "🧠 Integração Multimodal",
+    "5 Integração Multimodal",
 
-    "🧪 Spectral Deconvolution"
+    "6 Spectral Deconvolution"
 ])
 
 # =========================================================
