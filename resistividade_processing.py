@@ -1,11 +1,6 @@
 # =========================================================
 # resistividade_processing.py
 # SurfaceXLab — Electrical Physics Pipeline
-# Compatível:
-# - Agilent / Keysight SMU
-# - Sweep de tensão
-# - Sweep de corrente
-# - Método 4 pontas
 # =========================================================
 
 import numpy as np
@@ -28,9 +23,6 @@ from resistividade_database import (
 # =========================================================
 def read_iv_file(file_like):
 
-    # =====================================================
-    # CSV
-    # =====================================================
     df = pd.read_csv(
 
         file_like,
@@ -40,9 +32,6 @@ def read_iv_file(file_like):
         engine="python"
     )
 
-    # =====================================================
-    # NORMALIZA COLUNAS
-    # =====================================================
     df.columns = [
 
         c.strip().lower()
@@ -50,13 +39,8 @@ def read_iv_file(file_like):
         for c in df.columns
     ]
 
-    # =====================================================
-    # DETECÇÃO AUTOMÁTICA
-    # =====================================================
     voltage_col = None
-
     current_col = None
-
     resistance_col = None
 
     for col in df.columns:
@@ -73,9 +57,6 @@ def read_iv_file(file_like):
 
             resistance_col = col
 
-    # =====================================================
-    # VALIDAÇÃO
-    # =====================================================
     if voltage_col is None:
 
         raise ValueError(
@@ -88,9 +69,6 @@ def read_iv_file(file_like):
             "Coluna de corrente não encontrada."
         )
 
-    # =====================================================
-    # SELEÇÃO
-    # =====================================================
     selected_cols = [
 
         current_col,
@@ -106,9 +84,6 @@ def read_iv_file(file_like):
 
     df = df[selected_cols]
 
-    # =====================================================
-    # RENOMEIA
-    # =====================================================
     rename_dict = {
 
         current_col: "I",
@@ -126,9 +101,6 @@ def read_iv_file(file_like):
         columns=rename_dict
     )
 
-    # =====================================================
-    # CONVERSÃO CIENTÍFICA
-    # =====================================================
     numeric_cols = ["I", "V"]
 
     if "R_inst" in df.columns:
@@ -147,12 +119,6 @@ def read_iv_file(file_like):
 
             .str.strip()
 
-            .str.replace(
-                r'(?<=\d)\s+(?=\d)',
-                '.',
-                regex=True
-            )
-
             .str.replace(",", ".")
         )
 
@@ -163,23 +129,10 @@ def read_iv_file(file_like):
             errors="coerce"
         )
 
-    # =====================================================
-    # REMOVE NAN/INF
-    # =====================================================
     df = df.dropna()
 
     df = df[np.isfinite(df["I"])]
-
     df = df[np.isfinite(df["V"])]
-
-    # =====================================================
-    # VALIDAÇÃO
-    # =====================================================
-    if len(df) < 5:
-
-        raise ValueError(
-            "Poucos pontos experimentais."
-        )
 
     return df
 
@@ -196,11 +149,6 @@ def preprocess_iv_data(
 
     df = df.copy()
 
-    df = df.drop_duplicates()
-
-    # =====================================================
-    # ORDENA
-    # =====================================================
     if mode == "voltage_sweep":
 
         df = df.sort_values("V")
@@ -209,9 +157,6 @@ def preprocess_iv_data(
 
         df = df.sort_values("I")
 
-    # =====================================================
-    # SUAVIZAÇÃO
-    # =====================================================
     if len(df) > 11:
 
         if mode == "voltage_sweep":
@@ -246,7 +191,7 @@ def preprocess_iv_data(
 
 
 # =========================================================
-# REGIÃO ÔHMICA
+# REGIÃO LINEAR
 # =========================================================
 def detect_linear_region(
 
@@ -267,42 +212,18 @@ def detect_linear_region(
 
         Y = df["V_smooth"].values
 
-    # =====================================================
-    # LIMPEZA
-    # =====================================================
-    mask = (
-        np.isfinite(X) &
-        np.isfinite(Y)
-    )
-
-    X = X[mask]
-
-    Y = Y[mask]
-
-    # =====================================================
-    # REGIÃO CENTRAL
-    # =====================================================
     lower = np.percentile(X, 20)
 
     upper = np.percentile(X, 80)
 
     mask_lin = (
+
         (X >= lower) &
+
         (X <= upper)
     )
 
-    X_lin = X[mask_lin]
-
-    Y_lin = Y[mask_lin]
-
-    # =====================================================
-    # FALLBACK
-    # =====================================================
-    if len(np.unique(X_lin)) < 2:
-
-        return X, Y
-
-    return X_lin, Y_lin
+    return X[mask_lin], Y[mask_lin]
 
 
 # =========================================================
@@ -315,42 +236,18 @@ def robust_linear_fit(
     Y
 ):
 
-    mask = (
-        np.isfinite(X) &
-        np.isfinite(Y)
-    )
-
-    X = X[mask]
-
-    Y = Y[mask]
-
-    if len(X) < 2:
-
-        raise ValueError(
-            "Poucos pontos experimentais."
-        )
-
-    if np.std(X) == 0:
-
-        raise ValueError(
-            "Sweep inválido."
-        )
-
-    # =====================================================
-    # REGRESSÃO
-    # =====================================================
     result = linregress(X, Y)
 
     slope = result.slope
 
     intercept = result.intercept
 
-    r_value = result.rvalue
-
-    R2 = r_value ** 2
+    R2 = result.rvalue ** 2
 
     Y_fit = (
+
         slope * X +
+
         intercept
     )
 
@@ -377,232 +274,22 @@ def calculate_resistivity_4p(
 ):
 
     correction_factor = (
+
         np.pi / np.log(2)
     )
 
-    rho = (
+    return (
+
         correction_factor *
+
         resistance *
+
         thickness
     )
 
-    return rho
-
 
 # =========================================================
-# FEATURES
-# =========================================================
-def extract_surface_features(
-
-    df,
-
-    mode="voltage_sweep"
-):
-
-    # =====================================================
-    # VOLTAGE SWEEP
-    # =====================================================
-    if mode == "voltage_sweep":
-
-        X = df["V"].values
-
-        Y = df["I_smooth"].values
-
-        dY_dX = np.gradient(Y, X)
-
-        d2Y_dX2 = np.gradient(
-            dY_dX,
-            X
-        )
-
-    # =====================================================
-    # CURRENT SWEEP
-    # =====================================================
-    else:
-
-        X = df["I"].values
-
-        Y = df["V_smooth"].values
-
-        dY_dX = np.gradient(Y, X)
-
-        d2Y_dX2 = np.gradient(
-            dY_dX,
-            X
-        )
-
-    # =====================================================
-    # NÃO LINEARIDADE
-    # =====================================================
-    denominator = np.mean(
-        np.abs(dY_dX)
-    )
-
-    if denominator == 0:
-
-        nonlinearity = 0
-
-    else:
-
-        nonlinearity = (
-            np.std(dY_dX) /
-            denominator
-        )
-
-    # =====================================================
-    # FEATURES
-    # =====================================================
-    features = {
-
-        "signal_max":
-            np.max(Y),
-
-        "signal_min":
-            np.min(Y),
-
-        "signal_mean":
-            np.mean(Y),
-
-        "signal_std":
-            np.std(Y),
-
-        "derivative_mean":
-            np.mean(dY_dX),
-
-        "derivative_std":
-            np.std(dY_dX),
-
-        "second_derivative_mean":
-            np.mean(d2Y_dX2),
-
-        "second_derivative_std":
-            np.std(d2Y_dX2),
-
-        "nonlinearity_index":
-            nonlinearity
-    }
-
-    return features
-
-
-# =========================================================
-# PLOT
-# =========================================================
-def generate_publication_plot(
-
-    df,
-
-    X_fit,
-
-    Y_fit,
-
-    R2,
-
-    sample_name,
-
-    mode="voltage_sweep"
-):
-
-    fig, ax = plt.subplots(
-
-        figsize=(6,4),
-
-        dpi=300
-    )
-
-    # =====================================================
-    # VOLTAGE SWEEP
-    # =====================================================
-    if mode == "voltage_sweep":
-
-        ax.scatter(
-
-            df["V"],
-
-            df["I"],
-
-            s=18,
-
-            alpha=0.8,
-
-            label="Experimental"
-        )
-
-        ax.plot(
-
-            X_fit,
-
-            Y_fit,
-
-            linewidth=2,
-
-            label=f"Linear Fit (R²={R2:.4f})"
-        )
-
-        ax.set_xlabel("Voltage (V)")
-
-        ax.set_ylabel("Current (A)")
-
-    # =====================================================
-    # CURRENT SWEEP
-    # =====================================================
-    else:
-
-        ax.scatter(
-
-            df["I"],
-
-            df["V"],
-
-            s=18,
-
-            alpha=0.8,
-
-            label="Experimental"
-        )
-
-        ax.plot(
-
-            X_fit,
-
-            Y_fit,
-
-            linewidth=2,
-
-            label=f"Linear Fit (R²={R2:.4f})"
-        )
-
-        ax.set_xlabel("Current (A)")
-
-        ax.set_ylabel("Voltage (V)")
-
-    # =====================================================
-    # FORMAT
-    # =====================================================
-    ax.ticklabel_format(
-
-        style='sci',
-
-        axis='both',
-
-        scilimits=(0,0)
-    )
-
-    ax.set_title(
-        f"{sample_name}"
-    )
-
-    ax.grid(alpha=0.25)
-
-    ax.legend(frameon=False)
-
-    plt.tight_layout()
-
-    return fig
-
-
-# =========================================================
-# PIPELINE PRINCIPAL
+# PROCESSAMENTO PRINCIPAL
 # =========================================================
 def process_resistivity(
 
@@ -615,14 +302,8 @@ def process_resistivity(
     mode="voltage_sweep"
 ):
 
-    # =====================================================
-    # LEITURA
-    # =====================================================
     df = read_iv_file(file_like)
 
-    # =====================================================
-    # PRÉ PROCESSAMENTO
-    # =====================================================
     df = preprocess_iv_data(
 
         df,
@@ -630,9 +311,6 @@ def process_resistivity(
         mode=mode
     )
 
-    # =====================================================
-    # REGIÃO LINEAR
-    # =====================================================
     X_lin, Y_lin = detect_linear_region(
 
         df,
@@ -640,41 +318,21 @@ def process_resistivity(
         mode=mode
     )
 
-    # =====================================================
-    # AJUSTE
-    # =====================================================
-    (
-        slope,
-        intercept,
-        R2,
-        Y_fit
-    ) = robust_linear_fit(
+    slope, intercept, R2, Y_fit = robust_linear_fit(
 
         X_lin,
 
         Y_lin
     )
 
-    # =====================================================
-    # RESISTÊNCIA
-    # =====================================================
     if mode == "voltage_sweep":
 
-        # I = V/R
-        resistance = (
-            1 / slope
-            if slope != 0
-            else np.nan
-        )
+        resistance = 1 / slope
 
     else:
 
-        # V = RI
         resistance = slope
 
-    # =====================================================
-    # RESISTIVIDADE
-    # =====================================================
     rho = calculate_resistivity_4p(
 
         resistance,
@@ -682,181 +340,190 @@ def process_resistivity(
         thickness_m
     )
 
-    # =====================================================
-    # CONDUTIVIDADE
-    # =====================================================
-    sigma = (
+    sigma = 1 / rho
 
-        1 / rho
-
-        if rho > 0
-
-        else np.nan
-    )
-
-    # =====================================================
-    # RESISTÊNCIA DE FOLHA
-    # =====================================================
-    sheet_resistance = (
-        rho / thickness_m
-    )
-
-    # =====================================================
-    # FEATURES
-    # =====================================================
-    features = extract_surface_features(
-
-        df,
-
-        mode=mode
-    )
-
-    # =====================================================
-    # ASSIMETRIA
-    # =====================================================
-    if mode == "voltage_sweep":
-
-        positive_signal = np.mean(
-            df[df["V"] > 0]["I_smooth"]
-        )
-
-        negative_signal = np.mean(
-            np.abs(
-                df[df["V"] < 0]["I_smooth"]
-            )
-        )
-
-    else:
-
-        positive_signal = np.mean(
-            df[df["I"] > 0]["V_smooth"]
-        )
-
-        negative_signal = np.mean(
-            np.abs(
-                df[df["I"] < 0]["V_smooth"]
-            )
-        )
-
-    if negative_signal == 0:
-
-        asymmetry_index = 1
-
-    else:
-
-        asymmetry_index = (
-            positive_signal /
-            negative_signal
-        )
-
-    # =====================================================
-    # CLASSIFICAÇÃO
-    # =====================================================
-    classification = classify_resistivity(
-
-        resistivity=rho,
-
-        r_squared=R2,
-
-        slope=slope
-    )
-
-    # =====================================================
-    # FÍSICA SUPERFICIAL
-    # =====================================================
-    surface_physics = infer_surface_physics(
-
-        resistivity=rho,
-
-        r_squared=R2,
-
-        slope=slope,
-
-        nonlinearity_index=
-            features[
-                "nonlinearity_index"
-            ],
-
-        dI_dV_std=
-            features[
-                "derivative_std"
-            ],
-
-        asymmetry_index=
-            asymmetry_index
-    )
-
-    # =====================================================
-    # FIGURA
-    # =====================================================
-    fig = generate_publication_plot(
-
-        df=df,
-
-        X_fit=X_lin,
-
-        Y_fit=Y_fit,
-
-        R2=R2,
-
-        sample_name=sample_name,
-
-        mode=mode
-    )
-
-    # =====================================================
-    # SUMMARY
-    # =====================================================
     summary = {
 
-        "Sample":
-            sample_name,
+        "Sample": sample_name,
 
-        "Measurement_Mode":
-            mode,
+        "Resistance_Ohm": resistance,
 
-        "Resistance_Ohm":
-            resistance,
+        "Resistivity_Ohm_m": rho,
 
-        "Resistivity_Ohm_m":
-            rho,
+        "Conductivity_S_m": sigma,
 
-        "Conductivity_S_m":
-            sigma,
-
-        "Sheet_Resistance_Ohm_sq":
-            sheet_resistance,
-
-        "Slope":
-            slope,
-
-        "Intercept":
-            intercept,
-
-        "R_squared":
-            R2,
-
-        **classification,
-
-        **features,
-
-        **surface_physics
+        "R_squared": R2
     }
 
-    # =====================================================
-    # RETURN
-    # =====================================================
     return {
 
-        "dataframe":
-            df,
+        "dataframe": df,
 
-        "summary":
-            summary,
-
-        "figure":
-            fig,
-
-        "features":
-            features
+        "summary": summary
     }
+
+
+# =========================================================
+# PLOT MULTI CURVAS
+# =========================================================
+def generate_group_plot(
+
+    samples_dict,
+
+    group_name="Acid",
+
+    mode="voltage_sweep"
+):
+
+    fig, ax = plt.subplots(
+
+        figsize=(7,5),
+
+        dpi=300
+    )
+
+    for sample_name, df in samples_dict.items():
+
+        if mode == "voltage_sweep":
+
+            ax.plot(
+
+                df["V"],
+
+                df["I_smooth"],
+
+                linewidth=2,
+
+                label=sample_name
+            )
+
+        else:
+
+            ax.plot(
+
+                df["I"],
+
+                df["V_smooth"],
+
+                linewidth=2,
+
+                label=sample_name
+            )
+
+    if mode == "voltage_sweep":
+
+        ax.set_xlabel("Tensão (V)")
+
+        ax.set_ylabel("Corrente (A)")
+
+    else:
+
+        ax.set_xlabel("Corrente (A)")
+
+        ax.set_ylabel("Tensão (V)")
+
+    ax.ticklabel_format(
+
+        style='sci',
+
+        axis='both',
+
+        scilimits=(0,0)
+    )
+
+    ax.axhline(
+
+        y=0,
+
+        linestyle="--",
+
+        linewidth=0.8,
+
+        alpha=0.4
+    )
+
+    ax.axvline(
+
+        x=0,
+
+        linestyle="--",
+
+        linewidth=0.8,
+
+        alpha=0.4
+    )
+
+    if group_name.lower() == "acid":
+
+        ax.set_title(
+            "Curvas I×V — Grupo Ácido"
+        )
+
+    else:
+
+        ax.set_title(
+            "Curvas I×V — Grupo Alcalino"
+        )
+
+    ax.grid(alpha=0.25)
+
+    ax.legend(
+
+        frameon=False,
+
+        fontsize=10
+    )
+
+    plt.tight_layout()
+
+    return fig
+
+
+# =========================================================
+# FIGURA 28
+# =========================================================
+def build_acid_group_plot(
+
+    processed_samples
+):
+
+    acid_samples = {
+
+        k: v["dataframe"]
+
+        for k, v in processed_samples.items()
+
+        if k.upper().startswith("A")
+    }
+
+    return generate_group_plot(
+
+        acid_samples,
+
+        group_name="Acid"
+    )
+
+
+# =========================================================
+# FIGURA 29
+# =========================================================
+def build_alkaline_group_plot(
+
+    processed_samples
+):
+
+    alkaline_samples = {
+
+        k: v["dataframe"]
+
+        for k, v in processed_samples.items()
+
+        if k.upper().startswith("B")
+    }
+
+    return generate_group_plot(
+
+        alkaline_samples,
+
+        group_name="Alkaline"
+    )
