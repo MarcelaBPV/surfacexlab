@@ -1,272 +1,304 @@
 # =========================================================
-# tensiometria_tab.py
-# SurfaceXLab — Módulo Físico-Químico de Superfícies
+# tensiometria_processing.py
+# SurfaceXLab — Processamento Tensiométrico
 # =========================================================
 
-import streamlit as st
+import numpy as np
 import pandas as pd
-import plotly.express as px
+import matplotlib.pyplot as plt
 
-from tensiometria_processing import process_tensiometry
-
+from scipy.stats import linregress
 
 # =========================================================
-# TAB PRINCIPAL
+# FUNÇÃO PRINCIPAL
 # =========================================================
-def render_tensiometria_tab():
-
-    st.header("💧 Módulo Físico-Químico de Superfícies")
-
-    st.markdown("""
-    Plataforma para análise interfacial de superfícies FC200,
-    incluindo molhabilidade, energia superficial e análise estatística.
-    """)
+def process_tensiometry(file):
 
     # =====================================================
-    # SUBABAS
+    # LEITURA DOS DADOS
     # =====================================================
-    subtabs = st.tabs([
-        "💧 Molhabilidade",
-        "⚡ Energia Superficial",
-        "📊 PCA e Correlações"
-    ])
+    try:
 
-    # =====================================================
-    # UPLOAD
-    # =====================================================
-    files = st.file_uploader(
-        "Upload arquivos tensiométricos (.LOG, .CSV, .XLSX)",
-        accept_multiple_files=True
-    )
+        if file.name.endswith(".csv"):
 
-    if not files:
+            df = pd.read_csv(file)
 
-        st.info("Faça upload das amostras FC200")
+        elif file.name.endswith(".xlsx"):
 
-        return
+            df = pd.read_excel(file)
 
-    results = []
+        elif file.name.endswith(".log"):
 
-    # =====================================================
-    # PROCESSAMENTO DAS AMOSTRAS
-    # =====================================================
-    for f in files:
-
-        st.divider()
-
-        st.subheader(f"🧪 {f.name}")
-
-        try:
-
-            result = process_tensiometry(f)
-
-            summary = result["summary"]
-
-            results.append(summary)
-
-            # =================================================
-            # SUBABA 1 — MOLHABILIDADE
-            # =================================================
-            with subtabs[0]:
-
-                st.pyplot(result["fig_theta"])
-
-                col1, col2, col3, col4 = st.columns(4)
-
-                col1.metric(
-                    "θ Médio",
-                    f'{summary["Theta final (°)"]:.2f}°'
-                )
-
-                col2.metric(
-                    "Desvio padrão",
-                    f'{summary["Desvio padrão"]:.2f}°'
-                )
-
-                col3.metric(
-                    "Histerese",
-                    f'{summary["Histerese"]:.2f}°'
-                )
-
-                col4.metric(
-                    "Classe",
-                    summary["Classe"]
-                )
-
-                st.markdown(
-                    f"**Diagnóstico:** {summary['Diagnóstico']}"
-                )
-
-            # =================================================
-            # SUBABA 2 — ENERGIA SUPERFICIAL
-            # =================================================
-            with subtabs[1]:
-
-                st.pyplot(result["fig_energy"])
-
-                col1, col2, col3, col4 = st.columns(4)
-
-                col1.metric(
-                    "γ Total",
-                    f'{summary["Energia superficial"]:.2f} mJ/m²'
-                )
-
-                col2.metric(
-                    "γ Dispersiva",
-                    f'{summary["Componente dispersiva"]:.2f}'
-                )
-
-                col3.metric(
-                    "γ Polar",
-                    f'{summary["Componente polar"]:.2f}'
-                )
-
-                col4.metric(
-                    "R² Ajuste",
-                    f'{summary["R²"]:.3f}'
-                )
-
-        except Exception as e:
-
-            st.error(f"Erro no processamento: {f.name}")
-
-            st.exception(e)
-
-    # =====================================================
-    # RESUMO COMPARATIVO
-    # =====================================================
-    if results:
-
-        st.divider()
-
-        st.subheader("📊 Comparação entre Amostras FC200")
-
-        df_summary = pd.DataFrame(results)
-
-        # =================================================
-        # IDENTIFICAÇÃO DOS GRUPOS
-        # =================================================
-        def identify_group(name):
-
-            name = name.lower()
-
-            if "a1.5" in name:
-                return "FC200 A1.5"
-
-            elif "a2.5" in name:
-                return "FC200 A2.5"
-
-            elif "b1.5" in name:
-                return "FC200 B1.5"
-
-            elif "b2.5" in name:
-                return "FC200 B2.5"
-
-            return "Outros"
-
-        df_summary["Grupo"] = df_summary["Amostra"].apply(
-            identify_group
-        )
-
-        # =================================================
-        # TABELA
-        # =================================================
-        st.dataframe(
-            df_summary,
-            use_container_width=True
-        )
-
-        # =================================================
-        # BOXPLOT — θ
-        # =================================================
-        fig_theta_box = px.box(
-            df_summary,
-            x="Grupo",
-            y="Theta final (°)",
-            points="all",
-            title="Comparação do Ângulo de Contato"
-        )
-
-        st.plotly_chart(
-            fig_theta_box,
-            use_container_width=True
-        )
-
-        # =================================================
-        # BOXPLOT — γ
-        # =================================================
-        fig_gamma_box = px.box(
-            df_summary,
-            x="Grupo",
-            y="Energia superficial",
-            points="all",
-            title="Energia Superficial das Amostras"
-        )
-
-        st.plotly_chart(
-            fig_gamma_box,
-            use_container_width=True
-        )
-
-        # =================================================
-        # DISPERSIVA vs POLAR
-        # =================================================
-        fig_scatter = px.scatter(
-            df_summary,
-            x="Componente dispersiva",
-            y="Componente polar",
-            color="Grupo",
-            size="Energia superficial",
-            hover_name="Amostra",
-            title="Componentes da Energia Superficial"
-        )
-
-        st.plotly_chart(
-            fig_scatter,
-            use_container_width=True
-        )
-
-        # =================================================
-        # SUBABA PCA
-        # =================================================
-        with subtabs[2]:
-
-            st.subheader("📊 PCA Multimodal")
-
-            st.info("""
-            Integração futura entre:
-            - Molhabilidade
-            - Resistividade elétrica
-            - Raman
-            - Rugosidade
-            """)
-
-            pca_cols = [
-                "Theta final (°)",
-                "Histerese",
-                "Energia superficial",
-                "Componente dispersiva",
-                "Componente polar"
-            ]
-
-            st.dataframe(
-                df_summary[pca_cols],
-                use_container_width=True
+            df = pd.read_csv(
+                file,
+                sep=None,
+                engine="python"
             )
 
-        # =================================================
-        # EXPORTAÇÃO
-        # =================================================
-        csv = df_summary.to_csv(index=False).encode("utf-8")
+        else:
 
-        st.download_button(
-            "⬇️ Exportar Resultados",
-            csv,
-            file_name="surfaceXlab_tensiometria_fc200.csv",
-            mime="text/csv"
+            raise ValueError(
+                "Formato não suportado."
+            )
+
+    except Exception as e:
+
+        raise Exception(
+            f"Erro ao ler arquivo: {e}"
         )
 
-        # =================================================
-        # SESSION STATE
-        # =================================================
-        st.session_state["tensiometria_samples"] = df_summary
+    # =====================================================
+    # PADRONIZAÇÃO
+    # =====================================================
+    df.columns = [
+
+        str(c).strip().lower()
+
+        for c in df.columns
+    ]
+
+    # =====================================================
+    # IDENTIFICAÇÃO DAS COLUNAS
+    # =====================================================
+    possible_theta = [
+
+        "theta",
+        "ângulo",
+        "angulo",
+        "contact angle",
+        "angle"
+    ]
+
+    theta_col = None
+
+    for c in df.columns:
+
+        if c.lower() in possible_theta:
+
+            theta_col = c
+            break
+
+    if theta_col is None:
+
+        theta_col = df.columns[0]
+
+    theta = pd.to_numeric(
+
+        df[theta_col],
+
+        errors="coerce"
+    ).dropna()
+
+    if len(theta) == 0:
+
+        raise Exception(
+            "Nenhum valor válido encontrado."
+        )
+
+    # =====================================================
+    # ESTATÍSTICA
+    # =====================================================
+    theta_mean = np.mean(theta)
+
+    theta_std = np.std(theta)
+
+    hysteresis = np.max(theta) - np.min(theta)
+
+    # =====================================================
+    # CLASSIFICAÇÃO
+    # =====================================================
+    if theta_mean < 30:
+
+        classe = "Superhidrofílica"
+
+    elif theta_mean < 90:
+
+        classe = "Hidrofílica"
+
+    elif theta_mean < 150:
+
+        classe = "Hidrofóbica"
+
+    else:
+
+        classe = "Superhidrofóbica"
+
+    # =====================================================
+    # DIAGNÓSTICO
+    # =====================================================
+    if hysteresis < 10:
+
+        diagnostico = (
+            "Baixa histerese e boa homogeneidade superficial."
+        )
+
+    elif hysteresis < 30:
+
+        diagnostico = (
+            "Histerese moderada."
+        )
+
+    else:
+
+        diagnostico = (
+            "Alta heterogeneidade superficial."
+        )
+
+    # =====================================================
+    # ENERGIA SUPERFICIAL (MODELO SIMPLIFICADO)
+    # =====================================================
+    gamma_total = 72.8 * np.cos(
+        np.radians(theta_mean)
+    )
+
+    gamma_total = abs(gamma_total)
+
+    gamma_disp = gamma_total * 0.7
+
+    gamma_polar = gamma_total * 0.3
+
+    # =====================================================
+    # REGRESSÃO
+    # =====================================================
+    x_reg = np.arange(len(theta))
+
+    y_reg = theta.values
+
+    slope, intercept, r_value, _, _ = linregress(
+
+        x_reg,
+
+        y_reg
+    )
+
+    r2 = r_value**2
+
+    # =====================================================
+    # FIGURA — ÂNGULO
+    # =====================================================
+    fig_theta, ax = plt.subplots(
+
+        figsize=(6,4),
+
+        dpi=300
+    )
+
+    ax.plot(
+
+        theta.values,
+
+        marker="o",
+
+        linewidth=1.5
+    )
+
+    ax.axhline(
+
+        theta_mean,
+
+        linestyle="--"
+    )
+
+    ax.set_xlabel("Medição")
+
+    ax.set_ylabel("Ângulo de contato (°)")
+
+    ax.set_title("Molhabilidade")
+
+    ax.grid(alpha=0.2)
+
+    ax.spines["top"].set_visible(False)
+
+    ax.spines["right"].set_visible(False)
+
+    plt.tight_layout()
+
+    # =====================================================
+    # FIGURA — ENERGIA
+    # =====================================================
+    fig_energy, ax2 = plt.subplots(
+
+        figsize=(5,4),
+
+        dpi=300
+    )
+
+    labels = [
+
+        "Dispersiva",
+        "Polar"
+    ]
+
+    values = [
+
+        gamma_disp,
+        gamma_polar
+    ]
+
+    ax2.bar(
+
+        labels,
+
+        values
+    )
+
+    ax2.set_ylabel("mJ/m²")
+
+    ax2.set_title("Energia Superficial")
+
+    ax2.spines["top"].set_visible(False)
+
+    ax2.spines["right"].set_visible(False)
+
+    plt.tight_layout()
+
+    # =====================================================
+    # SUMMARY
+    # =====================================================
+    summary = {
+
+        "Amostra":
+            file.name,
+
+        "Theta final (°)":
+            float(theta_mean),
+
+        "Desvio padrão":
+            float(theta_std),
+
+        "Histerese":
+            float(hysteresis),
+
+        "Classe":
+            classe,
+
+        "Diagnóstico":
+            diagnostico,
+
+        "Energia superficial":
+            float(gamma_total),
+
+        "Componente dispersiva":
+            float(gamma_disp),
+
+        "Componente polar":
+            float(gamma_polar),
+
+        "R²":
+            float(r2)
+    }
+
+    # =====================================================
+    # RETURN
+    # =====================================================
+    return {
+
+        "summary":
+            summary,
+
+        "fig_theta":
+            fig_theta,
+
+        "fig_energy":
+            fig_energy
+    }
