@@ -1,7 +1,7 @@
 # =========================================================
 # raman_mapping.py
 # SurfaceXLab — Advanced Raman Molecular Mapping
-# Guided Pseudo-Voigt + Biomolecular Raman
+# Corrected Version
 # =========================================================
 
 import streamlit as st
@@ -85,7 +85,9 @@ def baseline_als(
 
         [0,-1,-2],
 
-        shape=(L,L-2)
+        shape=(L,L-2),
+
+        dtype=float
     )
 
     w = np.ones(L)
@@ -96,7 +98,12 @@ def baseline_als(
 
         Z = W + lam * D.dot(D.transpose())
 
-        z = spsolve(Z,w*y)
+        z = spsolve(
+
+            Z.tocsc(),
+
+            w*y
+        )
 
         w = p*(y>z) + (1-p)*(y<z)
 
@@ -406,428 +413,448 @@ def render_raman_mapping_tab():
     # =====================================================
     st.subheader("🔬 Spectrum Analysis")
 
+    options = ["All Spectra"] + [
+
+        f"Spectrum {i+1}"
+
+        for i in range(len(grouped))
+    ]
+
     selected = st.selectbox(
 
         "Choose Spectrum",
 
-        options=list(range(len(grouped))),
-
-        format_func=lambda x:
-            f"Spectrum {x+1}"
+        options
     )
 
-    idx, ((x_pos,y_pos), group) = list(
+    if selected == "All Spectra":
 
-        enumerate(grouped)
-
-    )[selected]
-
-    group = group.sort_values(
-        "wave"
-    )
-
-    x = group["wave"].values
-
-    y = group["intensity"].values
-
-    # =====================================================
-    # COSMIC RAY REMOVAL
-    # =====================================================
-    y_med = medfilt(
-
-        y,
-
-        kernel_size=5
-    )
-
-    diff = np.abs(y - y_med)
-
-    threshold = 5*np.std(diff)
-
-    y = np.where(
-
-        diff > threshold,
-
-        y_med,
-
-        y
-    )
-
-    # =====================================================
-    # SMOOTH
-    # =====================================================
-    y_smooth = savgol_filter(
-
-        y,
-
-        11,
-
-        3
-    )
-
-    # =====================================================
-    # BASELINE
-    # =====================================================
-    baseline = baseline_als(
-        y_smooth
-    )
-
-    y_corr = y_smooth - baseline
-
-    y_corr = y_corr - np.min(y_corr)
-
-    # =====================================================
-    # NORMALIZE
-    # =====================================================
-    y_norm = y_corr / np.max(y_corr)
-
-    # =====================================================
-    # GUIDED BANDS
-    # =====================================================
-    bands = get_blood_bands()
-
-    p0 = []
-    lower = []
-    upper = []
-
-    for band in bands:
-
-        idx_band = np.argmin(
-            np.abs(x-band)
+        spectra_to_process = range(
+            len(grouped)
         )
 
-        amp0 = max(
+    else:
 
-            y_norm[idx_band],
+        idx = int(
+            selected.split()[-1]
+        ) - 1
 
-            0.05
+        spectra_to_process = [idx]
+
+    # =====================================================
+    # PROCESSING LOOP
+    # =====================================================
+    for selected_idx in spectra_to_process:
+
+        idx, ((x_pos,y_pos), group) = list(
+
+            enumerate(grouped)
+
+        )[selected_idx]
+
+        group = group.sort_values(
+            "wave"
         )
 
-        p0.extend([
+        x = group["wave"].values
 
-            amp0,
-            band,
-            6,
-            0.5
-        ])
+        y = group["intensity"].values
 
-        lower.extend([
+        # =================================================
+        # COSMIC RAY REMOVAL
+        # =================================================
+        y_med = medfilt(
 
-            0,
-            band-5,
+            y,
+
+            kernel_size=5
+        )
+
+        diff = np.abs(y - y_med)
+
+        threshold = 5*np.std(diff)
+
+        y = np.where(
+
+            diff > threshold,
+
+            y_med,
+
+            y
+        )
+
+        # =================================================
+        # SMOOTH
+        # =================================================
+        y_smooth = savgol_filter(
+
+            y,
+
+            11,
+
+            3
+        )
+
+        # =================================================
+        # BASELINE
+        # =================================================
+        baseline = baseline_als(
+            y_smooth
+        )
+
+        y_corr = y_smooth - baseline
+
+        y_corr = y_corr - np.min(y_corr)
+
+        # =================================================
+        # NORMALIZE
+        # =================================================
+        y_norm = y_corr / np.max(y_corr)
+
+        # =================================================
+        # GUIDED BANDS
+        # =================================================
+        bands = get_blood_bands()
+
+        p0 = []
+        lower = []
+        upper = []
+
+        for band in bands:
+
+            idx_band = np.argmin(
+                np.abs(x-band)
+            )
+
+            amp0 = max(
+
+                y_norm[idx_band],
+
+                0.05
+            )
+
+            p0.extend([
+
+                amp0,
+                band,
+                6,
+                0.5
+            ])
+
+            lower.extend([
+
+                0,
+                band-5,
+                2,
+                0.2
+            ])
+
+            upper.extend([
+
+                2,
+                band+5,
+                20,
+                0.8
+            ])
+
+        # =================================================
+        # FIT
+        # =================================================
+        try:
+
+            popt,_ = curve_fit(
+
+                multi_pseudo_voigt,
+
+                x,
+
+                y_norm,
+
+                p0=p0,
+
+                bounds=(lower,upper),
+
+                maxfev=100000
+            )
+
+        except:
+
+            popt = np.array(p0)
+
+        # =================================================
+        # FINAL FIT
+        # =================================================
+        y_fit = multi_pseudo_voigt(
+
+            x,
+
+            *popt
+        )
+
+        residual = y_norm - y_fit
+
+        # =================================================
+        # R²
+        # =================================================
+        ss_res = np.sum(residual**2)
+
+        ss_tot = np.sum(
+
+            (y_norm - np.mean(y_norm))**2
+        )
+
+        r2 = 1 - (ss_res/ss_tot)
+
+        # =================================================
+        # FIGURE
+        # =================================================
+        fig = plt.figure(
+
+            figsize=(10,7),
+
+            dpi=600
+        )
+
+        gs = fig.add_gridspec(
+
             2,
-            0.2
-        ])
+            1,
 
-        upper.extend([
+            height_ratios=[4,1],
 
-            2,
-            band+5,
-            20,
-            0.8
-        ])
+            hspace=0.08
+        )
 
-    # =====================================================
-    # FIT
-    # =====================================================
-    try:
+        ax1 = fig.add_subplot(gs[0])
 
-        popt,_ = curve_fit(
+        ax2 = fig.add_subplot(gs[1])
 
-            multi_pseudo_voigt,
+        # =================================================
+        # EXPERIMENTAL
+        # =================================================
+        ax1.plot(
 
             x,
 
             y_norm,
 
-            p0=p0,
+            color="black",
 
-            bounds=(lower,upper),
+            linewidth=1.8,
 
-            maxfev=100000
-        )
-
-    except:
-
-        popt = np.array(p0)
-
-    # =====================================================
-    # FIT FINAL
-    # =====================================================
-    y_fit = multi_pseudo_voigt(
-
-        x,
-
-        *popt
-    )
-
-    residual = y_norm - y_fit
-
-    # =====================================================
-    # R²
-    # =====================================================
-    ss_res = np.sum(residual**2)
-
-    ss_tot = np.sum(
-
-        (y_norm - np.mean(y_norm))**2
-    )
-
-    r2 = 1 - (ss_res/ss_tot)
-
-    # =====================================================
-    # FIGURE
-    # =====================================================
-    fig = plt.figure(
-
-        figsize=(10,7),
-
-        dpi=600
-    )
-
-    gs = fig.add_gridspec(
-
-        2,
-        1,
-
-        height_ratios=[4,1],
-
-        hspace=0.08
-    )
-
-    ax1 = fig.add_subplot(gs[0])
-
-    ax2 = fig.add_subplot(gs[1])
-
-    # =====================================================
-    # EXPERIMENTAL
-    # =====================================================
-    ax1.plot(
-
-        x,
-
-        y_norm,
-
-        color="black",
-
-        linewidth=1.8,
-
-        label="Experimental"
-    )
-
-    # =====================================================
-    # FIT
-    # =====================================================
-    ax1.plot(
-
-        x,
-
-        y_fit,
-
-        "--",
-
-        color="red",
-
-        linewidth=1.5,
-
-        label=f"Fit (R²={r2:.4f})"
-    )
-
-    # =====================================================
-    # COLORS
-    # =====================================================
-    colors = [
-
-        "#f94144",
-        "#577590",
-        "#43aa8b",
-        "#f9c74f",
-        "#9b5de5",
-        "#f3722c",
-        "#90be6d"
-    ]
-
-    peak_table = []
-
-    # =====================================================
-    # COMPONENTS
-    # =====================================================
-    for idx,i in enumerate(
-
-        range(0,len(popt),4)
-    ):
-
-        amp = popt[i]
-        cen = popt[i+1]
-        sigma = popt[i+2]
-        eta = popt[i+3]
-
-        peak_curve = pseudo_voigt(
-
-            x,
-
-            amp,
-
-            cen,
-
-            sigma,
-
-            eta
+            label="Experimental"
         )
 
         # =================================================
-        # COMPONENT
+        # FIT
         # =================================================
-        ax1.fill_between(
-
-            x,
-
-            0,
-
-            peak_curve,
-
-            alpha=0.30,
-
-            color=colors[
-                idx % len(colors)
-            ]
-        )
-
         ax1.plot(
 
             x,
 
-            peak_curve,
+            y_fit,
 
-            linewidth=1.0,
+            "--",
 
-            color=colors[
-                idx % len(colors)
-            ]
+            color="red",
+
+            linewidth=1.5,
+
+            label=f"Fit (R²={r2:.4f})"
         )
 
         # =================================================
-        # PEAK NUMBER ONLY
+        # COLORS
         # =================================================
-        ax1.text(
+        colors = [
 
-            cen,
+            "#f94144",
+            "#577590",
+            "#43aa8b",
+            "#f9c74f",
+            "#9b5de5",
+            "#f3722c",
+            "#90be6d"
+        ]
 
-            np.max(peak_curve)+0.02,
+        peak_table = []
 
-            f"{idx+1}",
+        # =================================================
+        # COMPONENTS
+        # =================================================
+        for peak_idx,i in enumerate(
 
-            fontsize=8,
+            range(0,len(popt),4)
+        ):
 
-            ha="center",
+            amp = popt[i]
+            cen = popt[i+1]
+            sigma = popt[i+2]
+            eta = popt[i+3]
 
-            fontweight="bold"
+            peak_curve = pseudo_voigt(
+
+                x,
+
+                amp,
+
+                cen,
+
+                sigma,
+
+                eta
+            )
+
+            ax1.fill_between(
+
+                x,
+
+                0,
+
+                peak_curve,
+
+                alpha=0.30,
+
+                color=colors[
+                    peak_idx % len(colors)
+                ]
+            )
+
+            ax1.plot(
+
+                x,
+
+                peak_curve,
+
+                linewidth=1.0,
+
+                color=colors[
+                    peak_idx % len(colors)
+                ]
+            )
+
+            ax1.text(
+
+                cen,
+
+                np.max(peak_curve)+0.02,
+
+                f"{peak_idx+1}",
+
+                fontsize=8,
+
+                ha="center",
+
+                fontweight="bold"
+            )
+
+            fwhm = 2.355 * sigma
+
+            peak_table.append({
+
+                "Peak ID":
+                    peak_idx+1,
+
+                "Peak (cm⁻¹)":
+                    round(cen,2),
+
+                "Assignment":
+                    identify_peak(cen),
+
+                "Intensity":
+                    round(amp,4),
+
+                "FWHM":
+                    round(fwhm,2),
+
+                "Lorentzian %":
+                    round(eta*100,2),
+
+                "Gaussian %":
+                    round((1-eta)*100,2)
+            })
+
+        # =================================================
+        # STYLE
+        # =================================================
+        ax1.set_title(
+
+            f"Spectrum {selected_idx+1} | "
+            f"X={x_pos} Y={y_pos}"
         )
 
+        ax1.set_ylabel(
+            "Normalized Intensity"
+        )
+
+        ax2.set_ylabel(
+            "Residual"
+        )
+
+        ax2.set_xlabel(
+            "Raman Shift (cm⁻¹)"
+        )
+
+        ax1.grid(alpha=0.15)
+        ax2.grid(alpha=0.15)
+
+        ax1.legend(
+
+            loc="upper right",
+
+            frameon=True
+        )
+
+        ax1.spines["top"].set_visible(False)
+        ax1.spines["right"].set_visible(False)
+
+        ax2.spines["top"].set_visible(False)
+        ax2.spines["right"].set_visible(False)
+
         # =================================================
-        # FWHM
+        # RESIDUAL
         # =================================================
-        fwhm = 2.355 * sigma
+        ax2.plot(
+
+            x,
+
+            residual,
+
+            color="black",
+
+            linewidth=1
+        )
+
+        ax2.axhline(
+
+            0,
+
+            linestyle="--",
+
+            color="gray"
+        )
+
+        plt.tight_layout()
+
+        st.pyplot(fig)
 
         # =================================================
         # TABLE
         # =================================================
-        peak_table.append({
+        st.subheader(
 
-            "Peak ID":
-                idx+1,
+            f"📊 Peak Assignments — Spectrum {selected_idx+1}"
+        )
 
-            "Peak (cm⁻¹)":
-                round(cen,2),
+        peak_df = pd.DataFrame(
+            peak_table
+        )
 
-            "Assignment":
-                identify_peak(cen),
+        st.dataframe(
 
-            "Intensity":
-                round(amp,4),
+            peak_df,
 
-            "FWHM":
-                round(fwhm,2),
+            width="stretch",
 
-            "Lorentzian %":
-                round(eta*100,2),
-
-            "Gaussian %":
-                round((1-eta)*100,2)
-        })
-
-    # =====================================================
-    # STYLE
-    # =====================================================
-    ax1.set_ylabel(
-        "Normalized Intensity"
-    )
-
-    ax2.set_ylabel(
-        "Residual"
-    )
-
-    ax2.set_xlabel(
-        "Raman Shift (cm⁻¹)"
-    )
-
-    ax1.grid(alpha=0.15)
-    ax2.grid(alpha=0.15)
-
-    ax1.legend(
-
-        loc="upper right",
-
-        frameon=True
-    )
-
-    ax1.spines["top"].set_visible(False)
-    ax1.spines["right"].set_visible(False)
-
-    ax2.spines["top"].set_visible(False)
-    ax2.spines["right"].set_visible(False)
-
-    # =====================================================
-    # RESIDUAL
-    # =====================================================
-    ax2.plot(
-
-        x,
-
-        residual,
-
-        color="black",
-
-        linewidth=1
-    )
-
-    ax2.axhline(
-
-        0,
-
-        linestyle="--",
-
-        color="gray"
-    )
-
-    plt.tight_layout()
-
-    st.pyplot(fig)
-
-    # =====================================================
-    # TABLE
-    # =====================================================
-    st.subheader("📊 Peak Assignments")
-
-    peak_df = pd.DataFrame(
-        peak_table
-    )
-
-    st.dataframe(
-
-        peak_df,
-
-        use_container_width=True,
-
-        height=300
-    )
+            height=300
+        )
