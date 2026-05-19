@@ -1,6 +1,7 @@
 # =========================================================
 # resistividade_processing.py
 # SurfaceXLab — Electrical Physics Pipeline
+# VERSÃO FINAL — DISSERTAÇÃO / ARTIGO
 # =========================================================
 
 import numpy as np
@@ -10,28 +11,29 @@ import matplotlib.pyplot as plt
 from scipy.stats import linregress
 from scipy.signal import savgol_filter
 
-from resistividade_database import (
-
-    classify_resistivity,
-
-    infer_surface_physics
-)
-
-
 # =========================================================
 # LEITURA UNIVERSAL
 # =========================================================
 def read_iv_file(file_like):
 
-    df = pd.read_csv(
+    try:
 
-        file_like,
+        df = pd.read_csv(
 
-        sep=";",
+            file_like,
 
-        engine="python"
-    )
+            sep=";",
 
+            engine="python"
+        )
+
+    except:
+
+        df = pd.read_csv(file_like)
+
+    # =====================================================
+    # NORMALIZA COLUNAS
+    # =====================================================
     df.columns = [
 
         c.strip().lower()
@@ -43,13 +45,27 @@ def read_iv_file(file_like):
     current_col = None
     resistance_col = None
 
+    # =====================================================
+    # BUSCA AUTOMÁTICA
+    # =====================================================
     for col in df.columns:
 
-        if "voltage" in col:
+        if (
+
+            "voltage" in col or
+            "volt" in col
+
+        ):
 
             voltage_col = col
 
-        if "current" in col:
+        if (
+
+            "current" in col or
+            "curr" in col or
+            "amp" in col
+
+        ):
 
             current_col = col
 
@@ -57,18 +73,20 @@ def read_iv_file(file_like):
 
             resistance_col = col
 
+    # =====================================================
+    # FALLBACK
+    # =====================================================
     if voltage_col is None:
 
-        raise ValueError(
-            "Coluna de tensão não encontrada."
-        )
+        voltage_col = df.columns[0]
 
     if current_col is None:
 
-        raise ValueError(
-            "Coluna de corrente não encontrada."
-        )
+        current_col = df.columns[1]
 
+    # =====================================================
+    # SELECIONA
+    # =====================================================
     selected_cols = [
 
         current_col,
@@ -101,6 +119,9 @@ def read_iv_file(file_like):
         columns=rename_dict
     )
 
+    # =====================================================
+    # CONVERSÃO NUMÉRICA
+    # =====================================================
     numeric_cols = ["I", "V"]
 
     if "R_inst" in df.columns:
@@ -117,9 +138,9 @@ def read_iv_file(file_like):
 
             .astype(str)
 
-            .str.strip()
-
             .str.replace(",", ".")
+
+            .str.strip()
         )
 
         df[col] = pd.to_numeric(
@@ -131,6 +152,9 @@ def read_iv_file(file_like):
 
     df = df.dropna()
 
+    # =====================================================
+    # REMOVE INF
+    # =====================================================
     df = df[np.isfinite(df["I"])]
     df = df[np.isfinite(df["V"])]
 
@@ -138,7 +162,7 @@ def read_iv_file(file_like):
 
 
 # =========================================================
-# PRÉ PROCESSAMENTO
+# SUAVIZAÇÃO
 # =========================================================
 def preprocess_iv_data(
 
@@ -149,6 +173,9 @@ def preprocess_iv_data(
 
     df = df.copy()
 
+    # =====================================================
+    # ORDENA
+    # =====================================================
     if mode == "voltage_sweep":
 
         df = df.sort_values("V")
@@ -157,7 +184,10 @@ def preprocess_iv_data(
 
         df = df.sort_values("I")
 
-    if len(df) > 11:
+    # =====================================================
+    # SAVITZKY GOLAY
+    # =====================================================
+    if len(df) > 15:
 
         if mode == "voltage_sweep":
 
@@ -165,7 +195,7 @@ def preprocess_iv_data(
 
                 df["I"],
 
-                window_length=11,
+                window_length=15,
 
                 polyorder=3
             )
@@ -176,7 +206,7 @@ def preprocess_iv_data(
 
                 df["V"],
 
-                window_length=11,
+                window_length=15,
 
                 polyorder=3
             )
@@ -264,7 +294,7 @@ def robust_linear_fit(
 
 
 # =========================================================
-# RESISTIVIDADE
+# RESISTIVIDADE 4P
 # =========================================================
 def calculate_resistivity_4p(
 
@@ -302,8 +332,14 @@ def process_resistivity(
     mode="voltage_sweep"
 ):
 
+    # =====================================================
+    # LEITURA
+    # =====================================================
     df = read_iv_file(file_like)
 
+    # =====================================================
+    # SUAVIZA
+    # =====================================================
     df = preprocess_iv_data(
 
         df,
@@ -311,6 +347,9 @@ def process_resistivity(
         mode=mode
     )
 
+    # =====================================================
+    # REGIÃO LINEAR
+    # =====================================================
     X_lin, Y_lin = detect_linear_region(
 
         df,
@@ -318,6 +357,9 @@ def process_resistivity(
         mode=mode
     )
 
+    # =====================================================
+    # AJUSTE
+    # =====================================================
     slope, intercept, R2, Y_fit = robust_linear_fit(
 
         X_lin,
@@ -325,6 +367,9 @@ def process_resistivity(
         Y_lin
     )
 
+    # =====================================================
+    # RESISTÊNCIA
+    # =====================================================
     if mode == "voltage_sweep":
 
         resistance = 1 / slope
@@ -333,6 +378,9 @@ def process_resistivity(
 
         resistance = slope
 
+    # =====================================================
+    # RESISTIVIDADE
+    # =====================================================
     rho = calculate_resistivity_4p(
 
         resistance,
@@ -340,8 +388,24 @@ def process_resistivity(
         thickness_m
     )
 
+    # =====================================================
+    # CONDUTIVIDADE
+    # =====================================================
     sigma = 1 / rho
 
+    # =====================================================
+    # HISTERESE
+    # =====================================================
+    hysteresis = (
+
+        np.max(df["I_smooth"]) -
+
+        np.min(df["I_smooth"])
+    )
+
+    # =====================================================
+    # RESUMO
+    # =====================================================
     summary = {
 
         "Sample": sample_name,
@@ -352,7 +416,9 @@ def process_resistivity(
 
         "Conductivity_S_m": sigma,
 
-        "R_squared": R2
+        "R_squared": R2,
+
+        "Hysteresis": hysteresis
     }
 
     return {
@@ -364,7 +430,7 @@ def process_resistivity(
 
 
 # =========================================================
-# PLOT MULTI CURVAS
+# PLOT CIENTÍFICO
 # =========================================================
 def generate_group_plot(
 
@@ -379,11 +445,39 @@ def generate_group_plot(
 
         figsize=(7,5),
 
-        dpi=300
+        dpi=600
     )
 
-    for sample_name, df in samples_dict.items():
+    # =====================================================
+    # CORES
+    # =====================================================
+    colors = [
 
+        "black",
+
+        "red",
+
+        "blue",
+
+        "green",
+
+        "purple"
+    ]
+
+    # =====================================================
+    # LOOP
+    # =====================================================
+    for idx, (
+
+        sample_name,
+
+        df
+
+    ) in enumerate(samples_dict.items()):
+
+        # =================================================
+        # VOLTAGE SWEEP
+        # =================================================
         if mode == "voltage_sweep":
 
             ax.plot(
@@ -392,11 +486,16 @@ def generate_group_plot(
 
                 df["I_smooth"],
 
-                linewidth=2,
+                linewidth=2.2,
 
-                label=sample_name
+                label=sample_name,
+
+                color=colors[idx]
             )
 
+        # =================================================
+        # CURRENT SWEEP
+        # =================================================
         else:
 
             ax.plot(
@@ -405,75 +504,109 @@ def generate_group_plot(
 
                 df["V_smooth"],
 
-                linewidth=2,
+                linewidth=2.2,
 
-                label=sample_name
+                label=sample_name,
+
+                color=colors[idx]
             )
 
+    # =====================================================
+    # LABELS
+    # =====================================================
     if mode == "voltage_sweep":
 
-        ax.set_xlabel("Tensão (V)")
+        ax.set_xlabel(
 
-        ax.set_ylabel("Corrente (A)")
+            "Voltagem (V)",
+
+            fontsize=14
+        )
+
+        ax.set_ylabel(
+
+            "Corrente (A)",
+
+            fontsize=14
+        )
 
     else:
 
-        ax.set_xlabel("Corrente (A)")
+        ax.set_xlabel(
 
-        ax.set_ylabel("Tensão (V)")
+            "Corrente (A)",
 
+            fontsize=14
+        )
+
+        ax.set_ylabel(
+
+            "Voltagem (V)",
+
+            fontsize=14
+        )
+
+    # =====================================================
+    # FORMATAÇÃO CIENTÍFICA
+    # =====================================================
     ax.ticklabel_format(
 
         style='sci',
 
-        axis='both',
+        axis='y',
 
         scilimits=(0,0)
     )
 
+    ax.tick_params(
+
+        axis='both',
+
+        labelsize=12
+    )
+
+    # =====================================================
+    # REMOVE GRID
+    # =====================================================
+    ax.grid(False)
+
+    # =====================================================
+    # REMOVE BORDAS
+    # =====================================================
+    ax.spines['top'].set_visible(False)
+
+    ax.spines['right'].set_visible(False)
+
+    # =====================================================
+    # EIXOS
+    # =====================================================
     ax.axhline(
 
         y=0,
 
-        linestyle="--",
-
-        linewidth=0.8,
-
-        alpha=0.4
+        linewidth=0.8
     )
 
     ax.axvline(
 
         x=0,
 
-        linestyle="--",
-
-        linewidth=0.8,
-
-        alpha=0.4
+        linewidth=0.8
     )
 
-    if group_name.lower() == "acid":
-
-        ax.set_title(
-            "Curvas I×V — Grupo Ácido"
-        )
-
-    else:
-
-        ax.set_title(
-            "Curvas I×V — Grupo Alcalino"
-        )
-
-    ax.grid(alpha=0.25)
-
+    # =====================================================
+    # LEGENDA
+    # =====================================================
     ax.legend(
 
         frameon=False,
 
-        fontsize=10
+        fontsize=11
     )
 
+    # =====================================================
+    # AJUSTE
+    # =====================================================
     plt.tight_layout()
 
     return fig
@@ -493,7 +626,14 @@ def build_acid_group_plot(
 
         for k, v in processed_samples.items()
 
-        if k.upper().startswith("A")
+        if (
+
+            k.upper().startswith("A")
+
+            and
+
+            "_D" in k.upper()
+        )
     }
 
     return generate_group_plot(
@@ -518,7 +658,14 @@ def build_alkaline_group_plot(
 
         for k, v in processed_samples.items()
 
-        if k.upper().startswith("B")
+        if (
+
+            k.upper().startswith("B")
+
+            and
+
+            "_D" in k.upper()
+        )
     }
 
     return generate_group_plot(
