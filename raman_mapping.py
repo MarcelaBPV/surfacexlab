@@ -1,7 +1,7 @@
 # =========================================================
 # raman_mapping.py
-# SurfaceXLab — Advanced Raman Molecular Mapping
-# Corrected Version
+# SurfaceXLab — Raman Molecular Mapping
+# COMPLETE CORRECTED VERSION
 # =========================================================
 
 import streamlit as st
@@ -43,7 +43,7 @@ RAMAN_DATABASE = {
 }
 
 # =========================================================
-# PEAK IDENTIFICATION
+# IDENTIFY PEAK
 # =========================================================
 def identify_peak(shift):
 
@@ -141,9 +141,9 @@ def pseudo_voigt(
 
     return amp * (
 
-        eta * lorentz +
+        eta*lorentz +
 
-        (1-eta) * gauss
+        (1-eta)*gauss
     )
 
 # =========================================================
@@ -176,19 +176,19 @@ def multi_pseudo_voigt(x,*params):
     return y
 
 # =========================================================
-# KNOWN BLOOD BANDS
+# BLOOD BANDS
 # =========================================================
 def get_blood_bands():
 
     return [
 
-        1538,
-        1560,
+        1533,
+        1555,
         1580,
-        1601,
-        1621,
-        1635,
-        1655
+        1604,
+        1620,
+        1628,
+        1658
     ]
 
 # =========================================================
@@ -214,7 +214,7 @@ def render_raman_mapping_tab():
 
         "Shift Max",
 
-        value=1800
+        value=1700
     )
 
     # =====================================================
@@ -224,7 +224,7 @@ def render_raman_mapping_tab():
 
         "Upload Raman Mapping",
 
-        type=["xlsx","csv","txt"]
+        type=["txt","csv","xlsx"]
     )
 
     if uploaded_file is None:
@@ -248,9 +248,27 @@ def render_raman_mapping_tab():
 
         else:
 
-            df = pd.read_csv(
-                uploaded_file
-            )
+            try:
+
+                df = pd.read_csv(
+
+                    uploaded_file,
+
+                    sep=r"\s+",
+
+                    engine="python"
+                )
+
+            except:
+
+                df = pd.read_csv(
+
+                    uploaded_file,
+
+                    sep="\t",
+
+                    engine="python"
+                )
 
     except Exception as e:
 
@@ -259,15 +277,22 @@ def render_raman_mapping_tab():
         return
 
     # =====================================================
-    # STANDARDIZE
+    # FIX COLUMNS
     # =====================================================
     df.columns = [
 
-        str(c).lower().strip()
+        str(c)
+        .replace("\t","")
+        .replace(" ","")
+        .lower()
+        .strip()
 
         for c in df.columns
     ]
 
+    # =====================================================
+    # REQUIRED
+    # =====================================================
     required = [
 
         "x",
@@ -281,7 +306,9 @@ def render_raman_mapping_tab():
         if c not in df.columns:
 
             st.error(f"Missing column: {c}")
+
             st.write(df.columns)
+
             return
 
     # =====================================================
@@ -299,7 +326,7 @@ def render_raman_mapping_tab():
     df = df.dropna()
 
     # =====================================================
-    # REGION
+    # FILTER REGION
     # =====================================================
     df = df[
 
@@ -401,18 +428,13 @@ def render_raman_mapping_tab():
         "Y Position"
     )
 
-    ax_map.spines["top"].set_visible(False)
-    ax_map.spines["right"].set_visible(False)
-
     plt.tight_layout()
 
     st.pyplot(fig_map)
 
     # =====================================================
-    # SELECT SPECTRUM
+    # SPECTRUM SELECTION
     # =====================================================
-    st.subheader("🔬 Spectrum Analysis")
-
     options = ["All Spectra"] + [
 
         f"Spectrum {i+1}"
@@ -442,7 +464,7 @@ def render_raman_mapping_tab():
         spectra_to_process = [idx]
 
     # =====================================================
-    # PROCESSING LOOP
+    # PROCESS LOOP
     # =====================================================
     for selected_idx in spectra_to_process:
 
@@ -512,7 +534,7 @@ def render_raman_mapping_tab():
         y_norm = y_corr / np.max(y_corr)
 
         # =================================================
-        # GUIDED BANDS
+        # FIT
         # =================================================
         bands = get_blood_bands()
 
@@ -537,7 +559,7 @@ def render_raman_mapping_tab():
 
                 amp0,
                 band,
-                6,
+                8,
                 0.5
             ])
 
@@ -553,13 +575,10 @@ def render_raman_mapping_tab():
 
                 2,
                 band+5,
-                20,
+                25,
                 0.8
             ])
 
-        # =================================================
-        # FIT
-        # =================================================
         try:
 
             popt,_ = curve_fit(
@@ -581,9 +600,6 @@ def render_raman_mapping_tab():
 
             popt = np.array(p0)
 
-        # =================================================
-        # FINAL FIT
-        # =================================================
         y_fit = multi_pseudo_voigt(
 
             x,
@@ -612,7 +628,7 @@ def render_raman_mapping_tab():
 
             figsize=(10,7),
 
-            dpi=600
+            dpi=500
         )
 
         gs = fig.add_gridspec(
@@ -663,9 +679,6 @@ def render_raman_mapping_tab():
             label=f"Fit (R²={r2:.4f})"
         )
 
-        # =================================================
-        # COLORS
-        # =================================================
         colors = [
 
             "#f94144",
@@ -739,23 +752,18 @@ def render_raman_mapping_tab():
 
                 np.max(peak_curve)+0.02,
 
-                f"{peak_idx+1}",
+                f"{int(cen)}",
 
                 fontsize=8,
 
-                ha="center",
-
-                fontweight="bold"
+                ha="center"
             )
 
             fwhm = 2.355 * sigma
 
             peak_table.append({
 
-                "Peak ID":
-                    peak_idx+1,
-
-                "Peak (cm⁻¹)":
+                "Peak":
                     round(cen,2),
 
                 "Assignment":
@@ -765,13 +773,7 @@ def render_raman_mapping_tab():
                     round(amp,4),
 
                 "FWHM":
-                    round(fwhm,2),
-
-                "Lorentzian %":
-                    round(eta*100,2),
-
-                "Gaussian %":
-                    round((1-eta)*100,2)
+                    round(fwhm,2)
             })
 
         # =================================================
@@ -798,12 +800,7 @@ def render_raman_mapping_tab():
         ax1.grid(alpha=0.15)
         ax2.grid(alpha=0.15)
 
-        ax1.legend(
-
-            loc="upper right",
-
-            frameon=True
-        )
+        ax1.legend()
 
         ax1.spines["top"].set_visible(False)
         ax1.spines["right"].set_visible(False)
@@ -841,11 +838,6 @@ def render_raman_mapping_tab():
         # =================================================
         # TABLE
         # =================================================
-        st.subheader(
-
-            f"📊 Peak Assignments — Spectrum {selected_idx+1}"
-        )
-
         peak_df = pd.DataFrame(
             peak_table
         )
