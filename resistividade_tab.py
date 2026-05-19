@@ -11,7 +11,14 @@ import matplotlib.pyplot as plt
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
 
-from resistividade_processing import process_resistivity
+from resistividade_processing import (
+
+    process_resistivity,
+
+    build_acid_group_plot,
+
+    build_alkaline_group_plot
+)
 
 
 # =========================================================
@@ -26,19 +33,6 @@ def render_resistividade_tab(supabase=None):
     interfacial aplicada à engenharia de superfícies,
     análise de oxidação, filmes funcionais e previsão
     de compatibilidade para revestimentos.
-
-    O pipeline realiza automaticamente:
-
-    - processamento I–V robusto;
-    - detecção da região ôhmica;
-    - regressão linear científica;
-    - cálculo de resistividade;
-    - análise físico-química interfacial;
-    - extração de features elétricas;
-    - índice oxidativo;
-    - análise de homogeneidade;
-    - previsão de coating;
-    - PCA multivariado.
     """)
 
     # =====================================================
@@ -53,7 +47,7 @@ def render_resistividade_tab(supabase=None):
         st.session_state.electrical_features = None
 
     # =====================================================
-    # SUBABAS
+    # SUBTABS
     # =====================================================
     subtabs = st.tabs([
 
@@ -63,7 +57,7 @@ def render_resistividade_tab(supabase=None):
     ])
 
     # =====================================================
-    # SUBABA 1
+    # SUBTAB 1
     # =====================================================
     with subtabs[0]:
 
@@ -100,24 +94,7 @@ def render_resistividade_tab(supabase=None):
         )
 
         # =================================================
-        # GRUPO
-        # =================================================
-        sample_group = st.selectbox(
-
-            "Grupo experimental",
-
-            [
-                "F200 - Ácido",
-                "F200 - Alcalino",
-                "F200 - Controle",
-                "Nanotubos",
-                "Filme fino",
-                "Outro"
-            ]
-        )
-
-        # =================================================
-        # MODO EXPERIMENTAL
+        # MODO
         # =================================================
         measurement_mode_ui = st.selectbox(
 
@@ -160,6 +137,11 @@ def render_resistividade_tab(supabase=None):
                 return
 
             # =============================================
+            # DICIONÁRIO PROCESSADO
+            # =============================================
+            processed = {}
+
+            # =============================================
             # LOOP
             # =============================================
             for file in uploaded_files:
@@ -173,7 +155,7 @@ def render_resistividade_tab(supabase=None):
                 try:
 
                     # =====================================
-                    # PIPELINE PRINCIPAL
+                    # PROCESSAMENTO
                     # =====================================
                     result = process_resistivity(
 
@@ -182,132 +164,24 @@ def render_resistividade_tab(supabase=None):
                         thickness_m=
                             thickness_um * 1e-6,
 
-                        sample_name=file.name,
+                        sample_name=
+                            file.name,
 
-                        mode=measurement_mode
+                        mode=
+                            measurement_mode
                     )
+
+                    # =====================================
+                    # ARMAZENA
+                    # =====================================
+                    processed[
+                        file.name
+                    ] = result
 
                     summary = result["summary"]
 
                     # =====================================
-                    # FIGURA
-                    # =====================================
-                    st.pyplot(result["figure"])
-
-                    # =====================================
-                    # MODO
-                    # =====================================
-                    st.info(
-                        f"""
-                        Modo experimental:
-
-                        {summary['Measurement_Mode']}
-                        """
-                    )
-
-                    # =====================================
-                    # DIAGNÓSTICO
-                    # =====================================
-                    st.subheader(
-                        "🧠 Diagnóstico Físico-Químico"
-                    )
-
-                    col1, col2 = st.columns(2)
-
-                    # =====================================
-                    # COLUNA 1
-                    # =====================================
-                    col1.info(
-                        f"""
-                        ### Estado Interfacial
-
-                        {summary['Interface_State']}
-
-                        ### Regime Elétrico
-
-                        {summary['Conduction_Regime']}
-
-                        ### Classe
-
-                        {summary['Classe']}
-                        """
-                    )
-
-                    # =====================================
-                    # COLUNA 2
-                    # =====================================
-                    col2.info(
-                        f"""
-                        ### Qualidade Ajuste
-
-                        {summary['Qualidade_Ajuste']}
-
-                        ### Homogeneidade
-
-                        {summary['Surface_Homogeneity']:.3f}
-
-                        ### Assimetria
-
-                        {summary['Asymmetry_Index']:.3f}
-                        """
-                    )
-
-                    # =====================================
-                    # SCORE COATING
-                    # =====================================
-                    st.subheader(
-                        "🛡 Compatibilidade para Revestimento"
-                    )
-
-                    coating_score = (
-                        summary[
-                            "Coating_Compatibility"
-                        ]
-                    )
-
-                    st.progress(
-                        float(coating_score / 10)
-                    )
-
-                    st.metric(
-                        "Score Coating",
-                        f"{coating_score:.2f} / 10"
-                    )
-
-                    # =====================================
-                    # INTERPRETAÇÃO
-                    # =====================================
-                    if coating_score >= 8:
-
-                        st.success(
-                            """
-                            Superfície altamente favorável
-                            para revestimentos funcionais.
-                            """
-                        )
-
-                    elif coating_score >= 5:
-
-                        st.warning(
-                            """
-                            Superfície moderadamente
-                            favorável. Recomenda-se
-                            ativação superficial.
-                            """
-                        )
-
-                    else:
-
-                        st.error(
-                            """
-                            Superfície com elevada
-                            influência oxidativa e
-                            interfacial.
-                            """
-                        )
-
-                    # =====================================
-                    # PROPRIEDADES ELÉTRICAS
+                    # MÉTRICAS
                     # =====================================
                     st.subheader(
                         "📊 Propriedades Elétricas"
@@ -326,8 +200,8 @@ def render_resistividade_tab(supabase=None):
                     )
 
                     m3.metric(
-                        "Rs (Ω/sq)",
-                        f"{summary['Sheet_Resistance_Ohm_sq']:.2e}"
+                        "R (Ω)",
+                        f"{summary['Resistance_Ohm']:.2e}"
                     )
 
                     m4.metric(
@@ -336,41 +210,8 @@ def render_resistividade_tab(supabase=None):
                     )
 
                     # =====================================
-                    # INDICADORES INTERFACIAIS
+                    # DATAFRAME
                     # =====================================
-                    st.subheader(
-                        "⚙ Indicadores Interfaciais"
-                    )
-
-                    k1, k2, k3, k4 = st.columns(4)
-
-                    k1.metric(
-                        "Oxide Index",
-                        f"{summary['Oxide_Index']:.3f}"
-                    )
-
-                    k2.metric(
-                        "Defect Density",
-                        f"{summary['Defect_Density']:.3e}"
-                    )
-
-                    k3.metric(
-                        "Não Linearidade",
-                        f"{summary['nonlinearity_index']:.3f}"
-                    )
-
-                    k4.metric(
-                        "Derivative Std",
-                        f"{summary['derivative_std']:.3e}"
-                    )
-
-                    # =====================================
-                    # FEATURES
-                    # =====================================
-                    st.subheader(
-                        "📈 Features Elétricas"
-                    )
-
                     feature_df = pd.DataFrame(
                         [summary]
                     )
@@ -383,14 +224,6 @@ def render_resistividade_tab(supabase=None):
                     # =====================================
                     # SESSION STORAGE
                     # =====================================
-                    feature_df[
-                        "Sample_Group"
-                    ] = sample_group
-
-                    feature_df[
-                        "Thickness_um"
-                    ] = thickness_um
-
                     st.session_state[
                         "electrical_samples"
                     ][file.name] = (
@@ -408,6 +241,79 @@ def render_resistividade_tab(supabase=None):
                     )
 
                     st.warning(str(e))
+
+            # =============================================
+            # FIGURA 28
+            # =============================================
+            acid_exists = any(
+
+                k.upper().startswith("A")
+
+                for k in processed.keys()
+            )
+
+            if acid_exists:
+
+                st.markdown("---")
+
+                st.subheader(
+                    "📈 Figura 28 — Grupo Ácido"
+                )
+
+                fig_acid = build_acid_group_plot(
+                    processed
+                )
+
+                st.pyplot(fig_acid)
+
+                st.caption(
+                    """
+                    Figura 28 – Curvas I×V das amostras
+                    de FC200 submetidas ao tratamento
+                    ácido em diferentes tempos de exposição,
+                    evidenciando a evolução progressiva
+                    da resposta elétrica superficial e o
+                    aumento da resistividade associado
+                    aos processos de passivação interfacial.
+                    """
+                )
+
+            # =============================================
+            # FIGURA 29
+            # =============================================
+            alkaline_exists = any(
+
+                k.upper().startswith("B")
+
+                for k in processed.keys()
+            )
+
+            if alkaline_exists:
+
+                st.markdown("---")
+
+                st.subheader(
+                    "📈 Figura 29 — Grupo Alcalino"
+                )
+
+                fig_alk = build_alkaline_group_plot(
+                    processed
+                )
+
+                st.pyplot(fig_alk)
+
+                st.caption(
+                    """
+                    Figura 29 – Curvas I×V das amostras
+                    de FC200 submetidas ao tratamento
+                    alcalino em diferentes tempos de
+                    exposição, evidenciando comportamento
+                    elétrico mais homogêneo e menor
+                    variação da resposta interfacial
+                    em comparação ao grupo tratado
+                    em meio ácido.
+                    """
+                )
 
         # =================================================
         # DATASET CONSOLIDADO
@@ -481,7 +387,7 @@ def render_resistividade_tab(supabase=None):
                 st.rerun()
 
     # =====================================================
-    # SUBABA PCA
+    # SUBTAB PCA
     # =====================================================
     with subtabs[1]:
 
