@@ -267,109 +267,111 @@ def render_raman_tab():
                     "raman_features"
                 ] = features_df
 
-    # =====================================================
-    # =====================================================
-    # TAB 2 — PCA
-    # =====================================================
-    # =====================================================
-    with tab2:
+   # =====================================================
+# =====================================================
+# TAB 2 — PCA
+# DESATIVADO TEMPORARIAMENTE
+# =====================================================
+# =====================================================
 
-        if "raman_features" not in st.session_state:
+# with tab2:
 
-            st.info(
-                "Faça upload de múltiplos espectros na aba Raman Spectrum."
-            )
+#     if "raman_features" not in st.session_state:
 
-        else:
+#         st.info(
+#             "Faça upload de múltiplos espectros na aba Raman Spectrum."
+#         )
 
-            features_df = st.session_state[
-                "raman_features"
-            ]
+#     else:
 
-            numeric_df = features_df.select_dtypes(
-                include="number"
-            )
+#         features_df = st.session_state[
+#             "raman_features"
+#         ]
 
-            st.subheader("🧠 PCA Raman")
+#         numeric_df = features_df.select_dtypes(
+#             include="number"
+#         )
 
-            pca_result = run_raman_pca(
-                numeric_df
-            )
+#         st.subheader("🧠 PCA Raman")
 
-            st.pyplot(
-                pca_result["figure"]
-            )
+#         pca_result = run_raman_pca(
+#             numeric_df
+#         )
 
-            st.subheader(
-                "📊 Correlação Físico-Química"
-            )
+#         st.pyplot(
+#             pca_result["figure"]
+#         )
 
-            corr = numeric_df.corr()
+#         st.subheader(
+#             "📊 Correlação Físico-Química"
+#         )
 
-            fig_corr, ax = plt.subplots(
+#         corr = numeric_df.corr()
 
-                figsize=(10,8),
+#         fig_corr, ax = plt.subplots(
 
-                dpi=300
-            )
+#             figsize=(10,8),
 
-            im = ax.imshow(
+#             dpi=300
+#         )
 
-                corr,
+#         im = ax.imshow(
 
-                cmap="coolwarm",
+#             corr,
 
-                aspect="auto"
-            )
+#             cmap="coolwarm",
 
-            ax.set_xticks(
-                range(len(corr.columns))
-            )
+#             aspect="auto"
+#         )
 
-            ax.set_yticks(
-                range(len(corr.columns))
-            )
+#         ax.set_xticks(
+#             range(len(corr.columns))
+#         )
 
-            ax.set_xticklabels(
+#         ax.set_yticks(
+#             range(len(corr.columns))
+#         )
 
-                corr.columns,
+#         ax.set_xticklabels(
 
-                rotation=90,
+#             corr.columns,
 
-                fontsize=7
-            )
+#             rotation=90,
 
-            ax.set_yticklabels(
+#             fontsize=7
+#         )
 
-                corr.columns,
+#         ax.set_yticklabels(
 
-                fontsize=7
-            )
+#             corr.columns,
 
-            fig_corr.colorbar(im)
+#             fontsize=7
+#         )
 
-            plt.tight_layout()
+#         fig_corr.colorbar(im)
 
-            st.pyplot(fig_corr)
+#         plt.tight_layout()
 
-            st.subheader(
-                "⬇ Exportação"
-            )
+#         st.pyplot(fig_corr)
 
-            csv = features_df.to_csv(
-                index=False
-            )
+#         st.subheader(
+#             "⬇ Exportação"
+#         )
 
-            st.download_button(
+#         csv = features_df.to_csv(
+#             index=False
+#         )
 
-                "Exportar Features Raman",
+#         st.download_button(
 
-                data=csv,
+#             "Exportar Features Raman",
 
-                file_name="raman_features.csv",
+#             data=csv,
 
-                mime="text/csv"
-            )
+#             file_name="raman_features.csv",
+
+#             mime="text/csv"
+#         )
 
     # =====================================================
     # =====================================================
