@@ -1,13 +1,17 @@
 # =========================================================
 # pca_tab.py
 # SurfaceXLab — PCA Multimodal
-# Upload Manual + Integração Automática
+# CORRIGIDO PARA PCA DO PAPER
 # =========================================================
 
 import streamlit as st
 import pandas as pd
+import numpy as np
 
-from pca_processing import run_pca_analysis
+from sklearn.preprocessing import StandardScaler
+from sklearn.decomposition import PCA
+
+import matplotlib.pyplot as plt
 
 
 # =========================================================
@@ -19,253 +23,427 @@ def render_pca_tab():
 
     st.markdown("""
     Integração multimodal de parâmetros
-    espectroscópicos, elétricos,
-    interfaciais e topográficos.
+    físico-químicos.
     """)
-
-    # =====================================================
-    # MODO
-    # =====================================================
-    mode = st.radio(
-
-        "Modo de análise",
-
-        [
-
-            "📂 Upload Manual",
-            "🔗 Integração Automática"
-
-        ],
-
-        horizontal=True
-    )
 
     st.divider()
 
     # =====================================================
+    # UPLOAD
     # =====================================================
-    # MODO 1 — UPLOAD MANUAL
-    # =====================================================
-    # =====================================================
-    if mode == "📂 Upload Manual":
+    uploaded = st.file_uploader(
 
-        with st.expander(
-            "📋 Exemplo da matriz experimental"
-        ):
+        "Upload matriz PCA (.xlsx, .xls ou .ods)",
 
-            example_df = pd.DataFrame({
+        type=[
+            "xlsx",
+            "xls",
+            "ods"
+        ]
+    )
 
-                "Amostra": [
-                    "C",
-                    "LD",
-                    "MD",
-                    "HD"
-                ],
+    if uploaded is None:
 
-                "Rrms": [
-                    0.3,
-                    1.5,
-                    2.4,
-                    1.0
-                ],
-
-                "ID_IG": [
-                    0.44,
-                    0.55,
-                    0.52,
-                    0.60
-                ],
-
-                "I2D_IG": [
-                    0.23,
-                    0.37,
-                    0.61,
-                    0.71
-                ],
-
-                "Theta": [
-                    119,
-                    133,
-                    140,
-                    152
-                ]
-
-            })
-
-            st.dataframe(
-                example_df,
-                use_container_width=True
-            )
-
-        # =================================================
-        # UPLOAD
-        # =================================================
-        uploaded = st.file_uploader(
-
-            "Upload matriz PCA (.csv ou .xlsx)",
-
-            type=[
-                "csv",
-                "xlsx"
-            ]
+        st.info(
+            "Faça upload da matriz experimental."
         )
 
-        if uploaded is None:
+        return
 
-            st.info(
-                "Faça upload da matriz experimental"
+
+    # =====================================================
+    # LEITURA
+    # =====================================================
+    try:
+
+        if uploaded.name.endswith(".xlsx"):
+
+            df_raw = pd.read_excel(uploaded)
+
+        elif uploaded.name.endswith(".xls"):
+
+            df_raw = pd.read_excel(uploaded)
+
+        elif uploaded.name.endswith(".ods"):
+
+            df_raw = pd.read_excel(
+                uploaded,
+                engine="odf"
             )
 
-            return
-
-        # =================================================
-        # LEITURA
-        # =================================================
-        try:
-
-            if uploaded.name.endswith(".csv"):
-
-                df = pd.read_csv(uploaded)
-
-            else:
-
-                df = pd.read_excel(uploaded)
-
-            st.subheader(
-                "📋 Matriz Experimental"
-            )
-
-            st.dataframe(
-                df,
-                use_container_width=True
-            )
-
-            st.session_state[
-                "pca_samples"
-            ] = df
-
-        except Exception as e:
+        else:
 
             st.error(
-                "Erro na leitura do arquivo"
+                "Formato não suportado."
             )
 
-            st.exception(e)
-
             return
+
+    except Exception as e:
+
+        st.error(
+            "Erro na leitura do arquivo."
+        )
+
+        st.exception(e)
+
+        return
+
+
+    # =====================================================
+    # VISUALIZAÇÃO
+    # =====================================================
+    st.subheader(
+        "📋 Tabela Importada"
+    )
+
+    st.dataframe(
+        df_raw,
+        use_container_width=True
+    )
+
+
+    # =====================================================
+    # PCA
+    # =====================================================
+    run_pca(df_raw)
+
+
+# =========================================================
+# FUNÇÃO LIMPEZA
+# =========================================================
+def extract_mean(value):
+
+    if pd.isna(value):
+
+        return np.nan
+
+    value = str(value)
+
+    value = value.replace(",", ".")
+
+    value = value.replace("−", "-")
+
+    value = value.replace("±", "+-")
+
+    value = value.replace(" ", "")
+
+    try:
+
+        return float(
+            value.split("+-")[0]
+        )
+
+    except:
+
+        return np.nan
+
+
+# =========================================================
+# PCA PAPER
+# =========================================================
+def run_pca(df_raw):
+
+    try:
+
+        # =================================================
+        # PRIMEIRA COLUNA
+        # =================================================
+        col0 = df_raw.columns[0]
+
+        df_raw = df_raw.rename(
+            columns={col0: "Variavel"}
+        )
+
+        # =================================================
+        # REMOVE TEMPERATURA
+        # =================================================
+        df_raw = df_raw[
+            ~df_raw["Variavel"]
+            .astype(str)
+            .str.contains(
+                "Temp",
+                case=False
+            )
+        ]
+
+        # =================================================
+        # COLUNAS
+        # =================================================
+        sample_columns = [
+
+            "ST",
+            "ST.1",
+            "ST.2",
+
+            "T1",
+            "T1.1",
+            "T1.2",
+
+            "T2",
+            "T2.1",
+            "T2.2",
+
+            "T3",
+            "T3.1",
+            "T3.2"
+        ]
+
+        # =================================================
+        # LABELS
+        # =================================================
+        labels = [
+
+            "ST",
+            "ST",
+            "ST",
+
+            "T1",
+            "T1",
+            "T1",
+
+            "T2",
+            "T2",
+            "T2",
+
+            "T3",
+            "T3",
+            "T3"
+        ]
+
+        # =================================================
+        # MATRIZ
+        # =================================================
+        variables = []
+
+        matrix = []
+
+        for _, row in df_raw.iterrows():
+
+            var_name = str(
+                row["Variavel"]
+            )
+
+            variables.append(var_name)
+
+            values = []
+
+            for col in sample_columns:
+
+                val = extract_mean(
+                    row[col]
+                )
+
+                values.append(val)
+
+            matrix.append(values)
+
+        # =================================================
+        # MATRIZ FINAL
+        # =================================================
+        X = np.array(matrix).T
+
+        X = np.nan_to_num(X)
+
+        # =================================================
+        # NORMALIZAÇÃO
+        # =================================================
+        scaler = StandardScaler()
+
+        X_scaled = scaler.fit_transform(X)
 
         # =================================================
         # PCA
         # =================================================
-        run_pca(df)
+        pca = PCA(
+            n_components=2
+        )
 
-    # =====================================================
-    # =====================================================
-    # MODO 2 — INTEGRAÇÃO AUTOMÁTICA
-    # =====================================================
-    # =====================================================
-    else:
+        scores = pca.fit_transform(
+            X_scaled
+        )
 
-        st.subheader(
-            "🔗 Integração automática dos módulos"
+        loadings = pca.components_.T
+
+        explained = (
+            pca.explained_variance_ratio_ * 100
         )
 
         # =================================================
-        # CHECKBOXES
+        # FIGURA
         # =================================================
-        use_raman = st.checkbox(
-            "🧬 Raman",
-            value=True
+        fig, ax = plt.subplots(
+
+            figsize=(8, 5),
+
+            dpi=600
         )
 
-        use_electrical = st.checkbox(
-            "⚡ Resistividade",
-            value=True
-        )
+        fig.patch.set_facecolor("white")
 
-        use_tensiometry = st.checkbox(
-            "💧 Tensiometria",
-            value=True
-        )
-
-        use_profilometry = st.checkbox(
-            "📏 Perfilometria",
-            value=True
-        )
+        ax.set_facecolor("white")
 
         # =================================================
-        # GERAR MATRIZ
+        # SCORES
         # =================================================
-        if st.button(
-            "📊 Gerar PCA Multimodal"
-        ):
+        for i in range(len(scores)):
 
-            try:
+            ax.scatter(
 
-                integrated_df = build_multimodal_dataframe(
+                scores[i, 0],
 
-                    use_raman,
-                    use_electrical,
-                    use_tensiometry,
-                    use_profilometry
+                scores[i, 1],
 
-                )
+                color="black",
 
-                if integrated_df.empty:
+                s=40,
 
-                    st.warning(
-                        "Nenhum dado disponível."
-                    )
+                zorder=3
+            )
 
-                    return
+            ax.text(
 
-                st.subheader(
-                    "📋 Matriz Integrada"
-                )
+                scores[i, 0] + 0.05,
 
-                st.dataframe(
-                    integrated_df,
-                    use_container_width=True
-                )
+                scores[i, 1] + 0.03,
 
-                st.session_state[
-                    "pca_samples"
-                ] = integrated_df
+                labels[i],
 
-                # =========================================
-                # PCA
-                # =========================================
-                run_pca(
-                    integrated_df
-                )
+                fontsize=10,
 
-            except Exception as e:
+                color="blue",
 
-                st.error(
-                    "Erro na integração multimodal"
-                )
+                fontweight="bold"
+            )
 
-                st.exception(e)
+        # =================================================
+        # LOADINGS
+        # =================================================
+        scale = 2.5
 
+        for i, var in enumerate(variables):
 
-# =========================================================
-# EXECUTA PCA
-# =========================================================
-def run_pca(df):
+            x = loadings[i, 0] * scale
 
-    try:
+            y = loadings[i, 1] * scale
 
-        result = run_pca_analysis(df)
+            ax.arrow(
 
+                0,
+                0,
+
+                x,
+                y,
+
+                color="forestgreen",
+
+                linewidth=1.6,
+
+                head_width=0.08,
+
+                length_includes_head=True,
+
+                zorder=2
+            )
+
+            ax.text(
+
+                x * 1.08,
+
+                y * 1.08,
+
+                var,
+
+                color="red",
+
+                fontsize=11,
+
+                fontweight="bold"
+            )
+
+        # =================================================
+        # EIXOS
+        # =================================================
+        ax.axhline(
+
+            0,
+
+            color="gray",
+
+            linewidth=1
+        )
+
+        ax.axvline(
+
+            0,
+
+            color="gray",
+
+            linewidth=1
+        )
+
+        # =================================================
+        # LABELS
+        # =================================================
+        ax.set_xlabel(
+
+            f"Component 1 ({explained[0]:.1f}%)",
+
+            fontsize=12
+        )
+
+        ax.set_ylabel(
+
+            f"Component 2 ({explained[1]:.1f}%)",
+
+            fontsize=12
+        )
+
+        # =================================================
+        # ESTILO PAPER
+        # =================================================
+        ax.spines["top"].set_visible(False)
+
+        ax.spines["right"].set_visible(False)
+
+        ax.tick_params(
+
+            axis="both",
+
+            labelsize=10
+        )
+
+        ax.grid(False)
+
+        # =================================================
+        # LIMITES
+        # =================================================
+        margin = 0.7
+
+        ax.set_xlim(
+
+            scores[:,0].min() - margin,
+
+            scores[:,0].max() + margin
+        )
+
+        ax.set_ylim(
+
+            scores[:,1].min() - margin,
+
+            scores[:,1].max() + margin
+        )
+
+        # =================================================
+        # MOSTRAR FIGURA
+        # =================================================
         st.divider()
 
         st.subheader(
             "📈 PCA Scores + Loadings"
         )
 
-        st.pyplot(
-            result["fig"]
-        )
+        st.pyplot(fig)
 
         # =================================================
         # VARIÂNCIA
@@ -276,36 +454,91 @@ def run_pca(df):
 
             "PC1",
 
-            f'{result["pc1"]:.1f}%'
+            f"{explained[0]:.1f}%"
         )
 
         col2.metric(
 
             "PC2",
 
-            f'{result["pc2"]:.1f}%'
+            f"{explained[1]:.1f}%"
+        )
+
+        # =================================================
+        # SCORES
+        # =================================================
+        scores_df = pd.DataFrame({
+
+            "Amostra": labels,
+
+            "PC1": np.round(
+                scores[:,0], 4
+            ),
+
+            "PC2": np.round(
+                scores[:,1], 4
+            )
+        })
+
+        st.subheader(
+            "📌 Scores"
+        )
+
+        st.dataframe(
+
+            scores_df,
+
+            use_container_width=True
         )
 
         # =================================================
         # LOADINGS
         # =================================================
+        loadings_df = pd.DataFrame({
+
+            "Variavel": variables,
+
+            "PC1": np.round(
+                loadings[:,0], 4
+            ),
+
+            "PC2": np.round(
+                loadings[:,1], 4
+            )
+        })
+
         st.subheader(
             "📌 Loadings"
         )
 
         st.dataframe(
 
-            result["loadings"],
+            loadings_df,
 
             use_container_width=True
         )
 
         # =================================================
-        # DOWNLOAD FIGURA
+        # SAVE FIGURA
+        # =================================================
+        fig.savefig(
+
+            "pca_multimodal.png",
+
+            dpi=600,
+
+            bbox_inches="tight"
+        )
+
+        # =================================================
+        # DOWNLOAD
         # =================================================
         with open(
-            "pca_nanotubos.png",
+
+            "pca_multimodal.png",
+
             "rb"
+
         ) as f:
 
             st.download_button(
@@ -324,108 +557,3 @@ def run_pca(df):
         )
 
         st.exception(e)
-
-
-# =========================================================
-# INTEGRAÇÃO AUTOMÁTICA
-# =========================================================
-def build_multimodal_dataframe(
-
-    use_raman,
-    use_electrical,
-    use_tensiometry,
-    use_profilometry
-
-):
-
-    data = {}
-
-    # =====================================================
-    # RAMAN
-    # =====================================================
-    if use_raman:
-
-        raman_df = st.session_state.get(
-            "raman_samples"
-        )
-
-        if isinstance(raman_df, pd.DataFrame):
-
-            if "ID/IG" in raman_df.columns:
-
-                data["ID_IG"] = raman_df[
-                    "ID/IG"
-                ]
-
-    # =====================================================
-    # ELÉTRICO
-    # =====================================================
-    if use_electrical:
-
-        elec_df = st.session_state.get(
-            "electrical_samples"
-        )
-
-        if isinstance(elec_df, pd.DataFrame):
-
-            if "Resistividade" in elec_df.columns:
-
-                data["Resistividade"] = elec_df[
-                    "Resistividade"
-                ]
-
-    # =====================================================
-    # TENSIOMETRIA
-    # =====================================================
-    if use_tensiometry:
-
-        tens_df = st.session_state.get(
-            "tensiometria_samples"
-        )
-
-        if isinstance(tens_df, pd.DataFrame):
-
-            if "Theta final (°)" in tens_df.columns:
-
-                data["Theta"] = tens_df[
-                    "Theta final (°)"
-                ]
-
-    # =====================================================
-    # PERFILOMETRIA
-    # =====================================================
-    if use_profilometry:
-
-        prof_df = st.session_state.get(
-            "perfilometria_samples"
-        )
-
-        if isinstance(prof_df, pd.DataFrame):
-
-            if "Rq" in prof_df.columns:
-
-                data["Rrms"] = prof_df[
-                    "Rq"
-                ]
-
-    # =====================================================
-    # DATAFRAME FINAL
-    # =====================================================
-    integrated_df = pd.DataFrame(data)
-
-    integrated_df.insert(
-
-        0,
-
-        "Amostra",
-
-        [
-
-            f"S{i+1}"
-            for i in range(
-                len(integrated_df)
-            )
-        ]
-    )
-
-    return integrated_df
