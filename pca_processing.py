@@ -1,7 +1,7 @@
 # =========================================================
-# pca_processing.py
-# SurfaceXLab — PCA Científico
-# Estilo Origin / Publication Grade
+# PCA MULTIMODAL — REPRODUÇÃO PAPER
+# Surface and Interfaces (2022)
+# CORRIGIDO PARA TRIPLICATAS REAIS
 # =========================================================
 
 import pandas as pd
@@ -12,363 +12,516 @@ import matplotlib.pyplot as plt
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
 
+from google.colab import files
+
 
 # =========================================================
-# PCA MULTIMODAL
+# UPLOAD DO ARQUIVO
 # =========================================================
-def run_pca_analysis(df):
 
-    # =====================================================
-    # VALIDAÇÃO INICIAL
-    # =====================================================
-    if df.empty:
+uploaded = files.upload()
 
-        raise ValueError(
-            "DataFrame vazio."
+filename = list(uploaded.keys())[0]
+
+
+# =========================================================
+# LEITURA AUTOMÁTICA
+# =========================================================
+
+if filename.endswith('.xlsx'):
+
+    df_raw = pd.read_excel(filename)
+
+elif filename.endswith('.xls'):
+
+    df_raw = pd.read_excel(filename)
+
+elif filename.endswith('.ods'):
+
+    df_raw = pd.read_excel(
+        filename,
+        engine='odf'
+    )
+
+else:
+
+    raise ValueError(
+        'Formato não suportado'
+    )
+
+
+# =========================================================
+# VISUALIZAÇÃO INICIAL
+# =========================================================
+
+print(df_raw.head())
+
+
+# =========================================================
+# RENOMEIA PRIMEIRA COLUNA
+# =========================================================
+
+col0 = df_raw.columns[0]
+
+df_raw = df_raw.rename(
+    columns={col0: 'Variavel'}
+)
+
+
+# =========================================================
+# REMOVE LINHAS INVÁLIDAS
+# =========================================================
+
+df_raw = df_raw[
+    ~df_raw['Variavel']
+    .astype(str)
+    .str.contains('Temp', case=False)
+]
+
+
+# =========================================================
+# FUNÇÃO LIMPEZA
+# =========================================================
+
+def extract_mean(value):
+
+    if pd.isna(value):
+
+        return np.nan
+
+    value = str(value)
+
+    value = value.replace(',', '.')
+
+    value = value.replace('−', '-')
+
+    value = value.replace('±', '+-')
+
+    value = value.replace(' ', '')
+
+    try:
+
+        return float(
+            value.split('+-')[0]
         )
 
-    if "Amostra" not in df.columns:
+    except:
 
-        raise ValueError(
-            "Coluna 'Amostra' não encontrada."
+        return np.nan
+
+
+# =========================================================
+# IDENTIFICA COLUNAS REAIS
+# =========================================================
+
+print('\nCOLUNAS ENCONTRADAS:\n')
+
+print(df_raw.columns.tolist())
+
+
+# =========================================================
+# AJUSTE DAS COLUNAS
+# =========================================================
+# ALTERE AQUI CASO O NOME
+# ESTEJA DIFERENTE NO ODS
+# =========================================================
+
+sample_columns = [
+
+    'ST',
+    'ST.1',
+    'ST.2',
+
+    'T1',
+    'T1.1',
+    'T1.2',
+
+    'T2',
+    'T2.1',
+    'T2.2',
+
+    'T3',
+    'T3.1',
+    'T3.2'
+]
+
+
+# =========================================================
+# LABELS
+# =========================================================
+
+labels = [
+
+    'ST',
+    'ST',
+    'ST',
+
+    'T1',
+    'T1',
+    'T1',
+
+    'T2',
+    'T2',
+    'T2',
+
+    'T3',
+    'T3',
+    'T3'
+]
+
+
+# =========================================================
+# EXTRAÇÃO DOS DADOS
+# =========================================================
+
+variables = []
+
+matrix = []
+
+
+for _, row in df_raw.iterrows():
+
+    var_name = str(
+        row['Variavel']
+    )
+
+    variables.append(var_name)
+
+    values = []
+
+    for col in sample_columns:
+
+        val = extract_mean(
+            row[col]
         )
 
-    # =====================================================
-    # PREPARAÇÃO
-    # =====================================================
-    labels = df["Amostra"].astype(str)
+        values.append(val)
 
-    X = df.drop(
-        columns=["Amostra"]
-    ).copy()
+    matrix.append(values)
 
-    # =====================================================
-    # LIMPEZA DOS DADOS
-    # =====================================================
 
-    # remove espaços vazios
-    X = X.replace(
-        r'^\s*$',
-        np.nan,
-        regex=True
-    )
+# =========================================================
+# MATRIZ FINAL
+# =========================================================
 
-    # remove símbolo °
-    X = X.replace(
-        "°",
-        "",
-        regex=True
-    )
+X = np.array(matrix).T
 
-    # troca vírgula decimal
-    X = X.replace(
-        ",",
-        ".",
-        regex=True
-    )
 
-    # =====================================================
-    # CONVERSÃO NUMÉRICA
-    # =====================================================
-    X = X.apply(
-        pd.to_numeric,
-        errors="coerce"
-    )
+# =========================================================
+# VALIDAÇÃO
+# =========================================================
 
-    # =====================================================
-    # REMOVE COLUNAS VAZIAS
-    # =====================================================
-    X = X.dropna(
-        axis=1,
-        how="all"
-    )
+print('\nFORMATO MATRIZ:\n')
 
-    # =====================================================
-    # REMOVE LINHAS VAZIAS
-    # =====================================================
-    valid_rows = ~X.isna().all(axis=1)
+print(X.shape)
 
-    X = X.loc[valid_rows]
+# esperado:
+# (12, número_variáveis)
 
-    labels = labels.loc[valid_rows]
 
-    # =====================================================
-    # PREENCHIMENTO NaN
-    # =====================================================
-    X = X.fillna(0)
+# =========================================================
+# REMOVE NAN
+# =========================================================
 
-    # =====================================================
-    # VALIDAÇÃO FINAL
-    # =====================================================
-    if X.shape[0] < 2:
+X = np.nan_to_num(X)
 
-        raise ValueError(
-            "Número insuficiente de amostras."
-        )
 
-    if X.shape[1] < 2:
+# =========================================================
+# NORMALIZAÇÃO
+# =========================================================
 
-        raise ValueError(
-            "Número insuficiente de variáveis."
-        )
+scaler = StandardScaler()
 
-    # =====================================================
-    # NORMALIZAÇÃO
-    # =====================================================
-    scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
 
-    X_scaled = scaler.fit_transform(X)
 
-    # =====================================================
-    # PCA
-    # =====================================================
-    pca = PCA(
-        n_components=2
-    )
+# =========================================================
+# PCA
+# =========================================================
 
-    scores = pca.fit_transform(
-        X_scaled
-    )
+pca = PCA(
+    n_components=2
+)
 
-    loadings = pca.components_.T
+scores = pca.fit_transform(
+    X_scaled
+)
 
-    explained = (
-        pca.explained_variance_ratio_ * 100
-    )
+loadings = pca.components_.T
 
-    # =====================================================
-    # FIGURA CIENTÍFICA — ESTILO ORIGIN
-    # =====================================================
-    fig, ax = plt.subplots(
+explained = (
+    pca.explained_variance_ratio_ * 100
+)
 
-        figsize=(6, 6),
 
-        dpi=600
-    )
+# =========================================================
+# LOADINGS SCALE
+# =========================================================
 
-    # fundo branco
-    fig.patch.set_facecolor("white")
+scale = 2.5
 
-    ax.set_facecolor("white")
 
-    # =====================================================
-    # SCORES
-    # =====================================================
+# =========================================================
+# FIGURA
+# =========================================================
+
+fig, ax = plt.subplots(
+
+    figsize=(8, 5),
+
+    dpi=600
+)
+
+fig.patch.set_facecolor('white')
+
+ax.set_facecolor('white')
+
+
+# =========================================================
+# SCORES
+# =========================================================
+
+for i in range(len(scores)):
+
     ax.scatter(
 
-        scores[:, 0],
+        scores[i, 0],
 
-        scores[:, 1],
+        scores[i, 1],
 
-        s=55,
+        color='black',
 
-        linewidth=0.8,
+        s=40,
 
         zorder=3
     )
 
-    # =====================================================
-    # LABELS DAS AMOSTRAS
-    # =====================================================
-    for i, label in enumerate(labels):
+    ax.text(
 
-        ax.annotate(
+        scores[i, 0] + 0.05,
 
-            label,
+        scores[i, 1] + 0.03,
 
-            (
+        labels[i],
 
-                scores[i, 0],
+        fontsize=10,
 
-                scores[i, 1]
+        color='blue',
 
-            ),
+        fontweight='bold'
+    )
 
-            textcoords="offset points",
 
-            xytext=(2, 4),
+# =========================================================
+# LOADINGS
+# =========================================================
 
-            fontsize=6
-        )
+for i, var in enumerate(variables):
 
-    # =====================================================
-    # LOADINGS
-    # =====================================================
-    scale = 2.2
+    x = loadings[i, 0] * scale
 
-    for i, var in enumerate(X.columns):
+    y = loadings[i, 1] * scale
 
-        x = loadings[i, 0] * scale
-
-        y = loadings[i, 1] * scale
-
-        ax.arrow(
-
-            0,
-            0,
-
-            x,
-            y,
-
-            linewidth=1.0,
-
-            head_width=0.045,
-
-            length_includes_head=True,
-
-            zorder=2
-        )
-
-        # =================================================
-        # LABELS DOS VETORES
-        # =================================================
-        ax.annotate(
-
-            var,
-
-            (x, y),
-
-            textcoords="offset points",
-
-            xytext=(8, 4),
-
-            fontsize=6
-        )
-
-    # =====================================================
-    # EIXOS
-    # =====================================================
-    ax.axhline(
+    ax.arrow(
 
         0,
-
-        linewidth=0.8
-    )
-
-    ax.axvline(
-
         0,
 
-        linewidth=0.8
+        x,
+        y,
+
+        color='forestgreen',
+
+        linewidth=1.6,
+
+        head_width=0.08,
+
+        length_includes_head=True,
+
+        zorder=2
     )
 
-    # =====================================================
-    # LABELS EIXOS
-    # =====================================================
-    ax.set_xlabel(
+    ax.text(
 
-        f"PC1 ({explained[0]:.1f}%)",
+        x * 1.08,
 
-        fontsize=8
+        y * 1.08,
+
+        var,
+
+        color='red',
+
+        fontsize=11,
+
+        fontweight='bold'
     )
 
-    ax.set_ylabel(
 
-        f"PC2 ({explained[1]:.1f}%)",
+# =========================================================
+# EIXOS CENTRAIS
+# =========================================================
 
-        fontsize=8
+ax.axhline(
+
+    0,
+
+    color='gray',
+
+    linewidth=1
+)
+
+ax.axvline(
+
+    0,
+
+    color='gray',
+
+    linewidth=1
+)
+
+
+# =========================================================
+# LABELS DOS EIXOS
+# =========================================================
+
+ax.set_xlabel(
+
+    f'Component 1 ({explained[0]:.1f}%)',
+
+    fontsize=12
+)
+
+ax.set_ylabel(
+
+    f'Component 2 ({explained[1]:.1f}%)',
+
+    fontsize=12
+)
+
+
+# =========================================================
+# ESTILO PAPER
+# =========================================================
+
+ax.spines['top'].set_visible(False)
+
+ax.spines['right'].set_visible(False)
+
+ax.tick_params(
+
+    axis='both',
+
+    labelsize=10
+)
+
+ax.grid(False)
+
+
+# =========================================================
+# LIMITES
+# =========================================================
+
+margin = 0.7
+
+ax.set_xlim(
+
+    scores[:,0].min() - margin,
+
+    scores[:,0].max() + margin
+)
+
+ax.set_ylim(
+
+    scores[:,1].min() - margin,
+
+    scores[:,1].max() + margin
+)
+
+
+# =========================================================
+# SALVAR FIGURAS
+# =========================================================
+
+plt.tight_layout()
+
+plt.savefig(
+
+    'PCA_Surface_Interfaces.tiff',
+
+    dpi=600,
+
+    bbox_inches='tight'
+)
+
+plt.savefig(
+
+    'PCA_Surface_Interfaces.png',
+
+    dpi=600,
+
+    bbox_inches='tight'
+)
+
+
+# =========================================================
+# MOSTRAR
+# =========================================================
+
+plt.show()
+
+
+# =========================================================
+# SCORES DATAFRAME
+# =========================================================
+
+scores_df = pd.DataFrame({
+
+    'Amostra': labels,
+
+    'PC1': np.round(
+        scores[:,0], 4
+    ),
+
+    'PC2': np.round(
+        scores[:,1], 4
     )
+})
 
-    # =====================================================
-    # ESTILO ORIGIN
-    # =====================================================
+print('\nSCORES:\n')
 
-    # remove topo/direita
-    ax.spines["top"].set_visible(False)
+print(scores_df)
 
-    ax.spines["right"].set_visible(False)
 
-    # espessura fina
-    ax.spines["left"].set_linewidth(1)
+# =========================================================
+# LOADINGS DATAFRAME
+# =========================================================
 
-    ax.spines["bottom"].set_linewidth(1)
+loadings_df = pd.DataFrame({
 
-    # ticks menores
-    ax.tick_params(
+    'Variavel': variables,
 
-        axis='both',
+    'PC1': np.round(
+        loadings[:,0], 4
+    ),
 
-        which='major',
-
-        labelsize=10,
-
-        width=1,
-
-        length=5
+    'PC2': np.round(
+        loadings[:,1], 4
     )
+})
 
-    # remove grid
-    ax.grid(False)
+print('\nLOADINGS:\n')
 
-    # proporção quadrada
-    ax.set_box_aspect(1)
+print(loadings_df)
 
-    plt.tight_layout()
 
-    # =====================================================
-    # SAVE FIGURE
-    # =====================================================
-    fig.savefig(
+# =========================================================
+# DOWNLOAD AUTOMÁTICO
+# =========================================================
 
-        "pca_multimodal.tiff",
+files.download(
+    'PCA_Surface_Interfaces.tiff'
+)
 
-        dpi=600,
-
-        bbox_inches="tight"
-    )
-
-    # =====================================================
-    # LOADINGS DATAFRAME
-    # =====================================================
-    loadings_df = pd.DataFrame({
-
-        "Variável": X.columns,
-
-        "PC1": np.round(
-            loadings[:, 0],
-            4
-        ),
-
-        "PC2": np.round(
-            loadings[:, 1],
-            4
-        )
-
-    })
-
-    # =====================================================
-    # SCORES DATAFRAME
-    # =====================================================
-    scores_df = pd.DataFrame({
-
-        "Amostra": labels,
-
-        "PC1": np.round(
-            scores[:, 0],
-            4
-        ),
-
-        "PC2": np.round(
-            scores[:, 1],
-            4
-        )
-
-    })
-
-    # =====================================================
-    # RETURN
-    # =====================================================
-    return {
-
-        "fig": fig,
-
-        "pc1": explained[0],
-
-        "pc2": explained[1],
-
-        "loadings": loadings_df,
-
-        "scores": scores_df,
-
-        "explained_variance": explained
-    }
+files.download(
+    'PCA_Surface_Interfaces.png'
+)
