@@ -323,7 +323,7 @@ def run_pca(df_raw):
 
                 labels[i],
 
-                fontsize=10,
+                fontsize=7,
 
                 color="blue",
 
@@ -370,7 +370,7 @@ def run_pca(df_raw):
 
                 color="red",
 
-                fontsize=10,
+                fontsize=7,
 
                 fontweight="bold"
             )
@@ -403,14 +403,14 @@ def run_pca(df_raw):
 
             f"PC1 ({explained[0]:.1f}%)",
 
-            fontsize=12
+            fontsize=8
         )
 
         ax.set_ylabel(
 
             f"PC2 ({explained[1]:.1f}%)",
 
-            fontsize=12
+            fontsize=8
         )
 
         # =================================================
