@@ -320,7 +320,7 @@ def run_pca(df_raw):
 
                 color="black",
 
-                s=40,
+                s=20,
 
                 zorder=3
             )
@@ -361,7 +361,7 @@ def run_pca(df_raw):
 
                 color="forestgreen",
 
-                linewidth=2.0,
+                linewidth=1.0,
 
                 head_width=0.08,
 
@@ -372,9 +372,9 @@ def run_pca(df_raw):
 
             ax.text(
 
-                x * 1.12,
+                x * 1.32,
 
-                y * 1.12,
+                y * 1.32,
 
                 var,
 
