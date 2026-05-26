@@ -308,7 +308,7 @@ for i in range(len(scores)):
 
         color='black',
 
-        s=100,
+        s=40,
 
         zorder=3
     )
