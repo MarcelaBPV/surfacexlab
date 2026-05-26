@@ -376,7 +376,7 @@ def run_pca_weg(df_raw):
 
                 color="black",
 
-                s=55,
+                s=20,
 
                 zorder=3
             )
@@ -389,7 +389,7 @@ def run_pca_weg(df_raw):
 
                 labels[i],
 
-                fontsize=9,
+                fontsize=6,
 
                 color="blue",
 
@@ -416,7 +416,7 @@ def run_pca_weg(df_raw):
 
                 color="forestgreen",
 
-                linewidth=2.2,
+                linewidth=1.0,
 
                 head_width=0.08,
 
@@ -435,7 +435,7 @@ def run_pca_weg(df_raw):
 
                 color="red",
 
-                fontsize=11,
+                fontsize=6,
 
                 fontweight="bold"
             )
@@ -470,14 +470,14 @@ def run_pca_weg(df_raw):
 
             f"PC1 ({explained[0]:.1f}%)",
 
-            fontsize=13
+            fontsize=8
         )
 
         ax.set_ylabel(
 
             f"PC2 ({explained[1]:.1f}%)",
 
-            fontsize=13
+            fontsize=8
         )
 
         # =================================================
@@ -492,7 +492,7 @@ def run_pca_weg(df_raw):
 
             axis="both",
 
-            labelsize=11,
+            labelsize=6,
 
             width=1.5,
 
