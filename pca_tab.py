@@ -374,9 +374,9 @@ def run_pca(df_raw):
 
                 color="forestgreen",
 
-                linewidth=2.0,
+                linewidth=1.0,
 
-                head_width=0.08,
+                head_width=0.04,
 
                 length_includes_head=True,
 
