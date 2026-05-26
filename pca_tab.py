@@ -310,7 +310,7 @@ def run_pca(df_raw):
 
                 color="black",
 
-                s=40,
+                s=20,
 
                 zorder=3
             )
