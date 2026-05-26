@@ -387,7 +387,7 @@ def run_pca(df_raw):
 
                 x * 1.05,
 
-                y * 1.05,
+                y * 1.25,
 
                 var,
 
