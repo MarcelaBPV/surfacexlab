@@ -1,7 +1,8 @@
 # =========================================================
 # PCA MULTIMODAL — REPRODUÇÃO PAPER
 # Surface and Interfaces (2022)
-# CORRIGIDO DEFINITIVAMENTE PARA TRIPLICATAS
+# CORRIGIDO DEFINITIVAMENTE
+# REPRODUÇÃO VISUAL IGUAL AO PAPER
 # =========================================================
 
 import pandas as pd
@@ -52,7 +53,6 @@ else:
 
 # =========================================================
 # NORMALIZAÇÃO DOS NOMES DAS COLUNAS
-# EVITA ERRO ST.1 / T1.1 / DUPLICATAS
 # =========================================================
 
 new_cols = []
@@ -272,6 +272,16 @@ explained = (
 
 
 # =========================================================
+# CORREÇÃO DEFINITIVA
+# INVERTE PC1 PARA FICAR IGUAL AO PAPER
+# =========================================================
+
+scores[:,0] = -scores[:,0]
+
+loadings[:,0] = -loadings[:,0]
+
+
+# =========================================================
 # ESCALA DOS LOADINGS
 # =========================================================
 
@@ -308,20 +318,20 @@ for i in range(len(scores)):
 
         color='black',
 
-        s=20,
+        s=40,
 
         zorder=3
     )
 
     ax.text(
 
-        scores[i,0] + 0.05,
+        scores[i,0] + 0.07,
 
-        scores[i,1] + 0.03,
+        scores[i,1] + 0.04,
 
         labels[i],
 
-        fontsize=4,
+        fontsize=9,
 
         color='blue',
 
@@ -349,9 +359,9 @@ for i, var in enumerate(variables):
 
         color='forestgreen',
 
-        linewidth=1.1,
+        linewidth=2.0,
 
-        head_width=0.03,
+        head_width=0.08,
 
         length_includes_head=True,
 
@@ -360,15 +370,15 @@ for i, var in enumerate(variables):
 
     ax.text(
 
-        x * 1.20,
+        x * 1.15,
 
-        y * 1.20,
+        y * 1.15,
 
         var,
 
         color='red',
 
-        fontsize=4,
+        fontsize=11,
 
         fontweight='bold'
     )
@@ -384,7 +394,7 @@ ax.axhline(
 
     color='gray',
 
-    linewidth=1
+    linewidth=1.5
 )
 
 ax.axvline(
@@ -393,7 +403,7 @@ ax.axvline(
 
     color='gray',
 
-    linewidth=1
+    linewidth=1.5
 )
 
 
@@ -405,14 +415,14 @@ ax.set_xlabel(
 
     f'PC1 ({explained[0]:.1f}%)',
 
-    fontsize=4
+    fontsize=13
 )
 
 ax.set_ylabel(
 
     f'PC2 ({explained[1]:.1f}%)',
 
-    fontsize=4
+    fontsize=13
 )
 
 
@@ -428,7 +438,11 @@ ax.tick_params(
 
     axis='both',
 
-    labelsize=4
+    labelsize=11,
+
+    width=1.5,
+
+    length=7
 )
 
 ax.grid(False)
@@ -456,14 +470,19 @@ ax.set_ylim(
 
 
 # =========================================================
-# SALVAR
+# LAYOUT
 # =========================================================
 
 plt.tight_layout()
 
+
+# =========================================================
+# SALVAR
+# =========================================================
+
 plt.savefig(
 
-    'PCA_Surface_Interfaces.tiff',
+    'PCA_Surface_Interfaces_CORRIGIDO.tiff',
 
     dpi=600,
 
@@ -472,7 +491,7 @@ plt.savefig(
 
 plt.savefig(
 
-    'PCA_Surface_Interfaces.png',
+    'PCA_Surface_Interfaces_CORRIGIDO.png',
 
     dpi=600,
 
@@ -532,13 +551,40 @@ print(loadings_df)
 
 
 # =========================================================
+# EXPORTA CSV
+# =========================================================
+
+scores_df.to_csv(
+
+    'export_scores.csv',
+
+    index=False
+)
+
+loadings_df.to_csv(
+
+    'export_loadings.csv',
+
+    index=False
+)
+
+
+# =========================================================
 # DOWNLOAD AUTOMÁTICO
 # =========================================================
 
 files.download(
-    'PCA_Surface_Interfaces.tiff'
+    'PCA_Surface_Interfaces_CORRIGIDO.tiff'
 )
 
 files.download(
-    'PCA_Surface_Interfaces.png'
+    'PCA_Surface_Interfaces_CORRIGIDO.png'
+)
+
+files.download(
+    'export_scores.csv'
+)
+
+files.download(
+    'export_loadings.csv'
 )
