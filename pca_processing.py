@@ -349,9 +349,9 @@ for i, var in enumerate(variables):
 
         color='forestgreen',
 
-        linewidth=1.6,
+        linewidth=1.1,
 
-        head_width=0.08,
+        head_width=0.03,
 
         length_includes_head=True,
 
@@ -360,9 +360,9 @@ for i, var in enumerate(variables):
 
     ax.text(
 
-        x * 1.20,
+        x * 1.30,
 
-        y * 1.20,
+        y * 0.80,
 
         var,
 
