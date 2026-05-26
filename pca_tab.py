@@ -320,9 +320,9 @@ def run_pca(df_raw):
 
                 color="black",
 
-                s=20,
+                s=10,
 
-                zorder=3
+                zorder=2
             )
 
             ax.text(
