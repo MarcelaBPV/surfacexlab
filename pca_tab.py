@@ -310,14 +310,14 @@ def run_pca(df_raw):
 
                 color="black",
 
-                s=20,
+                s=10,
 
                 zorder=3
             )
 
             ax.text(
 
-                scores[i, 0] + 0.03,
+                scores[i, 0] + 0.09,
 
                 scores[i, 1] + 0.01,
 
