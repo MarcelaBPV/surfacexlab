@@ -383,9 +383,9 @@ def run_pca_weg(df_raw):
 
             ax.text(
 
-                scores[i,0] + 0.04,
+                scores[i,0] + 0.06,
 
-                scores[i,1] + 0.02,
+                scores[i,1] + 0.04,
 
                 labels[i],
 
