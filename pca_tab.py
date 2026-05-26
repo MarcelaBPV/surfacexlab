@@ -340,9 +340,9 @@ def run_pca(df_raw):
 
             ax.text(
 
-                scores[i, 0] + 0.1,
+                scores[i, 0] + 0.12,
 
-                scores[i, 1] + 0.06,
+                scores[i, 1] + 0.08,
 
                 labels[i],
 
