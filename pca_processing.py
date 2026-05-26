@@ -1,7 +1,7 @@
 # =========================================================
 # PCA MULTIMODAL — REPRODUÇÃO PAPER
 # Surface and Interfaces (2022)
-# CORRIGIDO PARA TRIPLICATAS REAIS
+# CORRIGIDO DEFINITIVAMENTE PARA TRIPLICATAS
 # =========================================================
 
 import pandas as pd
@@ -16,7 +16,7 @@ from google.colab import files
 
 
 # =========================================================
-# UPLOAD DO ARQUIVO
+# UPLOAD
 # =========================================================
 
 uploaded = files.upload()
@@ -51,14 +51,50 @@ else:
 
 
 # =========================================================
+# NORMALIZAÇÃO DOS NOMES DAS COLUNAS
+# EVITA ERRO ST.1 / T1.1 / DUPLICATAS
+# =========================================================
+
+new_cols = []
+
+counter = {}
+
+for col in df_raw.columns:
+
+    col = str(col).strip()
+
+    col = col.replace(' ', '')
+
+    if col in counter:
+
+        counter[col] += 1
+
+        col = f"{col}_{counter[col]}"
+
+    else:
+
+        counter[col] = 0
+
+    new_cols.append(col)
+
+df_raw.columns = new_cols
+
+
+# =========================================================
 # VISUALIZAÇÃO INICIAL
 # =========================================================
+
+print('\nCOLUNAS DETECTADAS:\n')
+
+print(df_raw.columns.tolist())
+
+print('\nHEAD:\n')
 
 print(df_raw.head())
 
 
 # =========================================================
-# RENOMEIA PRIMEIRA COLUNA
+# PRIMEIRA COLUNA = VARIÁVEL
 # =========================================================
 
 col0 = df_raw.columns[0]
@@ -75,7 +111,11 @@ df_raw = df_raw.rename(
 df_raw = df_raw[
     ~df_raw['Variavel']
     .astype(str)
-    .str.contains('Temp', case=False)
+    .str.contains(
+        'Temp',
+        case=False,
+        na=False
+    )
 ]
 
 
@@ -111,63 +151,41 @@ def extract_mean(value):
 
 
 # =========================================================
-# IDENTIFICA COLUNAS REAIS
+# IDENTIFICA AUTOMATICAMENTE AS COLUNAS
 # =========================================================
 
-print('\nCOLUNAS ENCONTRADAS:\n')
+sample_columns = []
 
-print(df_raw.columns.tolist())
+for col in df_raw.columns:
+
+    if col == 'Variavel':
+
+        continue
+
+    sample_columns.append(col)
 
 
-# =========================================================
-# AJUSTE DAS COLUNAS
-# =========================================================
-# ALTERE AQUI CASO O NOME
-# ESTEJA DIFERENTE NO ODS
-# =========================================================
+print('\nCOLUNAS USADAS:\n')
 
-sample_columns = [
-
-    'ST',
-    'ST.1',
-    'ST.2',
-
-    'T1',
-    'T1.1',
-    'T1.2',
-
-    'T2',
-    'T2.1',
-    'T2.2',
-
-    'T3',
-    'T3.1',
-    'T3.2'
-]
+print(sample_columns)
 
 
 # =========================================================
-# LABELS
+# LABELS AUTOMÁTICOS
 # =========================================================
 
-labels = [
+labels = []
 
-    'ST',
-    'ST',
-    'ST',
+for col in sample_columns:
 
-    'T1',
-    'T1',
-    'T1',
+    base = col.split('_')[0]
 
-    'T2',
-    'T2',
-    'T2',
+    labels.append(base)
 
-    'T3',
-    'T3',
-    'T3'
-]
+
+print('\nLABELS:\n')
+
+print(labels)
 
 
 # =========================================================
@@ -192,7 +210,9 @@ for _, row in df_raw.iterrows():
     for col in sample_columns:
 
         val = extract_mean(
-            row[col]
+
+            row.get(col, np.nan)
+
         )
 
         values.append(val)
@@ -208,22 +228,19 @@ X = np.array(matrix).T
 
 
 # =========================================================
+# REMOVE NAN
+# =========================================================
+
+X = np.nan_to_num(X)
+
+
+# =========================================================
 # VALIDAÇÃO
 # =========================================================
 
 print('\nFORMATO MATRIZ:\n')
 
 print(X.shape)
-
-# esperado:
-# (12, número_variáveis)
-
-
-# =========================================================
-# REMOVE NAN
-# =========================================================
-
-X = np.nan_to_num(X)
 
 
 # =========================================================
@@ -255,7 +272,7 @@ explained = (
 
 
 # =========================================================
-# LOADINGS SCALE
+# ESCALA DOS LOADINGS
 # =========================================================
 
 scale = 2.5
@@ -267,7 +284,7 @@ scale = 2.5
 
 fig, ax = plt.subplots(
 
-    figsize=(8, 5),
+    figsize=(8,5),
 
     dpi=600
 )
@@ -285,9 +302,9 @@ for i in range(len(scores)):
 
     ax.scatter(
 
-        scores[i, 0],
+        scores[i,0],
 
-        scores[i, 1],
+        scores[i,1],
 
         color='black',
 
@@ -298,9 +315,9 @@ for i in range(len(scores)):
 
     ax.text(
 
-        scores[i, 0] + 0.05,
+        scores[i,0] + 0.05,
 
-        scores[i, 1] + 0.03,
+        scores[i,1] + 0.03,
 
         labels[i],
 
@@ -318,9 +335,9 @@ for i in range(len(scores)):
 
 for i, var in enumerate(variables):
 
-    x = loadings[i, 0] * scale
+    x = loadings[i,0] * scale
 
-    y = loadings[i, 1] * scale
+    y = loadings[i,1] * scale
 
     ax.arrow(
 
@@ -351,14 +368,14 @@ for i, var in enumerate(variables):
 
         color='red',
 
-        fontsize=11,
+        fontsize=10,
 
         fontweight='bold'
     )
 
 
 # =========================================================
-# EIXOS CENTRAIS
+# EIXOS
 # =========================================================
 
 ax.axhline(
@@ -381,26 +398,26 @@ ax.axvline(
 
 
 # =========================================================
-# LABELS DOS EIXOS
+# LABELS
 # =========================================================
 
 ax.set_xlabel(
 
-    f'Component 1 ({explained[0]:.1f}%)',
+    f'PC1 ({explained[0]:.1f}%)',
 
     fontsize=12
 )
 
 ax.set_ylabel(
 
-    f'Component 2 ({explained[1]:.1f}%)',
+    f'PC2 ({explained[1]:.1f}%)',
 
     fontsize=12
 )
 
 
 # =========================================================
-# ESTILO PAPER
+# ESTILO
 # =========================================================
 
 ax.spines['top'].set_visible(False)
@@ -439,7 +456,7 @@ ax.set_ylim(
 
 
 # =========================================================
-# SALVAR FIGURAS
+# SALVAR
 # =========================================================
 
 plt.tight_layout()
@@ -471,7 +488,7 @@ plt.show()
 
 
 # =========================================================
-# SCORES DATAFRAME
+# SCORES
 # =========================================================
 
 scores_df = pd.DataFrame({
@@ -493,7 +510,7 @@ print(scores_df)
 
 
 # =========================================================
-# LOADINGS DATAFRAME
+# LOADINGS
 # =========================================================
 
 loadings_df = pd.DataFrame({
