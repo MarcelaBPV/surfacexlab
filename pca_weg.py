@@ -1,1134 +1,548 @@
 # =========================================================
-# SurfaceXLab — Intelligent Raman Analysis Platform
-# Automatic Peak Detection + Molecular Identification
+# PCA MULTIMODAL — FC200 WEG
+# ESTILO SURFACE AND INTERFACES
+# VERSÃO FINAL CORRIGIDA
 # =========================================================
 
-import streamlit as st
-import numpy as np
 import pandas as pd
+import numpy as np
+
 import matplotlib.pyplot as plt
 
-from scipy.signal import savgol_filter, find_peaks
-from scipy import sparse
-from scipy.sparse.linalg import spsolve
+from sklearn.preprocessing import StandardScaler
+from sklearn.decomposition import PCA
 
-from lmfit.models import (
-    LorentzianModel,
-    GaussianModel,
-    PseudoVoigtModel
+from google.colab import files
+
+
+# =========================================================
+# UPLOAD
+# =========================================================
+
+uploaded = files.upload()
+
+filename = list(uploaded.keys())[0]
+
+
+# =========================================================
+# LEITURA AUTOMÁTICA
+# =========================================================
+
+if filename.endswith('.xlsx'):
+
+    df_raw = pd.read_excel(filename)
+
+elif filename.endswith('.xls'):
+
+    df_raw = pd.read_excel(filename)
+
+elif filename.endswith('.ods'):
+
+    df_raw = pd.read_excel(
+        filename,
+        engine='odf'
+    )
+
+else:
+
+    raise ValueError(
+        'Formato não suportado'
+    )
+
+
+# =========================================================
+# NORMALIZAÇÃO NOMES COLUNAS
+# =========================================================
+
+new_cols = []
+
+counter = {}
+
+for col in df_raw.columns:
+
+    col = str(col).strip()
+
+    col = col.replace(' ', '')
+
+    if col in counter:
+
+        counter[col] += 1
+
+        col = f"{col}_{counter[col]}"
+
+    else:
+
+        counter[col] = 0
+
+    new_cols.append(col)
+
+df_raw.columns = new_cols
+
+
+# =========================================================
+# PRIMEIRA COLUNA = VARIÁVEL
+# =========================================================
+
+col0 = df_raw.columns[0]
+
+df_raw = df_raw.rename(
+    columns={col0: 'Variavel'}
 )
 
-# =========================================================
-# BLOOD RAMAN DATABASE
-# =========================================================
-
-BLOOD_RAMAN_DATABASE = {
-
-    720: "Adenine",
-
-    752: "Tryptophan / Hemoglobin",
-
-    785: "DNA/RNA",
-
-    830: "Tyrosine",
-
-    852: "Proteins",
-
-    935: "α-helix proteins",
-
-    1003: "Phenylalanine",
-
-    1030: "Phenylalanine",
-
-    1080: "Lipids / DNA",
-
-    1125: "Lipids",
-
-    1155: "Carotenoids",
-
-    1170: "Tyrosine",
-
-    1207: "Tryptophan/Fenylalanine",
-
-    1245: "Amide III",
-
-    1300: "Lipids",
-
-    1335: "DNA / Proteins",
-
-    1365: "Hemoglobin",
-
-    1445: "CH₂ lipids/proteins",
-
-    1547: "Hemoglobin",
-
-    1562: "Tryptophan",
-
-    1575: "Hemoglobin",
-
-    1602: "Phenylalanine/Tyrosine",
-
-    1620: "Hemoglobin",
-
-    1655: "Amide I",
-
-    1660: "Unsaturated lipids"
-}
 
 # =========================================================
-# BASELINE CORRECTION
+# REMOVE TEMPERATURA
 # =========================================================
 
-def baseline_asls(
-    y,
-    lam=1e8,
-    p=0.0001,
-    niter=10
-):
-
-    y = np.asarray(y, dtype=float)
-
-    L = len(y)
-
-    D = sparse.diags(
-        [1, -2, 1],
-        [0, -1, -2],
-        shape=(L, L - 2),
-        dtype=float
-    ).tocsc()
-
-    w = np.ones(L)
-
-    for _ in range(niter):
-
-        W = sparse.spdiags(
-            w,
-            0,
-            L,
-            L
-        ).tocsc()
-
-        Z = W + lam * D.dot(D.transpose())
-
-        z = spsolve(
-            Z,
-            w * y
-        )
-
-        w = p * (y > z) + (1 - p) * (y < z)
-
-    return z
-
-# =========================================================
-# MAIN FUNCTION
-# =========================================================
-
-def render_spectral_deconvolution_tab():
-
-    st.title(
-        "🧬 Intelligent Raman Molecular Analysis"
+df_raw = df_raw[
+    ~df_raw['Variavel']
+    .astype(str)
+    .str.contains(
+        'Temp',
+        case=False,
+        na=False
     )
+]
 
-    st.markdown("""
 
-    Plataforma automatizada para:
+# =========================================================
+# FUNÇÃO LIMPEZA
+# =========================================================
 
-    - Raman Mapping
-    - Peak Detection
-    - Molecular Identification
-    - Automatic Spectral Fitting
-    - Residual Analysis
-    - Origin Validation
-    - Raman Intelligence
+def extract_mean(value):
 
-    """)
+    if pd.isna(value):
 
-    st.divider()
+        return np.nan
 
-    # =====================================================
-    # CONFIG
-    # =====================================================
+    value = str(value)
 
-    st.subheader(
-        "⚙ Processing Configuration"
-    )
+    value = value.replace(',', '.')
 
-    col1, col2, col3 = st.columns(3)
+    value = value.replace('−', '-')
 
-    with col1:
+    value = value.replace('±', '+-')
 
-        model_type = st.selectbox(
-
-            "Fit Model",
-
-            [
-                "Pseudo-Voigt",
-                "Lorentzian",
-                "Gaussian"
-            ]
-        )
-
-    with col2:
-
-        smooth_window = st.slider(
-
-            "Savitzky-Golay Window",
-
-            5,
-
-            51,
-
-            11,
-
-            step=2
-        )
-
-    with col3:
-
-        polyorder = st.slider(
-
-            "Polynomial Order",
-
-            2,
-
-            5,
-
-            3
-        )
-
-    # =====================================================
-    # FILE UPLOAD
-    # =====================================================
-
-    uploaded_file = st.file_uploader(
-
-        "Upload Raman Mapping",
-
-        type=[
-            "txt",
-            "csv",
-            "xlsx"
-        ]
-    )
-
-    if uploaded_file is None:
-
-        st.info(
-            "Upload Raman mapping file."
-        )
-
-        return
-
-    # =====================================================
-    # LOAD FILE
-    # =====================================================
+    value = value.replace(' ', '')
 
     try:
 
-        if uploaded_file.name.endswith(".xlsx"):
-
-            df = pd.read_excel(
-                uploaded_file
-            )
-
-        else:
-
-            df = pd.read_csv(
-
-                uploaded_file,
-
-                sep=r"\s+|,|;",
-
-                engine="python"
-            )
-
-    except Exception as e:
-
-        st.error(
-            f"File loading error: {e}"
+        return float(
+            value.split('+-')[0]
         )
 
-        return
+    except:
 
-    st.success(
-        "File loaded successfully."
+        return np.nan
+
+
+# =========================================================
+# IDENTIFICA COLUNAS AMOSTRAS
+# =========================================================
+
+sample_columns = []
+
+for col in df_raw.columns:
+
+    if col == 'Variavel':
+
+        continue
+
+    sample_columns.append(col)
+
+
+# =========================================================
+# LABELS
+# =========================================================
+
+labels = []
+
+for col in sample_columns:
+
+    labels.append(col)
+
+
+# =========================================================
+# EXTRAÇÃO DADOS
+# =========================================================
+
+variables = []
+
+matrix = []
+
+for _, row in df_raw.iterrows():
+
+    var_name = str(
+        row['Variavel']
     )
 
-    df.columns = [
-        str(c).strip()
-        for c in df.columns
-    ]
+    variables.append(var_name)
 
-    st.write(df.head())
+    values = []
 
-    # =====================================================
-    # REQUIRED COLUMNS
-    # =====================================================
+    for col in sample_columns:
 
-    if not all(col in df.columns for col in ['x', 'y']):
+        val = extract_mean(
 
-        st.error(
-            "File must contain x and y columns."
+            row.get(col, np.nan)
+
         )
 
-        return
+        values.append(val)
 
-    # =====================================================
-    # COLUMN SELECTION
-    # =====================================================
+    matrix.append(values)
 
-    cols = df.columns.tolist()
 
-    col1, col2 = st.columns(2)
+# =========================================================
+# MATRIZ FINAL
+# =========================================================
 
-    with col1:
+X = np.array(matrix).T
 
-        x_col = st.selectbox(
+X = np.nan_to_num(X)
 
-            "Raman Shift Column",
 
-            cols,
+# =========================================================
+# NORMALIZAÇÃO
+# =========================================================
 
-            index=min(2, len(cols)-1)
-        )
+scaler = StandardScaler()
 
-    with col2:
+X_scaled = scaler.fit_transform(X)
 
-        y_col = st.selectbox(
 
-            "Intensity Column",
+# =========================================================
+# PCA
+# =========================================================
 
-            cols,
+pca = PCA(
+    n_components=2
+)
 
-            index=min(3, len(cols)-1)
-        )
+scores = pca.fit_transform(
+    X_scaled
+)
 
-    # =====================================================
-    # GROUPED DATA
-    # =====================================================
+loadings = pca.components_.T
 
-    grouped = df.groupby(['x', 'y'])
+explained = (
+    pca.explained_variance_ratio_ * 100
+)
 
-    coords = list(grouped.groups.keys())
 
-    # =====================================================
-    # TABS
-    # =====================================================
+# =========================================================
+# CORREÇÃO ESPELHAMENTO
+# =========================================================
 
-    tab1, tab2, tab3 = st.tabs([
+scores[:,0] = -scores[:,0]
 
-        "🔬 Raman Mapping",
+loadings[:,0] = -loadings[:,0]
 
-        "⚙ Spectral Processing",
 
-        "📉 Validation"
-    ])
+# =========================================================
+# ESCALA LOADINGS
+# =========================================================
 
-    # =====================================================
-    # TAB 1 — RAMAN MAPPING
-    # =====================================================
+scale = 2.8
 
-    with tab1:
 
-        st.header(
-            "🔬 Raman Mapping Viewer"
-        )
+# =========================================================
+# FIGURA
+# =========================================================
 
-        st.success(
-            f"{len(coords)} spectra detected."
-        )
+fig, ax = plt.subplots(
 
-        n_spectra = st.slider(
+    figsize=(10,6),
 
-            "Number of spectra",
+    dpi=600
+)
 
-            min_value=1,
+fig.patch.set_facecolor('white')
 
-            max_value=min(36, len(coords)),
+ax.set_facecolor('white')
 
-            value=9
-        )
 
-        coords_plot = coords[:n_spectra]
+# =========================================================
+# SCORES
+# =========================================================
 
-        ncols = 3
-        nrows = int(np.ceil(n_spectra / ncols))
+for i in range(len(scores)):
 
-        fig_map, axes = plt.subplots(
+    ax.scatter(
 
-            nrows=nrows,
+        scores[i,0],
 
-            ncols=ncols,
+        scores[i,1],
 
-            figsize=(15, 4*nrows)
-        )
+        color='black',
 
-        axes = np.array(axes).flatten()
+        s=55,
 
-        for idx, (x_pos, y_pos) in enumerate(coords_plot):
+        zorder=3
+    )
 
-            sub = grouped.get_group(
-                (x_pos, y_pos)
-            )
+    ax.text(
 
-            wave = sub[x_col].values
-            inten = sub[y_col].values
+        scores[i,0] + 0.06,
 
-            order = np.argsort(wave)
+        scores[i,1] + 0.04,
 
-            wave = wave[order]
-            inten = inten[order]
+        labels[i],
 
-            axes[idx].plot(
+        fontsize=10,
 
-                wave,
+        color='blue',
 
-                inten,
+        fontweight='bold'
+    )
 
-                color='black',
 
-                lw=1
-            )
+# =========================================================
+# LOADINGS
+# =========================================================
 
-            axes[idx].set_title(
-                f"Y = {y_pos:.0f} µm"
-            )
+for i, var in enumerate(variables):
 
-            axes[idx].grid(alpha=0.2)
+    x = loadings[i,0] * scale
 
-        for j in range(idx+1, len(axes)):
+    y = loadings[i,1] * scale
 
-            fig_map.delaxes(
-                axes[j]
-            )
+    ax.arrow(
 
-        plt.tight_layout()
+        0,
+        0,
 
-        st.pyplot(fig_map)
+        x,
+        y,
 
-    # =====================================================
-    # TAB 2 — PROCESSING
-    # =====================================================
+        color='forestgreen',
 
-    with tab2:
+        linewidth=2.2,
 
-        st.header(
-            "⚙ Spectral Processing"
-        )
+        head_width=0.08,
 
-        # =================================================
-        # SELECT SPECTRUM
-        # =================================================
+        length_includes_head=True,
 
-        st.subheader(
-            "🎯 Select Spectrum"
-        )
+        zorder=2
+    )
 
-        coord_options = [
+    ax.text(
 
-            f"X={x} | Y={y}"
+        x * 1.15,
 
-            for x,y in coords
-        ]
+        y * 1.15,
 
-        selected_coord = st.selectbox(
+        var,
 
-            "Choose spectrum",
+        color='red',
 
-            coord_options
-        )
+        fontsize=11,
 
-        selected_idx = coord_options.index(
-            selected_coord
-        )
+        fontweight='bold'
+    )
 
-        x_sel, y_sel = coords[selected_idx]
 
-        selected_spectrum = grouped.get_group(
-            (x_sel, y_sel)
-        )
+# =========================================================
+# EIXOS
+# =========================================================
 
-        st.success(
-            f"Selected spectrum: X={x_sel} | Y={y_sel}"
-        )
+ax.axhline(
 
-        # =================================================
-        # EXTRACT
-        # =================================================
+    0,
 
-        x = selected_spectrum[x_col].values
-        y = selected_spectrum[y_col].values
+    color='gray',
 
-        order = np.argsort(x)
+    linewidth=1.5
+)
 
-        x = x[order]
-        y = y[order]
+ax.axvline(
 
-        # =================================================
-        # REGION
-        # =================================================
+    0,
 
-        st.subheader(
-            "🔍 Spectral Region"
-        )
+    color='gray',
 
-        col1, col2 = st.columns(2)
+    linewidth=1.5
+)
 
-        with col1:
 
-            x_min = st.number_input(
+# =========================================================
+# LABELS
+# =========================================================
 
-                "Min Raman",
+ax.set_xlabel(
 
-                value=600.0
-            )
+    f'PC1 ({explained[0]:.1f}%)',
 
-        with col2:
+    fontsize=13
+)
 
-            x_max = st.number_input(
+ax.set_ylabel(
 
-                "Max Raman",
+    f'PC2 ({explained[1]:.1f}%)',
 
-                value=1800.0
-            )
+    fontsize=13
+)
 
-        mask = (
 
-            (x >= x_min) &
+# =========================================================
+# ESTILO
+# =========================================================
 
-            (x <= x_max)
-        )
+ax.spines['top'].set_visible(False)
 
-        x = x[mask]
-        y = y[mask]
+ax.spines['right'].set_visible(False)
 
-        # =================================================
-        # PREPROCESSING
-        # =================================================
+ax.tick_params(
 
-        st.subheader(
-            "📊 Spectral Preprocessing"
-        )
+    axis='both',
 
-        y_smooth = savgol_filter(
+    labelsize=11,
 
-            y,
+    width=1.5,
 
-            smooth_window,
+    length=7
+)
 
-            polyorder
-        )
+ax.grid(False)
 
-        baseline = baseline_asls(
 
-            y_smooth,
+# =========================================================
+# LIMITES
+# =========================================================
 
-            lam=1e8,
+margin = 0.7
 
-            p=0.0001
-        )
+ax.set_xlim(
 
-        y_corr = y_smooth - baseline
+    scores[:,0].min() - margin,
 
-        y_corr = y_corr - np.min(y_corr)
+    scores[:,0].max() + margin
+)
 
-        # =================================================
-        # COMPACT PREPROCESSING FIGURE
-        # =================================================
+ax.set_ylim(
 
-        fig_pre, (ax1, ax2) = plt.subplots(
+    scores[:,1].min() - margin,
 
-            2,
+    scores[:,1].max() + margin
+)
 
-            1,
 
-            figsize=(8,5),
+# =========================================================
+# LAYOUT
+# =========================================================
 
-            sharex=True,
+plt.tight_layout()
 
-            gridspec_kw={
-                'height_ratios': [1, 1]
-            }
-        )
 
-        ax1.plot(
+# =========================================================
+# EXPORTA FIGURAS
+# =========================================================
 
-            x,
+plt.savefig(
 
-            y,
+    'PCA_WEG_FC200.tiff',
 
-            color='gray',
+    dpi=600,
 
-            lw=1.2,
+    bbox_inches='tight'
+)
 
-            label='Raw'
-        )
+plt.savefig(
 
-        ax1.plot(
+    'PCA_WEG_FC200.png',
 
-            x,
+    dpi=600,
 
-            y_smooth,
+    bbox_inches='tight'
+)
 
-            color='orange',
 
-            lw=1.8,
+# =========================================================
+# MOSTRAR
+# =========================================================
 
-            label='Smoothed'
-        )
+plt.show()
 
-        ax1.plot(
 
-            x,
+# =========================================================
+# SCORES
+# =========================================================
 
-            baseline,
+scores_df = pd.DataFrame({
 
-            color='green',
+    'Amostra': labels,
 
-            lw=2,
+    'PC1': np.round(
+        scores[:,0], 4
+    ),
 
-            label='Baseline'
-        )
+    'PC2': np.round(
+        scores[:,1], 4
+    )
+})
 
-        ax1.legend(
-            fontsize=8
-        )
+print('\nSCORES:\n')
 
-        ax1.grid(alpha=0.2)
+print(scores_df)
 
-        ax1.set_ylabel(
-            "Intensity",
-            fontsize=9
-        )
 
-        ax2.plot(
+# =========================================================
+# LOADINGS
+# =========================================================
 
-            x,
+loadings_df = pd.DataFrame({
 
-            y_corr,
+    'Variavel': variables,
 
-            color='red',
+    'PC1': np.round(
+        loadings[:,0], 4
+    ),
 
-            lw=2
-        )
+    'PC2': np.round(
+        loadings[:,1], 4
+    )
+})
 
-        ax2.set_xlabel(
-            "Raman shift (cm⁻¹)",
-            fontsize=10
-        )
+print('\nLOADINGS:\n')
 
-        ax2.set_ylabel(
-            "Normalized",
-            fontsize=9
-        )
+print(loadings_df)
 
-        ax2.grid(alpha=0.2)
 
-        plt.tight_layout()
+# =========================================================
+# EXPORTA CSV
+# =========================================================
 
-        st.pyplot(fig_pre)
+scores_df.to_csv(
 
+    'export_scores.csv',
 
-        # =================================================
-        # AUTOMATIC PEAK DETECTION
-        # =================================================
+    index=False
+)
 
-        st.subheader(
-            "🧠 Automatic Raman Analysis"
-        )
+loadings_df.to_csv(
 
-        peak_idx, props = find_peaks(
+    'export_loadings.csv',
 
-            y_corr,
+    index=False
+)
 
-            prominence=0.12,
 
-            width=6,
+# =========================================================
+# DOWNLOAD AUTOMÁTICO
+# =========================================================
 
-            distance=30
-        )
+files.download(
+    'PCA_WEG_FC200.tiff'
+)
 
-        peak_positions = x[peak_idx]
+files.download(
+    'PCA_WEG_FC200.png'
+)
 
-        peak_heights = y_corr[peak_idx]
+files.download(
+    'export_scores.csv'
+)
 
-        # =================================================
-        # PEAK DETECTION FIGURE
-        # =================================================
-
-        st.subheader(
-            "📍 Automatic Peak Detection"
-        )
-
-        fig_peaks, ax_peaks = plt.subplots(
-            figsize=(10,4)
-        )
-
-        ax_peaks.plot(
-
-            x,
-
-            y_corr,
-
-            color='black',
-
-            lw=2
-        )
-
-        ax_peaks.scatter(
-
-            peak_positions,
-
-            peak_heights,
-
-            color='red',
-
-            s=70,
-
-            zorder=5
-        )
-
-        for peak, height in zip(
-
-            peak_positions,
-
-            peak_heights
-        ):
-
-            ax_peaks.annotate(
-
-                f"{peak:.0f}",
-
-                xy=(peak, height),
-
-                xytext=(peak+8, height*1.05),
-
-                fontsize=9,
-
-                fontweight='bold'
-            )
-
-        ax_peaks.set_xlabel(
-            "Raman shift (cm⁻¹)"
-        )
-
-        ax_peaks.set_ylabel(
-            "Corrected Intensity"
-        )
-
-        ax_peaks.grid(alpha=0.2)
-
-        plt.tight_layout()
-
-        st.pyplot(fig_peaks)
-
-                 # =================================================
-        # MOLECULAR IDENTIFICATION
-        # =================================================
-
-        identified_peaks = []
-
-        for peak, height in zip(
-
-            peak_positions,
-
-            peak_heights
-        ):
-
-            found = False
-
-            for known_peak, assignment in BLOOD_RAMAN_DATABASE.items():
-
-                if abs(peak - known_peak) <= 10:
-
-                    identified_peaks.append({
-
-                        "Peak":
-                            round(float(peak),1),
-
-                        "Reference":
-                            float(known_peak),
-
-                        "Assignment":
-                            str(assignment),
-
-                        "Intensity":
-                            round(float(height),2)
-                    })
-
-                    found = True
-
-            if not found:
-
-                identified_peaks.append({
-
-                    "Peak":
-                        round(float(peak),1),
-
-                    "Reference":
-                        np.nan,
-
-                    "Assignment":
-                        "Unknown",
-
-                    "Intensity":
-                        round(float(height),2)
-                })
-
-        # =================================================
-        # DATAFRAME
-        # =================================================
-
-        identified_df = pd.DataFrame(
-            identified_peaks
-        )
-
-        identified_df["Reference"] = pd.to_numeric(
-
-            identified_df["Reference"],
-
-            errors="coerce"
-        )
-
-        identified_df["Peak"] = pd.to_numeric(
-
-            identified_df["Peak"],
-
-            errors="coerce"
-        )
-
-        identified_df["Intensity"] = pd.to_numeric(
-
-            identified_df["Intensity"],
-
-            errors="coerce"
-        )
-
-        # =================================================
-        # SHOW TABLE
-        # =================================================
-
-        st.subheader(
-            "🧬 Molecular Identification"
-        )
-
-        st.dataframe(
-
-            identified_df,
-
-            width='stretch'
-        )
-
-        # =================================================
-        # BUILD FIT MODEL
-        # =================================================
-
-        model = None
-        params = None
-
-        for i, peak in enumerate(peak_positions):
-
-            prefix = f"p{i}_"
-
-            if model_type == "Lorentzian":
-
-                peak_model = LorentzianModel(
-                    prefix=prefix
-                )
-
-            elif model_type == "Gaussian":
-
-                peak_model = GaussianModel(
-                    prefix=prefix
-                )
-
-            else:
-
-                peak_model = PseudoVoigtModel(
-                    prefix=prefix
-                )
-
-            if model is None:
-
-                model = peak_model
-
-            else:
-
-                model += peak_model
-
-            pars = peak_model.make_params()
-
-            pars[prefix+'center'].set(
-
-                value=float(peak),
-
-                min=float(peak)-10,
-
-                max=float(peak)+10
-            )
-
-            pars[prefix+'sigma'].set(
-
-                value=22,
-
-                min=5,
-
-                max=60
-            )
-
-            pars[prefix+'amplitude'].set(
-
-                value=float(peak_heights[i])*50,
-
-                min=0
-            )
-
-            if model_type == "Pseudo-Voigt":
-
-                pars[prefix+'fraction'].set(
-
-                    value=0.5,
-
-                    min=0,
-
-                    max=1
-                )
-
-            if params is None:
-
-                params = pars
-
-            else:
-
-                params.update(pars)
-
-        # =================================================
-        # FIT
-        # =================================================
-
-        result = model.fit(
-
-            y_corr,
-
-            params,
-
-            x=x
-        )
-
-        components = result.eval_components(
-            x=x
-        )
-
-        residual = y_corr - result.best_fit
-
-        rmse = np.sqrt(
-            np.mean(residual**2)
-        )
-
-        # =================================================
-        # SPECTRAL DECONVOLUTION
-        # =================================================
-
-        st.subheader(
-            "🧠 Spectral Deconvolution"
-        )
-
-        fig_fit, ax_fit = plt.subplots(
-            figsize=(12,6)
-        )
-
-        # =================================================
-        # EXPERIMENTAL
-        # =================================================
-
-        ax_fit.plot(
-
-            x,
-
-            y_corr,
-
-            color='gray',
-
-            lw=2.5,
-
-            label='Experimental'
-        )
-
-        # =================================================
-        # GLOBAL FIT
-        # =================================================
-
-        ax_fit.plot(
-
-            x,
-
-            result.best_fit,
-
-            '--',
-
-            color='red',
-
-            lw=2.5,
-
-            label='Global Fit'
-        )
-
-        # =================================================
-        # COMPONENTS
-        # =================================================
-
-        colors = plt.cm.Set2.colors
-
-        for i, peak in enumerate(peak_positions):
-
-            prefix = f"p{i}_"
-
-            comp = components[prefix]
-
-            ax_fit.fill_between(
-
-                x,
-
-                0,
-
-                comp,
-
-                alpha=0.45,
-
-                color=colors[
-                    i % len(colors)
-                ]
-            )
-
-            ax_fit.plot(
-
-                x,
-
-                comp,
-
-                color=colors[
-                    i % len(colors)
-                ],
-
-                lw=1.5
-            )
-
-        # =================================================
-        # LABELS
-        # =================================================
-
-        for _, row in identified_df.iterrows():
-
-            peak = row["Peak"]
-
-            label = row["Assignment"]
-
-            idx = np.argmin(
-                np.abs(x - peak)
-            )
-
-            ypos = y_corr[idx]
-
-            ax_fit.annotate(
-
-                f"{peak:.0f}\n{label}",
-
-                xy=(peak, ypos),
-
-                xytext=(peak+8, ypos*1.15),
-
-                fontsize=9,
-
-                fontweight='bold',
-
-                arrowprops=dict(
-                    arrowstyle='->',
-                    lw=1
-                )
-            )
-
-        ax_fit.set_xlabel(
-            "Raman shift (cm⁻¹)",
-            fontsize=14
-        )
-
-        ax_fit.set_ylabel(
-            "Corrected Intensity",
-            fontsize=14
-        )
-
-        ax_fit.legend()
-
-        ax_fit.grid(alpha=0.2)
-
-        plt.tight_layout()
-
-        st.pyplot(fig_fit)
-
-        # =================================================
-        # RESIDUAL
-        # =================================================
-
-        st.subheader(
-            "📉 Residual"
-        )
-
-        fig_res, ax_res = plt.subplots(
-            figsize=(10,2.5)
-        )
-
-        ax_res.plot(
-
-            x,
-
-            residual,
-
-            color='black'
-        )
-
-        ax_res.axhline(
-
-            0,
-
-            linestyle='--',
-
-            color='red'
-        )
-
-        ax_res.grid(alpha=0.2)
-
-        ax_res.set_xlabel(
-            "Raman shift (cm⁻¹)"
-        )
-
-        ax_res.set_ylabel(
-            "Residual"
-        )
-
-        plt.tight_layout()
-
-        st.pyplot(fig_res)
-
-        # =================================================
-        # RMSE
-        # =================================================
-
-        st.metric(
-            "RMSE",
-            f"{rmse:.6f}"
-        )
-        
-        # =================================================
-        # IDENTIFIED PEAKS
-        # =================================================
-
-        st.subheader(
-            "🧬 Automatic Molecular Identification"
-        )
-
-        st.dataframe(
-
-            identified_df,
-
-            width='stretch'
-        )
+files.download(
+    'export_loadings.csv'
+)
