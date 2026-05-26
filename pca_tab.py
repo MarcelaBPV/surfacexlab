@@ -288,7 +288,7 @@ def run_pca(df_raw):
         # =================================================
         fig, ax = plt.subplots(
 
-            figsize=(8, 5),
+            figsize=(7, 4),
 
             dpi=600
         )
@@ -317,13 +317,13 @@ def run_pca(df_raw):
 
             ax.text(
 
-                scores[i, 0] + 0.05,
+                scores[i, 0] + 0.03,
 
-                scores[i, 1] + 0.03,
+                scores[i, 1] + 0.01,
 
                 labels[i],
 
-                fontsize=7,
+                fontsize=6,
 
                 color="blue",
 
@@ -370,7 +370,7 @@ def run_pca(df_raw):
 
                 color="red",
 
-                fontsize=7,
+                fontsize=6,
 
                 fontweight="bold"
             )
@@ -403,14 +403,14 @@ def run_pca(df_raw):
 
             f"PC1 ({explained[0]:.1f}%)",
 
-            fontsize=8
+            fontsize=6
         )
 
         ax.set_ylabel(
 
             f"PC2 ({explained[1]:.1f}%)",
 
-            fontsize=8
+            fontsize=6
         )
 
         # =================================================
@@ -424,7 +424,7 @@ def run_pca(df_raw):
 
             axis="both",
 
-            labelsize=10
+            labelsize=6
         )
 
         ax.grid(False)
