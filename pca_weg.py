@@ -2,7 +2,7 @@
 # PCA_WEG.PY
 # SurfaceXLab — PCA FC200 WEG
 # STREAMLIT CLOUD COMPATÍVEL
-# VERSÃO FINAL
+# VERSÃO FINAL CORRIGIDA
 # =========================================================
 
 import streamlit as st
@@ -40,13 +40,15 @@ def render_pca_weg():
 
     uploaded = st.file_uploader(
 
-        "Upload matriz PCA (.xlsx, .xls ou .ods)",
+        "Upload matriz PCA WEG (.xlsx, .xls ou .ods)",
 
         type=[
             "xlsx",
             "xls",
             "ods"
-        ]
+        ],
+
+        key="pca_weg_uploader"
     )
 
     if uploaded is None:
