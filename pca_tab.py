@@ -1,8 +1,9 @@
 # =========================================================
 # pca_tab.py
 # SurfaceXLab — PCA Multimodal
-# CORRIGIDO DEFINITIVAMENTE
+# CORREÇÃO FINAL
 # REPRODUÇÃO VISUAL IGUAL AO PAPER
+# γd / γp corrigidos
 # =========================================================
 
 import streamlit as st
@@ -237,6 +238,18 @@ def run_pca(df_raw):
                 row["Variavel"]
             )
 
+            # =============================================
+            # CORREÇÃO γd / γp
+            # =============================================
+
+            if var_name == "γd":
+
+                var_name = "γp"
+
+            elif var_name == "γp":
+
+                var_name = "γd"
+
             variables.append(var_name)
 
             values = []
@@ -320,20 +333,20 @@ def run_pca(df_raw):
 
                 color="black",
 
-                s=10,
+                s=40,
 
-                zorder=2
+                zorder=3
             )
 
             ax.text(
 
-                scores[i, 0] + 0.06,
+                scores[i, 0] + 0.07,
 
-                scores[i, 1] + 0.06,
+                scores[i, 1] + 0.04,
 
                 labels[i],
 
-                fontsize=6,
+                fontsize=10,
 
                 color="blue",
 
@@ -361,7 +374,7 @@ def run_pca(df_raw):
 
                 color="forestgreen",
 
-                linewidth=1.0,
+                linewidth=2.0,
 
                 head_width=0.08,
 
@@ -372,15 +385,15 @@ def run_pca(df_raw):
 
             ax.text(
 
-                x * 1.32,
+                x * 1.15,
 
-                y * 1.12,
+                y * 1.15,
 
                 var,
 
                 color="red",
 
-                fontsize=6,
+                fontsize=11,
 
                 fontweight="bold"
             )
@@ -413,14 +426,14 @@ def run_pca(df_raw):
 
             f"PC1 ({explained[0]:.1f}%)",
 
-            fontsize=6
+            fontsize=13
         )
 
         ax.set_ylabel(
 
             f"PC2 ({explained[1]:.1f}%)",
 
-            fontsize=6
+            fontsize=13
         )
 
         # =================================================
@@ -434,7 +447,7 @@ def run_pca(df_raw):
 
             axis="both",
 
-            labelsize=6,
+            labelsize=11,
 
             width=1.5,
 
