@@ -360,9 +360,9 @@ for i, var in enumerate(variables):
 
     ax.text(
 
-        x * 1.12,
+        x * 1.20,
 
-        y * 1.12,
+        y * 1.20,
 
         var,
 
