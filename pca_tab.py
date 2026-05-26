@@ -385,7 +385,7 @@ def run_pca(df_raw):
 
             ax.text(
 
-                x * 1.05,
+                x * 1.25,
 
                 y * 1.25,
 
