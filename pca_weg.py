@@ -1,8 +1,11 @@
 # =========================================================
-# PCA MULTIMODAL — FC200 WEG
-# ESTILO SURFACE AND INTERFACES
-# VERSÃO FINAL CORRIGIDA
+# PCA_WEG.PY
+# SurfaceXLab — PCA FC200 WEG
+# STREAMLIT CLOUD COMPATÍVEL
+# VERSÃO FINAL
 # =========================================================
+
+import streamlit as st
 
 import pandas as pd
 import numpy as np
@@ -11,98 +14,106 @@ import matplotlib.pyplot as plt
 
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
-
-from google.colab import files
-
-
-# =========================================================
-# UPLOAD
-# =========================================================
-
-uploaded = files.upload()
-
-filename = list(uploaded.keys())[0]
+from sklearn.impute import SimpleImputer
 
 
 # =========================================================
-# LEITURA AUTOMÁTICA
+# FUNÇÃO PRINCIPAL
 # =========================================================
 
-if filename.endswith('.xlsx'):
+def render_pca_weg():
 
-    df_raw = pd.read_excel(filename)
+    st.header("📊 PCA Multimodal — FC200 WEG")
 
-elif filename.endswith('.xls'):
-
-    df_raw = pd.read_excel(filename)
-
-elif filename.endswith('.ods'):
-
-    df_raw = pd.read_excel(
-        filename,
-        engine='odf'
+    st.markdown(
+        """
+        Integração multimodal de parâmetros
+        físico-químicos experimentais.
+        """
     )
 
-else:
+    st.divider()
 
-    raise ValueError(
-        'Formato não suportado'
+    # =====================================================
+    # UPLOAD
+    # =====================================================
+
+    uploaded = st.file_uploader(
+
+        "Upload matriz PCA (.xlsx, .xls ou .ods)",
+
+        type=[
+            "xlsx",
+            "xls",
+            "ods"
+        ]
     )
 
+    if uploaded is None:
 
-# =========================================================
-# NORMALIZAÇÃO NOMES COLUNAS
-# =========================================================
+        st.info(
+            "Faça upload da matriz experimental."
+        )
 
-new_cols = []
+        return
 
-counter = {}
+    # =====================================================
+    # LEITURA
+    # =====================================================
 
-for col in df_raw.columns:
+    try:
 
-    col = str(col).strip()
+        if uploaded.name.endswith(".xlsx"):
 
-    col = col.replace(' ', '')
+            df_raw = pd.read_excel(uploaded)
 
-    if col in counter:
+        elif uploaded.name.endswith(".xls"):
 
-        counter[col] += 1
+            df_raw = pd.read_excel(uploaded)
 
-        col = f"{col}_{counter[col]}"
+        elif uploaded.name.endswith(".ods"):
 
-    else:
+            df_raw = pd.read_excel(
+                uploaded,
+                engine="odf"
+            )
 
-        counter[col] = 0
+        else:
 
-    new_cols.append(col)
+            st.error(
+                "Formato não suportado."
+            )
 
-df_raw.columns = new_cols
+            return
 
+    except Exception as e:
 
-# =========================================================
-# PRIMEIRA COLUNA = VARIÁVEL
-# =========================================================
+        st.error(
+            "Erro na leitura do arquivo."
+        )
 
-col0 = df_raw.columns[0]
+        st.exception(e)
 
-df_raw = df_raw.rename(
-    columns={col0: 'Variavel'}
-)
+        return
 
+    # =====================================================
+    # MOSTRA TABELA
+    # =====================================================
 
-# =========================================================
-# REMOVE TEMPERATURA
-# =========================================================
-
-df_raw = df_raw[
-    ~df_raw['Variavel']
-    .astype(str)
-    .str.contains(
-        'Temp',
-        case=False,
-        na=False
+    st.subheader(
+        "📋 Tabela Importada"
     )
-]
+
+    st.dataframe(
+        df_raw,
+        use_container_width=True
+    )
+
+    # =====================================================
+    # EXECUTA PCA
+    # =====================================================
+
+    run_pca_weg(df_raw)
 
 
 # =========================================================
@@ -117,18 +128,18 @@ def extract_mean(value):
 
     value = str(value)
 
-    value = value.replace(',', '.')
+    value = value.replace(",", ".")
 
-    value = value.replace('−', '-')
+    value = value.replace("−", "-")
 
-    value = value.replace('±', '+-')
+    value = value.replace("±", "+-")
 
-    value = value.replace(' ', '')
+    value = value.replace(" ", "")
 
     try:
 
         return float(
-            value.split('+-')[0]
+            value.split("+-")[0]
         )
 
     except:
@@ -137,412 +148,553 @@ def extract_mean(value):
 
 
 # =========================================================
-# IDENTIFICA COLUNAS AMOSTRAS
-# =========================================================
-
-sample_columns = []
-
-for col in df_raw.columns:
-
-    if col == 'Variavel':
-
-        continue
-
-    sample_columns.append(col)
-
-
-# =========================================================
-# LABELS
-# =========================================================
-
-labels = []
-
-for col in sample_columns:
-
-    labels.append(col)
-
-
-# =========================================================
-# EXTRAÇÃO DADOS
-# =========================================================
-
-variables = []
-
-matrix = []
-
-for _, row in df_raw.iterrows():
-
-    var_name = str(
-        row['Variavel']
-    )
-
-    variables.append(var_name)
-
-    values = []
-
-    for col in sample_columns:
-
-        val = extract_mean(
-
-            row.get(col, np.nan)
-
-        )
-
-        values.append(val)
-
-    matrix.append(values)
-
-
-# =========================================================
-# MATRIZ FINAL
-# =========================================================
-
-X = np.array(matrix).T
-
-X = np.nan_to_num(X)
-
-
-# =========================================================
-# NORMALIZAÇÃO
-# =========================================================
-
-scaler = StandardScaler()
-
-X_scaled = scaler.fit_transform(X)
-
-
-# =========================================================
 # PCA
 # =========================================================
 
-pca = PCA(
-    n_components=2
-)
+def run_pca_weg(df_raw):
 
-scores = pca.fit_transform(
-    X_scaled
-)
+    try:
 
-loadings = pca.components_.T
+        # =================================================
+        # PRIMEIRA COLUNA
+        # =================================================
 
-explained = (
-    pca.explained_variance_ratio_ * 100
-)
+        col0 = df_raw.columns[0]
 
+        df_raw = df_raw.rename(
+            columns={col0: "Variavel"}
+        )
 
-# =========================================================
-# CORREÇÃO ESPELHAMENTO
-# =========================================================
+        # =================================================
+        # REMOVE TEMPERATURA
+        # =================================================
 
-scores[:,0] = -scores[:,0]
+        df_raw = df_raw[
+            ~df_raw["Variavel"]
+            .astype(str)
+            .str.contains(
+                "Temp",
+                case=False,
+                na=False
+            )
+        ]
 
-loadings[:,0] = -loadings[:,0]
+        # =================================================
+        # REMOVE CONDUTIVIDADE
+        # =================================================
 
+        df_raw = df_raw[
+            ~df_raw["Variavel"]
+            .astype(str)
+            .str.contains(
+                "Condut",
+                case=False,
+                na=False
+            )
+        ]
 
-# =========================================================
-# ESCALA LOADINGS
-# =========================================================
+        # =================================================
+        # NORMALIZA COLUNAS
+        # =================================================
 
-scale = 2.8
+        new_cols = []
 
+        counter = {}
 
-# =========================================================
-# FIGURA
-# =========================================================
+        for col in df_raw.columns:
 
-fig, ax = plt.subplots(
+            col = str(col).strip()
 
-    figsize=(10,6),
+            col = col.replace(" ", "")
 
-    dpi=600
-)
+            if col in counter:
 
-fig.patch.set_facecolor('white')
+                counter[col] += 1
 
-ax.set_facecolor('white')
+                col = f"{col}_{counter[col]}"
 
+            else:
 
-# =========================================================
-# SCORES
-# =========================================================
+                counter[col] = 0
 
-for i in range(len(scores)):
+            new_cols.append(col)
 
-    ax.scatter(
+        df_raw.columns = new_cols
 
-        scores[i,0],
+        # =================================================
+        # DEBUG
+        # =================================================
 
-        scores[i,1],
+        st.subheader(
+            "📌 Colunas Detectadas"
+        )
 
-        color='black',
+        st.write(
+            df_raw.columns.tolist()
+        )
 
-        s=55,
+        # =================================================
+        # AMOSTRAS
+        # =================================================
 
-        zorder=3
-    )
+        sample_columns = []
 
-    ax.text(
+        for col in df_raw.columns:
 
-        scores[i,0] + 0.06,
+            if col == "Variavel":
 
-        scores[i,1] + 0.04,
+                continue
 
-        labels[i],
+            sample_columns.append(col)
 
-        fontsize=10,
+        # =================================================
+        # LABELS
+        # =================================================
 
-        color='blue',
+        labels = []
 
-        fontweight='bold'
-    )
+        for col in sample_columns:
 
+            labels.append(col)
 
-# =========================================================
-# LOADINGS
-# =========================================================
+        # =================================================
+        # MATRIZ
+        # =================================================
 
-for i, var in enumerate(variables):
+        variables = []
 
-    x = loadings[i,0] * scale
+        matrix = []
 
-    y = loadings[i,1] * scale
+        for _, row in df_raw.iterrows():
 
-    ax.arrow(
+            var_name = str(
+                row["Variavel"]
+            )
 
-        0,
-        0,
+            variables.append(var_name)
 
-        x,
-        y,
+            values = []
 
-        color='forestgreen',
+            for col in sample_columns:
 
-        linewidth=2.2,
+                val = extract_mean(
 
-        head_width=0.08,
+                    row.get(col, np.nan)
 
-        length_includes_head=True,
+                )
 
-        zorder=2
-    )
+                values.append(val)
 
-    ax.text(
+            matrix.append(values)
 
-        x * 1.15,
+        # =================================================
+        # MATRIZ FINAL
+        # =================================================
 
-        y * 1.15,
+        X = np.array(matrix).T
 
-        var,
+        # =================================================
+        # IMPUTAÇÃO
+        # =================================================
 
-        color='red',
+        imputer = SimpleImputer(
+            strategy="mean"
+        )
 
-        fontsize=11,
+        X = imputer.fit_transform(X)
 
-        fontweight='bold'
-    )
+        # =================================================
+        # NORMALIZAÇÃO
+        # =================================================
 
+        scaler = StandardScaler()
 
-# =========================================================
-# EIXOS
-# =========================================================
+        X_scaled = scaler.fit_transform(X)
 
-ax.axhline(
+        # =================================================
+        # PCA
+        # =================================================
 
-    0,
+        pca = PCA(
+            n_components=2
+        )
 
-    color='gray',
+        scores = pca.fit_transform(
+            X_scaled
+        )
 
-    linewidth=1.5
-)
+        loadings = pca.components_.T
 
-ax.axvline(
+        explained = (
+            pca.explained_variance_ratio_ * 100
+        )
 
-    0,
+        # =================================================
+        # CORREÇÃO ESPELHAMENTO
+        # =================================================
 
-    color='gray',
+        scores[:,0] = -scores[:,0]
 
-    linewidth=1.5
-)
+        loadings[:,0] = -loadings[:,0]
 
+        # =================================================
+        # ESCALA LOADINGS
+        # =================================================
 
-# =========================================================
-# LABELS
-# =========================================================
+        scale = 3.5
 
-ax.set_xlabel(
+        # =================================================
+        # FIGURA
+        # =================================================
 
-    f'PC1 ({explained[0]:.1f}%)',
+        plt.rcParams["font.family"] = "Arial"
 
-    fontsize=13
-)
+        fig, ax = plt.subplots(
 
-ax.set_ylabel(
+            figsize=(10,6),
 
-    f'PC2 ({explained[1]:.1f}%)',
+            dpi=600
+        )
 
-    fontsize=13
-)
+        fig.patch.set_facecolor("white")
 
+        ax.set_facecolor("white")
 
-# =========================================================
-# ESTILO
-# =========================================================
+        # =================================================
+        # SCORES
+        # =================================================
 
-ax.spines['top'].set_visible(False)
+        for i in range(len(scores)):
 
-ax.spines['right'].set_visible(False)
+            ax.scatter(
 
-ax.tick_params(
+                scores[i,0],
 
-    axis='both',
+                scores[i,1],
 
-    labelsize=11,
+                color="black",
 
-    width=1.5,
+                s=55,
 
-    length=7
-)
+                zorder=3
+            )
 
-ax.grid(False)
+            ax.text(
 
+                scores[i,0] + 0.04,
 
-# =========================================================
-# LIMITES
-# =========================================================
+                scores[i,1] + 0.02,
 
-margin = 0.7
+                labels[i],
 
-ax.set_xlim(
+                fontsize=9,
 
-    scores[:,0].min() - margin,
+                color="blue",
 
-    scores[:,0].max() + margin
-)
+                fontweight="bold"
+            )
 
-ax.set_ylim(
+        # =================================================
+        # LOADINGS
+        # =================================================
 
-    scores[:,1].min() - margin,
+        for i, var in enumerate(variables):
 
-    scores[:,1].max() + margin
-)
+            x = loadings[i,0] * scale
 
+            y = loadings[i,1] * scale
 
-# =========================================================
-# LAYOUT
-# =========================================================
+            ax.arrow(
 
-plt.tight_layout()
+                0,
+                0,
 
+                x,
+                y,
 
-# =========================================================
-# EXPORTA FIGURAS
-# =========================================================
+                color="forestgreen",
 
-plt.savefig(
+                linewidth=2.2,
 
-    'PCA_WEG_FC200.tiff',
+                head_width=0.08,
 
-    dpi=600,
+                length_includes_head=True,
 
-    bbox_inches='tight'
-)
+                zorder=2
+            )
 
-plt.savefig(
+            ax.text(
 
-    'PCA_WEG_FC200.png',
+                x * 1.15,
 
-    dpi=600,
+                y * 1.15,
 
-    bbox_inches='tight'
-)
+                var,
 
+                color="red",
 
-# =========================================================
-# MOSTRAR
-# =========================================================
+                fontsize=11,
 
-plt.show()
+                fontweight="bold"
+            )
 
+        # =================================================
+        # EIXOS
+        # =================================================
 
-# =========================================================
-# SCORES
-# =========================================================
+        ax.axhline(
 
-scores_df = pd.DataFrame({
+            0,
 
-    'Amostra': labels,
+            color="gray",
 
-    'PC1': np.round(
-        scores[:,0], 4
-    ),
+            linewidth=1.5
+        )
 
-    'PC2': np.round(
-        scores[:,1], 4
-    )
-})
+        ax.axvline(
 
-print('\nSCORES:\n')
+            0,
 
-print(scores_df)
+            color="gray",
 
+            linewidth=1.5
+        )
 
-# =========================================================
-# LOADINGS
-# =========================================================
+        # =================================================
+        # LABELS
+        # =================================================
 
-loadings_df = pd.DataFrame({
+        ax.set_xlabel(
 
-    'Variavel': variables,
+            f"PC1 ({explained[0]:.1f}%)",
 
-    'PC1': np.round(
-        loadings[:,0], 4
-    ),
+            fontsize=13
+        )
 
-    'PC2': np.round(
-        loadings[:,1], 4
-    )
-})
+        ax.set_ylabel(
 
-print('\nLOADINGS:\n')
+            f"PC2 ({explained[1]:.1f}%)",
 
-print(loadings_df)
+            fontsize=13
+        )
 
+        # =================================================
+        # ESTILO
+        # =================================================
 
-# =========================================================
-# EXPORTA CSV
-# =========================================================
+        ax.spines["top"].set_visible(False)
 
-scores_df.to_csv(
+        ax.spines["right"].set_visible(False)
 
-    'export_scores.csv',
+        ax.tick_params(
 
-    index=False
-)
+            axis="both",
 
-loadings_df.to_csv(
+            labelsize=11,
 
-    'export_loadings.csv',
+            width=1.5,
 
-    index=False
-)
+            length=7
+        )
 
+        ax.grid(False)
 
-# =========================================================
-# DOWNLOAD AUTOMÁTICO
-# =========================================================
+        # =================================================
+        # LIMITES
+        # =================================================
 
-files.download(
-    'PCA_WEG_FC200.tiff'
-)
+        margin = 0.7
 
-files.download(
-    'PCA_WEG_FC200.png'
-)
+        ax.set_xlim(
 
-files.download(
-    'export_scores.csv'
-)
+            scores[:,0].min() - margin,
 
-files.download(
-    'export_loadings.csv'
-)
+            scores[:,0].max() + margin
+        )
+
+        ax.set_ylim(
+
+            scores[:,1].min() - margin,
+
+            scores[:,1].max() + margin
+        )
+
+        # =================================================
+        # LAYOUT
+        # =================================================
+
+        plt.tight_layout()
+
+        # =================================================
+        # SALVAR
+        # =================================================
+
+        fig.savefig(
+
+            "PCA_WEG_FC200.tiff",
+
+            dpi=600,
+
+            bbox_inches="tight",
+
+            transparent=True
+        )
+
+        fig.savefig(
+
+            "PCA_WEG_FC200.png",
+
+            dpi=600,
+
+            bbox_inches="tight"
+        )
+
+        # =================================================
+        # MOSTRAR
+        # =================================================
+
+        st.pyplot(fig)
+
+        # =================================================
+        # SCORES
+        # =================================================
+
+        scores_df = pd.DataFrame({
+
+            "Amostra": labels,
+
+            "PC1": np.round(
+                scores[:,0], 4
+            ),
+
+            "PC2": np.round(
+                scores[:,1], 4
+            )
+        })
+
+        st.subheader("📌 Scores")
+
+        st.dataframe(
+            scores_df,
+            use_container_width=True
+        )
+
+        # =================================================
+        # LOADINGS
+        # =================================================
+
+        loadings_df = pd.DataFrame({
+
+            "Variavel": variables,
+
+            "PC1": np.round(
+                loadings[:,0], 4
+            ),
+
+            "PC2": np.round(
+                loadings[:,1], 4
+            )
+        })
+
+        st.subheader("📌 Loadings")
+
+        st.dataframe(
+            loadings_df,
+            use_container_width=True
+        )
+
+        # =================================================
+        # EXPORTA CSV
+        # =================================================
+
+        scores_df.to_csv(
+
+            "export_scores.csv",
+
+            index=False
+        )
+
+        loadings_df.to_csv(
+
+            "export_loadings.csv",
+
+            index=False
+        )
+
+        # =================================================
+        # DOWNLOADS STREAMLIT
+        # =================================================
+
+        st.divider()
+
+        with open(
+            "PCA_WEG_FC200.png",
+            "rb"
+        ) as f:
+
+            st.download_button(
+
+                label="📥 Download PCA PNG",
+
+                data=f,
+
+                file_name="PCA_WEG_FC200.png",
+
+                mime="image/png"
+            )
+
+        with open(
+            "PCA_WEG_FC200.tiff",
+            "rb"
+        ) as f:
+
+            st.download_button(
+
+                label="📥 Download PCA TIFF",
+
+                data=f,
+
+                file_name="PCA_WEG_FC200.tiff",
+
+                mime="image/tiff"
+            )
+
+        with open(
+            "export_scores.csv",
+            "rb"
+        ) as f:
+
+            st.download_button(
+
+                label="📥 Download Scores",
+
+                data=f,
+
+                file_name="export_scores.csv",
+
+                mime="text/csv"
+            )
+
+        with open(
+            "export_loadings.csv",
+            "rb"
+        ) as f:
+
+            st.download_button(
+
+                label="📥 Download Loadings",
+
+                data=f,
+
+                file_name="export_loadings.csv",
+
+                mime="text/csv"
+            )
+
+    except Exception as e:
+
+        st.error(
+            "Erro no processamento PCA"
+        )
+
+        st.exception(e)
