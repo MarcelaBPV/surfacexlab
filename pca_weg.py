@@ -263,9 +263,9 @@ def render_pca_weg():
 
             color="forestgreen",
 
-            linewidth=1.8,
+            linewidth=1.0,
 
-            head_width=0.06,
+            head_width=0.04,
 
             length_includes_head=True,
 
