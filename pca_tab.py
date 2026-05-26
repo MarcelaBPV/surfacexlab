@@ -1,7 +1,8 @@
 # =========================================================
 # pca_tab.py
 # SurfaceXLab — PCA Multimodal
-## REPRODUÇÃO VISUAL IGUAL AO PAPER
+# CORRIGIDO DEFINITIVAMENTE
+# REPRODUÇÃO VISUAL IGUAL AO PAPER
 # =========================================================
 
 import streamlit as st
@@ -284,15 +285,13 @@ def run_pca(df_raw):
         )
 
         # =================================================
-        # CORREÇÃO VISUAL DEFINITIVA
-        # REPRODUZ MESMA ORIENTAÇÃO DO PAPER
+        # CORREÇÃO VISUAL
+        # INVERTE SOMENTE PC1
         # =================================================
 
         scores[:, 0] = -scores[:, 0]
-        scores[:, 1] = -scores[:, 1]
 
         loadings[:, 0] = -loadings[:, 0]
-        loadings[:, 1] = -loadings[:, 1]
 
         # =================================================
         # FIGURA
