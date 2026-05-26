@@ -29,10 +29,10 @@ from pca_tab import (
 )
 
 # =========================================================
-# NOVO MÓDULO — DECONVOLUÇÃO ESPECTRAL
+# NOVO MÓDULO — PCA WEG
 # =========================================================
-from spectral_deconvolution_tab import (
-    render_spectral_deconvolution_tab
+from pca_weg import (
+    render_pca_weg
 )
 
 # =========================================================
