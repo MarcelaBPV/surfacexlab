@@ -1,7 +1,7 @@
 # =========================================================
 # pca_tab.py
 # SurfaceXLab — PCA Multimodal
-# CORRIGIDO DEFINITIVAMENTE
+## REPRODUÇÃO VISUAL IGUAL AO PAPER
 # =========================================================
 
 import streamlit as st
@@ -284,11 +284,22 @@ def run_pca(df_raw):
         )
 
         # =================================================
+        # CORREÇÃO VISUAL DEFINITIVA
+        # REPRODUZ MESMA ORIENTAÇÃO DO PAPER
+        # =================================================
+
+        scores[:, 0] = -scores[:, 0]
+        scores[:, 1] = -scores[:, 1]
+
+        loadings[:, 0] = -loadings[:, 0]
+        loadings[:, 1] = -loadings[:, 1]
+
+        # =================================================
         # FIGURA
         # =================================================
         fig, ax = plt.subplots(
 
-            figsize=(7, 4),
+            figsize=(8, 5),
 
             dpi=600
         )
@@ -310,20 +321,20 @@ def run_pca(df_raw):
 
                 color="black",
 
-                s=10,
+                s=40,
 
                 zorder=3
             )
 
             ax.text(
 
-                scores[i, 0] + 0.09,
+                scores[i, 0] + 0.07,
 
-                scores[i, 1] + 0.01,
+                scores[i, 1] + 0.04,
 
                 labels[i],
 
-                fontsize=6,
+                fontsize=10,
 
                 color="blue",
 
@@ -351,7 +362,7 @@ def run_pca(df_raw):
 
                 color="forestgreen",
 
-                linewidth=1.2,
+                linewidth=2.0,
 
                 head_width=0.08,
 
@@ -362,15 +373,15 @@ def run_pca(df_raw):
 
             ax.text(
 
-                x * 1.1,
+                x * 1.12,
 
-                y * 1.3,
+                y * 1.12,
 
                 var,
 
                 color="red",
 
-                fontsize=6,
+                fontsize=11,
 
                 fontweight="bold"
             )
@@ -384,7 +395,7 @@ def run_pca(df_raw):
 
             color="gray",
 
-            linewidth=1
+            linewidth=1.5
         )
 
         ax.axvline(
@@ -393,7 +404,7 @@ def run_pca(df_raw):
 
             color="gray",
 
-            linewidth=1
+            linewidth=1.5
         )
 
         # =================================================
@@ -403,14 +414,14 @@ def run_pca(df_raw):
 
             f"PC1 ({explained[0]:.1f}%)",
 
-            fontsize=6
+            fontsize=13
         )
 
         ax.set_ylabel(
 
             f"PC2 ({explained[1]:.1f}%)",
 
-            fontsize=6
+            fontsize=13
         )
 
         # =================================================
@@ -424,7 +435,11 @@ def run_pca(df_raw):
 
             axis="both",
 
-            labelsize=6
+            labelsize=11,
+
+            width=1.5,
+
+            length=6
         )
 
         ax.grid(False)
@@ -537,7 +552,7 @@ def run_pca(df_raw):
         # =================================================
         fig.savefig(
 
-            "pca_multimodal.png",
+            "pca_multimodal_corrigido.png",
 
             dpi=600,
 
@@ -549,7 +564,7 @@ def run_pca(df_raw):
         # =================================================
         with open(
 
-            "pca_multimodal.png",
+            "pca_multimodal_corrigido.png",
 
             "rb"
 
@@ -561,7 +576,7 @@ def run_pca(df_raw):
 
                 f,
 
-                file_name="PCA_multimodal.png"
+                file_name="PCA_multimodal_corrigido.png"
             )
 
     except Exception as e:
