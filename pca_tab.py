@@ -1,7 +1,7 @@
 # =========================================================
 # pca_tab.py
 # SurfaceXLab — PCA Multimodal
-# CORRIGIDO PARA PCA DO PAPER
+# CORRIGIDO DEFINITIVAMENTE
 # =========================================================
 
 import streamlit as st
@@ -50,7 +50,6 @@ def render_pca_tab():
 
         return
 
-
     # =====================================================
     # LEITURA
     # =====================================================
@@ -89,7 +88,6 @@ def render_pca_tab():
 
         return
 
-
     # =====================================================
     # VISUALIZAÇÃO
     # =====================================================
@@ -102,7 +100,6 @@ def render_pca_tab():
         use_container_width=True
     )
 
-
     # =====================================================
     # PCA
     # =====================================================
@@ -110,7 +107,7 @@ def render_pca_tab():
 
 
 # =========================================================
-# FUNÇÃO LIMPEZA
+# EXTRAI MÉDIA
 # =========================================================
 def extract_mean(value):
 
@@ -140,7 +137,7 @@ def extract_mean(value):
 
 
 # =========================================================
-# PCA PAPER
+# PCA
 # =========================================================
 def run_pca(df_raw):
 
@@ -156,60 +153,75 @@ def run_pca(df_raw):
         )
 
         # =================================================
-        # REMOVE TEMPERATURA
+        # REMOVE LINHAS INDESEJADAS
         # =================================================
         df_raw = df_raw[
             ~df_raw["Variavel"]
             .astype(str)
             .str.contains(
                 "Temp",
-                case=False
+                case=False,
+                na=False
             )
         ]
 
         # =================================================
-        # COLUNAS
+        # NORMALIZA NOMES DAS COLUNAS
         # =================================================
-        sample_columns = [
+        new_cols = []
 
-            "ST",
-            "ST.1",
-            "ST.2",
+        counter = {}
 
-            "T1",
-            "T1.1",
-            "T1.2",
+        for col in df_raw.columns:
 
-            "T2",
-            "T2.1",
-            "T2.2",
+            col = str(col).strip()
 
-            "T3",
-            "T3.1",
-            "T3.2"
-        ]
+            col = col.replace(" ", "")
+
+            if col in counter:
+
+                counter[col] += 1
+
+                col = f"{col}_{counter[col]}"
+
+            else:
+
+                counter[col] = 0
+
+            new_cols.append(col)
+
+        df_raw.columns = new_cols
+
+        # =================================================
+        # DEBUG
+        # =================================================
+        st.subheader("📌 Colunas Detectadas")
+
+        st.write(df_raw.columns.tolist())
+
+        # =================================================
+        # COLUNAS AUTOMÁTICAS
+        # =================================================
+        sample_columns = []
+
+        for col in df_raw.columns:
+
+            if col == "Variavel":
+
+                continue
+
+            sample_columns.append(col)
 
         # =================================================
         # LABELS
         # =================================================
-        labels = [
+        labels = []
 
-            "ST",
-            "ST",
-            "ST",
+        for col in sample_columns:
 
-            "T1",
-            "T1",
-            "T1",
+            base = col.split("_")[0]
 
-            "T2",
-            "T2",
-            "T2",
-
-            "T3",
-            "T3",
-            "T3"
-        ]
+            labels.append(base)
 
         # =================================================
         # MATRIZ
@@ -231,7 +243,9 @@ def run_pca(df_raw):
             for col in sample_columns:
 
                 val = extract_mean(
-                    row[col]
+
+                    row.get(col, np.nan)
+
                 )
 
                 values.append(val)
@@ -356,7 +370,7 @@ def run_pca(df_raw):
 
                 color="red",
 
-                fontsize=11,
+                fontsize=10,
 
                 fontweight="bold"
             )
@@ -387,20 +401,20 @@ def run_pca(df_raw):
         # =================================================
         ax.set_xlabel(
 
-            f"Component 1 ({explained[0]:.1f}%)",
+            f"PC1 ({explained[0]:.1f}%)",
 
             fontsize=12
         )
 
         ax.set_ylabel(
 
-            f"Component 2 ({explained[1]:.1f}%)",
+            f"PC2 ({explained[1]:.1f}%)",
 
             fontsize=12
         )
 
         # =================================================
-        # ESTILO PAPER
+        # ESTILO
         # =================================================
         ax.spines["top"].set_visible(False)
 
@@ -519,7 +533,7 @@ def run_pca(df_raw):
         )
 
         # =================================================
-        # SAVE FIGURA
+        # SALVAR FIGURA
         # =================================================
         fig.savefig(
 
