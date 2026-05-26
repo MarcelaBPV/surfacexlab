@@ -308,7 +308,7 @@ for i in range(len(scores)):
 
         color='black',
 
-        s=40,
+        s=20,
 
         zorder=3
     )
@@ -321,7 +321,7 @@ for i in range(len(scores)):
 
         labels[i],
 
-        fontsize=6,
+        fontsize=4,
 
         color='blue',
 
@@ -368,7 +368,7 @@ for i, var in enumerate(variables):
 
         color='red',
 
-        fontsize=6,
+        fontsize=4,
 
         fontweight='bold'
     )
@@ -405,14 +405,14 @@ ax.set_xlabel(
 
     f'PC1 ({explained[0]:.1f}%)',
 
-    fontsize=6
+    fontsize=4
 )
 
 ax.set_ylabel(
 
     f'PC2 ({explained[1]:.1f}%)',
 
-    fontsize=6
+    fontsize=4
 )
 
 
@@ -428,7 +428,7 @@ ax.tick_params(
 
     axis='both',
 
-    labelsize=6
+    labelsize=4
 )
 
 ax.grid(False)
