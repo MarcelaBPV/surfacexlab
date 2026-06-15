@@ -40,28 +40,131 @@ def read_raman_file(file_like):
         df = pd.read_excel(file_like)
 
     # =====================================================
-    # CSV / TXT
+    # TXT / CSV
     # =====================================================
     else:
 
+        file_like.seek(0)
+
+        df = None
+
+        # TAB
         try:
 
             df = pd.read_csv(
                 file_like,
-                sep=None,
-                engine="python",
+                sep="\t",
+                comment="#",
+                header=None,
                 encoding="utf-8"
             )
 
         except:
+            pass
+
+        # CSV
+        if df is None or df.shape[1] < 2:
+
+            file_like.seek(0)
+
+            try:
+
+                df = pd.read_csv(
+                    file_like,
+                    sep=",",
+                    comment="#",
+                    header=None,
+                    encoding="utf-8"
+                )
+
+            except:
+                pass
+
+        # Espaços
+        if df is None or df.shape[1] < 2:
+
+            file_like.seek(0)
+
+            try:
+
+                df = pd.read_csv(
+                    file_like,
+                    sep=r"\s+",
+                    comment="#",
+                    header=None,
+                    engine="python"
+                )
+
+            except:
+                pass
+
+        # Latin1
+        if df is None or df.shape[1] < 2:
+
+            file_like.seek(0)
 
             df = pd.read_csv(
                 file_like,
-                sep=None,
-                engine="python",
+                sep="\t",
+                comment="#",
+                header=None,
                 encoding="latin1"
             )
 
+    df = df.dropna(axis=1, how="all")
+
+    if df.shape[1] < 2:
+
+        raise ValueError(
+            f"Arquivo {file_like.name} não possui duas colunas válidas."
+        )
+
+    df = df.iloc[:, :2]
+
+    df.columns = [
+        "shift",
+        "intensity"
+    ]
+
+    df["shift"] = pd.to_numeric(
+        df["shift"],
+        errors="coerce"
+    )
+
+    df["intensity"] = pd.to_numeric(
+        df["intensity"],
+        errors="coerce"
+    )
+
+    df = df.dropna()
+
+    df = df.sort_values(
+        "shift"
+    ).reset_index(
+        drop=True
+    )
+
+    return df
+
+# =========================================================
+# AUTO DETECT RAMAN RANGE
+# =========================================================
+def detect_raman_range(x):
+
+    x = np.sort(x)
+
+    shift_min = float(
+        np.percentile(x, 1)
+    )
+
+    shift_max = float(
+        np.percentile(x, 99)
+    )
+
+    return (
+        shift_min,
+        shift_max
+    )
     # =====================================================
     # CONVERSÃO NUMÉRICA
     # =====================================================
@@ -183,6 +286,38 @@ def get_known_bands(
     shift_min,
     shift_max
 ):
+
+    # =====================================================
+    # GRAFENO / DLC / CARBONO
+    # =====================================================
+    if shift_max > 2500:
+
+        return [
+
+            1350,   # D
+
+            1580,   # G
+
+            2700    # 2D
+        ]
+
+    # =====================================================
+    # BIOMÉDICO
+    # =====================================================
+    elif shift_max <= 1800:
+
+        return [
+
+            1538,
+            1560,
+            1580,
+            1601,
+            1621,
+            1631,
+            1663
+        ]
+
+    return None
 
     # =====================================================
     # BIOMÉDICO
